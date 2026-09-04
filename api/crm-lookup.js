@@ -96,6 +96,80 @@ async function fetchAllPaymentTransactions(soNumber, token) {
   return all;
 }
 
+var TYPE_LABELS = {
+  INSTALLMENT: 'ค่าผ่อน',
+  CHANGE_INSTALLMENT_TYPE: 'ค่าธรรมเนียมเปลี่ยนการผ่อน', // ยืนยันตรงกับป้ายที่ CRM แสดงจริง
+};
+
+// ดึง+แปลง SO หนึ่งใบให้เป็นรูปแบบข้อมูลที่หน้า CS ใช้ได้ตรงๆ (ราคา/ยอดผ่อน/ประวัติชำระ) — แยกเป็นฟังก์ชันเดียว
+// ให้ทั้ง SO หลักที่ CS ค้นหา และ SO อื่นของลูกค้าคนเดียวกัน (2026-09-04, ดูหมายเหตุข้อจำกัด CRM ด้านล่าง
+// ในตัว handler) เรียกใช้ร่วมกันได้ ไม่ต้องเขียนตรรกะแปลงข้อมูลซ้ำ 2 ที่
+async function buildSoData(soNumber, token) {
+  const saleOrder = await crmGet('/crm/sale-order/' + encodeURIComponent(soNumber), token);
+  const planType = mapPlanType(saleOrder.installmentType);
+  if (!planType) {
+    return {
+      soNumber: saleOrder.saleOrderId,
+      unsupported: 'ออเดอร์นี้เป็น ' + saleOrder.installmentType + ' — ไม่ต้องทำสัญญาผ่อน (ซื้อสดหรือประเภทที่ไม่รองรับ)',
+    };
+  }
+
+  const { product, color } = splitProductName(saleOrder.productName);
+  const totalDiscount = (saleOrder.discounts || []).reduce(function (sum, d) { return sum + (Number(d.amount) || 0); }, 0);
+  const netPrice = Number(saleOrder.productPrice) - totalDiscount;
+
+  const nextDueDate = saleOrder.currentInvoice && saleOrder.currentInvoice.dueDate
+    ? saleOrder.currentInvoice.dueDate.slice(0, 10)
+    : null;
+
+  const moneyTx = (await fetchAllPaymentTransactions(soNumber, token))
+    .filter(function (tx) { return tx.paymentStatus === 'SUCCESSFUL' && Number(tx.amount) !== 0; });
+
+  const paymentHistory = moneyTx.map(function (tx) {
+    return {
+      date: tx.paymentDate ? tx.paymentDate.slice(0, 10) : null,
+      amount: tx.amount,
+      no: tx.no,
+      type: TYPE_LABELS[tx.type] || tx.type,
+      status: tx.paymentStatus,
+    };
+  });
+
+  const downPayment = moneyTx.filter(function (tx) { return tx.no === null; })
+    .reduce(function (sum, tx) { return sum + (Number(tx.amount) || 0); }, 0);
+  const installmentsPaidSoFar = moneyTx.filter(function (tx) { return tx.no !== null; })
+    .reduce(function (sum, tx) { return sum + (Number(tx.amount) || 0); }, 0);
+  const installmentsPaidCount = moneyTx.filter(function (tx) { return tx.no !== null && tx.type === 'INSTALLMENT'; }).length;
+  const accumulatedAmount = downPayment + installmentsPaidSoFar;
+  const remainingBalance = netPrice - accumulatedAmount;
+
+  return {
+    soNumber: saleOrder.saleOrderId,
+    customerId: saleOrder.customerId,
+    product: product,
+    color: color,
+    planType: planType,
+    productPrice: saleOrder.productPrice,
+    totalDiscount: totalDiscount,
+    netPrice: netPrice,
+    downPayment: downPayment,
+    installmentsPaidSoFar: installmentsPaidSoFar,
+    installmentsPaidCount: installmentsPaidCount,
+    accumulatedAmount: accumulatedAmount,
+    remainingBalance: remainingBalance,
+    installmentCountFromCrm: saleOrder.installmentCount,
+    nextDueDateFromCrm: nextDueDate,
+    paymentHistory: paymentHistory,
+    customer: {
+      // วันเกิด/เบอร์โทร ไม่ดึงจาก CRM แล้ว (user แจ้ง 2026-09-03) ให้ลูกค้ากรอกเองในฟอร์มทั้งหมด
+      firstLastName: (saleOrder.customerFirstName + ' ' + saleOrder.customerLastName).trim(),
+      dob: '',
+      phone: '',
+      nationality: '',
+    },
+  };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -109,120 +183,46 @@ module.exports = async function handler(req, res) {
 
   try {
     let token = cachedToken || (cachedToken = await crmLogin());
-    let saleOrder;
+    let data;
     try {
-      saleOrder = await crmGet('/crm/sale-order/' + encodeURIComponent(soNumber), token);
+      data = await buildSoData(soNumber, token);
     } catch (err) {
       if (err.status === 401) {
         // token หมดอายุ/ไม่ถูกต้อง ลอง login ใหม่ 1 ครั้ง
         token = cachedToken = await crmLogin();
-        saleOrder = await crmGet('/crm/sale-order/' + encodeURIComponent(soNumber), token);
+        data = await buildSoData(soNumber, token);
       } else {
         throw err;
       }
     }
 
-    const planType = mapPlanType(saleOrder.installmentType);
-    if (!planType) {
-      res.status(200).json({
-        so: saleOrder,
-        error: 'ออเดอร์นี้เป็น ' + saleOrder.installmentType + ' — ไม่ต้องทำสัญญาผ่อน (ซื้อสดหรือประเภทที่ไม่รองรับ)',
-      });
+    if (data.unsupported) {
+      res.status(200).json({ error: data.unsupported });
       return;
     }
 
-    // หมายเหตุ (2026-09-03): เดิมเคยเรียก GET /crm/customer/{id} เพิ่มเพื่อดึงวันเกิด/เบอร์โทรมาพรีฟิล
-    // user แจ้งว่าไม่ต้องดึงข้อมูลนี้จาก CRM (ให้ลูกค้ากรอกเองในฟอร์มแทน) — เอาการเรียกนี้ออกแล้ว
-    const { product, color } = splitProductName(saleOrder.productName);
-    const totalDiscount = (saleOrder.discounts || []).reduce(function (sum, d) { return sum + (Number(d.amount) || 0); }, 0);
-    const netPrice = Number(saleOrder.productPrice) - totalDiscount;
-
-    // วันครบกำหนดงวดถัดไปจริง (ไม่ใช่ค่าเดา) — ยืนยันจากตัวอย่างจริง 2026-09-03 ว่า currentInvoice.dueDate
-    // ของ CRM คือวันครบกำหนดงวดที่ยังไม่จ่ายถัดไปพอดี ใช้เป็นค่าเริ่มต้น "วันเริ่มผ่อนงวดแรก" ของสัญญาใหม่ได้เลย
-    const nextDueDate = saleOrder.currentInvoice && saleOrder.currentInvoice.dueDate
-      ? saleOrder.currentInvoice.dueDate.slice(0, 10)
-      : null;
-
-    // แก้ไข 2026-09-03 (ตัวอย่างจริง SO-2026083100130): เดิมกรองเอาแต่ type==='INSTALLMENT' ทำให้รายการ
-    // ค่าธรรมเนียม/ส่วนปรับที่มีจริง (type: CHANGE_INSTALLMENT_TYPE, amount ติดลบ เช่น -2,980 "ค่าหักเปลี่ยน")
-    // หายไปจากยอดสะสมทั้งที่เป็นเงินจริงที่ต้องหักออก — user ยืนยันว่ามีค่าธรรมเนียมทั้งเปลี่ยนสินค้าและ
-    // เปลี่ยนวิธีการผ่อน (type ที่พบจริงตอนนี้มีแค่ CHANGE_INSTALLMENT_TYPE, ยังไม่เจอ type ของ "เปลี่ยนสินค้า"
-    // จริงๆ ถ้าเจอให้เพิ่มใน TYPE_LABELS ด้านล่าง) หลักการใหม่: นับทุกรายการที่ paymentStatus=SUCCESSFUL และ
-    // amount ≠ 0 เข้าเป็นเงินจริงเสมอ ไม่สนใจ type — ตัดออกเฉพาะรายการ amount=0 (เป็น log เหตุการณ์ล้วนๆ
-    // เช่น APPROVE_CREDIT หรือ CHANGE_INSTALLMENT_TYPE ที่ไม่มีค่าธรรมเนียมจริง)
-    var TYPE_LABELS = {
-      INSTALLMENT: 'ค่าผ่อน',
-      CHANGE_INSTALLMENT_TYPE: 'ค่าธรรมเนียมเปลี่ยนการผ่อน', // ยืนยันตรงกับป้ายที่ CRM แสดงจริง
-    };
-    const moneyTx = (await fetchAllPaymentTransactions(soNumber, token))
-      .filter(function (tx) { return tx.paymentStatus === 'SUCCESSFUL' && Number(tx.amount) !== 0; });
-
-    const paymentHistory = moneyTx.map(function (tx) {
-      return {
-        date: tx.paymentDate ? tx.paymentDate.slice(0, 10) : null,
-        amount: tx.amount,
-        no: tx.no, // "3/12" แบบนี้ = งวดที่ 3 จาก 12 งวดเดิม, null = ยังไม่เข้ารอบเลขทางการ (เช่น เงินดาวน์/ค่าธรรมเนียม)
-        type: TYPE_LABELS[tx.type] || tx.type, // ถ้าเจอ type ใหม่ที่ไม่รู้จัก โชว์ค่าดิบแทนการเดาป้ายไทย
-        status: tx.paymentStatus,
-      };
-    });
-
-    // ยอดวางดาวน์ที่แท้จริง vs ยอดที่ผ่อนไปแล้วหลังอนุมัติเครดิต (แก้ไข 2026-09-03 ตามที่ user ยืนยันจากตัวอย่างจริง
-    // SO-2026053100203): accumulatedAmount ของ CRM (10,690) เป็นยอดรวมสะสม "ทั้งชีวิตออเดอร์" ไม่ใช่ยอดวางดาวน์
-    // ตอนทำสัญญาเดิม — ยอดวางดาวน์จริงคือยอดที่จ่ายก่อนขั้นตอน "อนุมัติเครดิต" ของ CRM เท่านั้น (no: null = จ่ายก่อน
-    // เข้ารอบเลขงวดทางการ, no: "N/total" = งวดที่จ่ายไปแล้วหลังอนุมัติเครดิตแล้ว) ตัวอย่างจริง: 500+1,490 = 1,990
-    // (ยอดวางดาวน์จริง) ไม่ใช่ 10,690 ที่รวมงวด 1/12-3/12 (8,700) ที่จ่ายไปแล้วหลังสัญญาเดิมเริ่มผ่อนแล้วด้วย
-    const downPayment = moneyTx.filter(function (tx) { return tx.no === null; })
-      .reduce(function (sum, tx) { return sum + (Number(tx.amount) || 0); }, 0);
-    const installmentsPaidSoFar = moneyTx.filter(function (tx) { return tx.no !== null; })
-      .reduce(function (sum, tx) { return sum + (Number(tx.amount) || 0); }, 0);
-    const installmentsPaidCount = moneyTx.filter(function (tx) { return tx.no !== null && tx.type === 'INSTALLMENT'; }).length;
-    const accumulatedAmount = downPayment + installmentsPaidSoFar; // รวมทั้งหมดที่จ่ายมา (ควรตรงกับ saleOrder.accumulatedAmount ของ CRM)
-    const remainingBalance = netPrice - accumulatedAmount;
-
     // ข้อจำกัดของ CRM (2026-09-04 user แจ้ง): ถ้าลูกค้าซื้อวางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกัน CRM บังคับ
-    // เปิดแยกเป็นคนละ SO — ดึง SO อื่นๆ ของลูกค้าคนเดียวกันมาด้วย (ไม่ใช้ dob/phone จาก endpoint นี้ตามที่
-    // เคยตัดออกไปแล้ว 2026-09-03 ใช้แค่ field saleOrders[] เพื่อให้ CS เลือกรวม SO อื่นเข้าลิงก์เดียวกันได้)
-    // ถ้าเรียกไม่สำเร็จ (เช่น customerId ไม่มี) ไม่ทำให้การค้นหา SO หลักพังไปด้วย แค่ไม่มีลิสต์ให้เลือกเพิ่ม
-    let otherSaleOrders = [];
-    if (saleOrder.customerId) {
+    // เปิดแยกเป็นคนละ SO — ดึง SO อื่นๆ ของลูกค้าคนเดียวกันมาด้วย (แค่เลข SO จาก /crm/customer/{id} ก่อน แล้ว
+    // เรียก buildSoData() ซ้ำต่อ SO เพื่อได้ราคา/ชื่อสินค้าเต็มๆ ให้ CS เห็นพอตัดสินใจว่าจะรวมเข้าลิงก์เดียวกัน
+    // ไหม) ถ้าขั้นตอนนี้ล้มเหลว (เช่น SO อื่นดึงไม่สำเร็จ) ไม่ทำให้การค้นหา SO หลักพังไปด้วย แค่ไม่มีลิสต์ให้เลือกเพิ่ม
+    let otherItems = [];
+    if (data.customerId) {
       try {
-        const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(saleOrder.customerId), token);
-        otherSaleOrders = (customerDetail.saleOrders || []).filter(function (so) {
-          return so.saleOrderId !== saleOrder.saleOrderId;
-        });
+        const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(data.customerId), token);
+        const otherSoNumbers = (customerDetail.saleOrders || [])
+          .map(function (so) { return so.saleOrderId; })
+          .filter(function (id) { return id && id !== data.soNumber; });
+        const resolved = await Promise.all(otherSoNumbers.map(function (id) {
+          return buildSoData(id, token).catch(function () { return null; }); // ข้ามตัวที่ดึงพังไปทีละตัว
+        }));
+        otherItems = resolved.filter(function (item) { return item && !item.unsupported; });
       } catch (e) { /* ข้ามไป ไม่ critical */ }
     }
 
     res.status(200).json({
       mock: false,
-      raw: { saleOrder: saleOrder, otherSaleOrders: otherSaleOrders }, // เก็บดิบไว้ให้ CS ตรวจสอบ/debug ได้ ไม่ใช่แค่ค่าที่ map แล้ว
-      data: {
-        soNumber: saleOrder.saleOrderId,
-        product: product,
-        color: color,
-        planType: planType,
-        productPrice: saleOrder.productPrice,
-        totalDiscount: totalDiscount,
-        netPrice: netPrice,
-        downPayment: downPayment, // ยอดวางดาวน์ที่แท้จริง (จ่ายก่อนอนุมัติเครดิต) — ใช้ค่านี้แทน accumulatedAmount เดิม
-        installmentsPaidSoFar: installmentsPaidSoFar, // ยอดงวดที่ผ่อนไปแล้วหลังอนุมัติเครดิต (นับแยกจากยอดวางดาวน์)
-        installmentsPaidCount: installmentsPaidCount, // จำนวนงวดที่ผ่อนไปแล้ว (เช่น 3 จาก "1/12","2/12","3/12")
-        accumulatedAmount: accumulatedAmount, // ยอดรวมทั้งหมดที่จ่ายมา (ดาวน์ + งวดที่ผ่อนแล้ว) ไว้เช็ค/debug เทียบกับ CRM
-        remainingBalance: remainingBalance,
-        // จำนวนงวด/วันครบกำหนดงวดแรก: ค่าที่ CRM มีให้เป็นแค่ค่าเริ่มต้น — CS ต้องกรอกยืนยัน/แก้ไขเองในหน้า
-        // ตรวจสอบก่อนสร้างลิงก์เสมอ (ตามที่ user ยืนยัน 2026-09-03) ไม่ใช้ค่านี้ตรงๆ โดยไม่ให้ CS เห็นก่อน
-        installmentCountFromCrm: saleOrder.installmentCount, // = จำนวนงวดที่ "เหลือ" ไม่ใช่จำนวนงวดเดิมทั้งหมด (ยืนยันแล้ว)
-        nextDueDateFromCrm: nextDueDate, // ค่าเริ่มต้นของ "วันเริ่มผ่อนงวดแรก" — มาจาก currentInvoice.dueDate จริง
-        paymentHistory: paymentHistory, // ให้ CS เห็นในตัวเดียว ไม่ต้องสลับไปเปิดหน้า CRM จริงแยก
-        customer: {
-          // วันเกิด/เบอร์โทร ไม่ดึงจาก CRM แล้ว (user แจ้ง 2026-09-03) ให้ลูกค้ากรอกเองในฟอร์มทั้งหมด
-          firstLastName: (saleOrder.customerFirstName + ' ' + saleOrder.customerLastName).trim(),
-          dob: '',
-          phone: '',
-          nationality: '', // ไม่มีใน CRM ต้องให้ลูกค้าเลือกเองในฟอร์ม
-        },
-      },
+      data: data,
+      otherItems: otherItems, // SO อื่นของลูกค้าคนเดียวกัน (เช่น อุปกรณ์เสริมที่แยก SO) ให้ CS เลือกรวมเข้าลิงก์เดียวกันได้
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
