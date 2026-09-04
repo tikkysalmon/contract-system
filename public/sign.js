@@ -31,8 +31,11 @@
       giftItem: '',
       title: '', firstLastName: '', age: '', citizenId: '', phone: '',
       nationality: session.customer.nationality || 'ไทย',
+      address: { detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
+      shippingAddress: { sameAsCurrent: true, detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
+      reference: { firstLastName: '', phone: '', relation: '' },
       guardian: { title: '', firstLastName: '', phone: '', citizenId: '' },
-      guarantor: { title: '', firstLastName: '', phone: '', citizenId: '' },
+      guarantor: { title: '', firstLastName: '', age: '', phone: '', citizenId: '' },
       files: { idCard: null, selfieWithId: null, guardianId: null, guarantorId: null },
       signature: null,
       guardianSignature: null,
@@ -61,6 +64,7 @@
     { key: 'order', title: 'รายการที่ทำสัญญา', visible: function () { return true; }, render: renderOrderSummary, validate: function () { return {}; } },
     { key: 'gift', title: 'เลือกของแถม', visible: function () { return true; }, render: renderGiftSelection, validate: validateGiftSelection },
     { key: 'personal', title: 'ข้อมูลส่วนตัว', visible: function () { return true; }, render: renderPersonal, validate: validatePersonal },
+    { key: 'address', title: 'ที่อยู่และบุคคลอ้างอิง', visible: function () { return true; }, render: renderAddressStep, validate: validateAddressStep },
     { key: 'guardian', title: 'ข้อมูลผู้ปกครอง', visible: requiresGuardianNow, render: renderGuardian, validate: validateGuardian },
     { key: 'guarantor', title: 'ข้อมูลผู้ค้ำประกัน', visible: requiresGuarantorNow, render: renderGuarantor, validate: validateGuarantor },
     { key: 'uploads', title: 'อัปโหลดเอกสาร', visible: function () { return true; }, render: renderUploads, validate: validateUploads },
@@ -280,6 +284,82 @@
     return errors;
   }
 
+  // ---------- Step: address + reference person (2026-09-04, user ขอเพิ่ม — ใช้กับลูกค้าทุกกลุ่มเหมือนกัน
+  // ไม่ว่าจะเป็นกลุ่มทั่วไป/ต่ำกว่า 19 ปี/ต่างชาติ ก็ต้องกรอกข้อ 1-3 นี้เหมือนกันหมด) ----------
+  function renderAddressStep(container) {
+    var d = state.data;
+    var addr = d.address;
+    var ship = d.shippingAddress;
+    var ref = d.reference;
+
+    container.innerHTML =
+      '<div class="card">' +
+      '<h2>ที่อยู่ปัจจุบัน</h2>' +
+      '<p class="hint">กรอกที่อยู่ที่ติดต่อได้จริงในปัจจุบัน ระบบจะตรวจสอบว่าตำบล/อำเภอ/จังหวัดที่เลือกตรงกันจริง</p>' +
+      window.attachAddressPicker.html('addr', addr) +
+      '</div>' +
+
+      '<div class="card">' +
+      '<h2>ที่อยู่ในการจัดส่งสินค้า</h2>' +
+      '<div class="field"><label><input type="checkbox" id="shipSameBox" ' + (ship.sameAsCurrent ? 'checked' : '') + ' /> ใช้ที่อยู่เดียวกับที่อยู่ปัจจุบัน</label></div>' +
+      '<div id="shipAddrWrap" style="' + (ship.sameAsCurrent ? 'display:none;' : '') + '">' +
+      window.attachAddressPicker.html('ship', ship, { detailLabel: 'บ้านเลขที่ / หมู่บ้าน / ถนน (ที่จัดส่งสินค้า)' }) +
+      '</div>' +
+      '</div>' +
+
+      '<div class="card">' +
+      '<h2>บุคคลอ้างอิง</h2>' +
+      '<p class="hint">บุคคลที่ติดต่อได้กรณีติดต่อผู้เช่าซื้อโดยตรงไม่ได้</p>' +
+      fieldHtml({ id: 'ref_firstLastName', label: 'ชื่อ-นามสกุลบุคคลอ้างอิง', required: true, value: ref.firstLastName }) +
+      '<div class="row2">' +
+      fieldHtml({ id: 'ref_phone', label: 'เบอร์โทรบุคคลอ้างอิง', required: true, type: 'tel', value: ref.phone }) +
+      fieldHtml({ id: 'ref_relation', label: 'ความเกี่ยวข้องกับผู้เช่าซื้อ', required: true, type: 'select', value: ref.relation,
+        options: [{ value: '', label: '— เลือก —' }, { value: 'บิดา/มารดา', label: 'บิดา/มารดา' }, { value: 'คู่สมรส', label: 'คู่สมรส' },
+          { value: 'พี่น้อง', label: 'พี่น้อง' }, { value: 'ญาติ', label: 'ญาติ' }, { value: 'เพื่อน/เพื่อนร่วมงาน', label: 'เพื่อน/เพื่อนร่วมงาน' }, { value: 'อื่นๆ', label: 'อื่นๆ' }] }) +
+      '</div>' +
+      '</div>';
+
+    window.attachAddressPicker.wire('addr', addr, function () { markField('addr_detail', null); });
+    document.getElementById('shipSameBox').addEventListener('change', function (e) {
+      ship.sameAsCurrent = e.target.checked;
+      document.getElementById('shipAddrWrap').style.display = ship.sameAsCurrent ? 'none' : '';
+    });
+    window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
+
+    ['firstLastName', 'phone', 'relation'].forEach(function (key) {
+      var id = 'ref_' + key;
+      document.getElementById(id).addEventListener('input', function (e) { ref[key] = e.target.value; markField(id, null); });
+      document.getElementById(id).addEventListener('change', function (e) { ref[key] = e.target.value; markField(id, null); });
+    });
+  }
+
+  function validateAddressStep() {
+    var d = state.data, errors = {};
+
+    function checkAddr(addr, prefix) {
+      if (!addr.detail || !addr.detail.trim()) errors[prefix + '_detail'] = 'กรุณากรอกที่อยู่';
+      if (!addr.provinceId) errors[prefix + '_province'] = 'กรุณาเลือกจังหวัด';
+      if (!addr.districtId) errors[prefix + '_district'] = 'กรุณาเลือกอำเภอ/เขต';
+      if (!addr.subdistrictId) errors[prefix + '_subdistrict'] = 'กรุณาเลือกตำบล/แขวง';
+    }
+    checkAddr(d.address, 'addr');
+    if (!d.shippingAddress.sameAsCurrent) checkAddr(d.shippingAddress, 'ship');
+
+    if (!d.reference.firstLastName || d.reference.firstLastName.trim().length < 2) errors.ref_firstLastName = 'กรุณากรอกชื่อ-นามสกุลบุคคลอ้างอิง';
+    if (!isValidThaiMobile(d.reference.phone)) errors.ref_phone = 'เบอร์โทรไม่ถูกต้อง (ต้องเป็นเบอร์มือถือไทย 10 หลัก)';
+    if (!d.reference.relation) errors.ref_relation = 'กรุณาเลือกความเกี่ยวข้อง';
+
+    var allIds = ['addr_detail', 'addr_province', 'addr_district', 'addr_subdistrict',
+      'ship_detail', 'ship_province', 'ship_district', 'ship_subdistrict',
+      'ref_firstLastName', 'ref_phone', 'ref_relation'];
+    allIds.forEach(function (id) {
+      if (!document.getElementById(id + '_field')) return;
+      if (errors[id]) markField(id, false, errors[id]);
+      else markField(id, true);
+    });
+    return errors;
+  }
+
   // ---------- Step: guardian ----------
   function renderGuardian(container) {
     var g = state.data.guardian;
@@ -320,18 +400,19 @@
     container.innerHTML =
       '<div class="card">' +
       '<h2>ข้อมูลผู้ค้ำประกัน</h2>' +
-      '<p class="hint">เนื่องจากลูกค้าไม่ได้ถือสัญชาติไทย จำเป็นต้องมีผู้ค้ำประกันสัญชาติไทย</p>' +
+      '<p class="hint">เนื่องจากลูกค้าไม่ได้ถือสัญชาติไทย จำเป็นต้องมีผู้ค้ำประกันสัญชาติไทย อายุ 23 ปีขึ้นไป</p>' +
       '<div class="row2">' +
       fieldHtml({ id: 'gt_title', label: 'คำนำหน้า', required: true, type: 'select', value: g.title,
         options: [{ value: '', label: '— เลือก —' }, { value: 'นาย', label: 'นาย' }, { value: 'นาง', label: 'นาง' }, { value: 'นางสาว', label: 'นางสาว' }] }) +
       fieldHtml({ id: 'gt_firstLastName', label: 'ชื่อ-นามสกุลผู้ค้ำประกัน', required: true, value: g.firstLastName }) +
       '</div>' +
       '<div class="row2">' +
+      fieldHtml({ id: 'gt_age', label: 'อายุผู้ค้ำประกัน (ปี)', required: true, value: g.age, placeholder: 'ต้อง 23 ปีขึ้นไป' }) +
       fieldHtml({ id: 'gt_phone', label: 'เบอร์โทรผู้ค้ำประกัน', required: true, type: 'tel', value: g.phone }) +
-      fieldHtml({ id: 'gt_citizenId', label: 'เลขบัตรประชาชนผู้ค้ำประกัน (ต้องเป็นคนไทย)', required: true, value: g.citizenId }) +
       '</div>' +
+      fieldHtml({ id: 'gt_citizenId', label: 'เลขบัตรประชาชนผู้ค้ำประกัน (ต้องเป็นคนไทย)', required: true, value: g.citizenId }) +
       '</div>';
-    ['title', 'firstLastName', 'phone', 'citizenId'].forEach(function (key) {
+    ['title', 'firstLastName', 'age', 'phone', 'citizenId'].forEach(function (key) {
       var id = 'gt_' + key;
       document.getElementById(id).addEventListener('input', function (e) { g[key] = e.target.value; markField(id, null); });
       document.getElementById(id).addEventListener('change', function (e) { g[key] = e.target.value; markField(id, null); });
@@ -341,10 +422,12 @@
     var g = state.data.guarantor, errors = {};
     if (!g.title) errors.gt_title = 'กรุณาเลือกคำนำหน้า';
     if (!g.firstLastName || g.firstLastName.trim().length < 2) errors.gt_firstLastName = 'กรุณากรอกชื่อ-นามสกุลผู้ค้ำประกัน';
+    var ageNum = Number(g.age);
+    if (!g.age || !Number.isInteger(ageNum) || ageNum < 23) errors.gt_age = 'ผู้ค้ำประกันต้องมีอายุ 23 ปีขึ้นไป';
     if (!isValidThaiMobile(g.phone)) errors.gt_phone = 'เบอร์โทรไม่ถูกต้อง';
     if (!isValidThaiCitizenId(g.citizenId)) errors.gt_citizenId = 'เลขบัตรประชาชนไม่ถูกต้อง (ผู้ค้ำต้องเป็นคนไทย)';
     Object.keys(errors).forEach(function (id) { markField(id, false, errors[id]); });
-    ['gt_title', 'gt_firstLastName', 'gt_phone', 'gt_citizenId'].forEach(function (id) { if (!errors[id]) markField(id, true); });
+    ['gt_title', 'gt_firstLastName', 'gt_age', 'gt_phone', 'gt_citizenId'].forEach(function (id) { if (!errors[id]) markField(id, true); });
     return errors;
   }
 
