@@ -163,7 +163,25 @@ module.exports = async function handler(req, res) {
     const outXml = doc.getZip().file('word/document.xml').asText();
     // แยกเป็น block ย่อหน้า/ตารางตามที่ปรากฏจริงในเอกสาร (ไม่ตัด tag ทิ้งรวมเป็นข้อความก้อนเดียว) ให้ตาราง
     // แสดงการผ่อนชำระออกมาเป็นตารางจริงตอนขึ้น HTML/PDF ฝั่ง client แทนที่จะเป็นตัวเลขไหลรวมกันอ่านไม่ออก
-    const blocks = parseDocxBodyToBlocks(outXml);
+    const rawBlocks = parseDocxBodyToBlocks(outXml);
+
+    // ตัดจำนวนแถวในตารางผ่อนให้เท่ากับ installmentCount จริง (เดิม fix 12 แถวเสมอ เติม "-" ในแถวที่เกิน —
+    // 2026-09-04 user ขอให้แสดงเท่าจำนวนงวดจริงเท่านั้น) + ตัดทุกอย่างหลังตารางทิ้ง (รูปแนบ/ตรารับรองสำเนา/
+    // ลายเซ็นลอยที่ดึงมาจาก docx เป็นขยะตำแหน่งเพี้ยนอยู่แล้ว — ดู docx-blocks.js) เพราะ contract-html-renderer.js
+    // ฝั่ง client เป็นคนสร้างหน้ารูปแนบ+บล็อกลายเซ็นเองทั้งหมดจากข้อมูลลูกค้าจริง ไม่ต้องพึ่งข้อความจาก docx ตรงนี้
+    const installmentCount = Number((body.session && body.session.installmentCount) || 0);
+    const tableIdx = rawBlocks.findIndex((b) => b.type === 'table');
+    const headingIdx = rawBlocks.findIndex((b) => b.type === 'paragraph' && b.text.indexOf('ตารางแสดงภาระหนี้') === 0);
+    let blocks = rawBlocks;
+    if (tableIdx !== -1) {
+      blocks = rawBlocks.slice(0, tableIdx + 1);
+      blocks[tableIdx] = Object.assign({}, blocks[tableIdx], {
+        rows: installmentCount > 0 ? blocks[tableIdx].rows.slice(0, installmentCount) : blocks[tableIdx].rows,
+      });
+      if (headingIdx !== -1 && headingIdx < blocks.length) {
+        blocks[headingIdx] = Object.assign({}, blocks[headingIdx], { pageBreakBefore: true });
+      }
+    }
 
     res.status(200).json({
       blocks: blocks,

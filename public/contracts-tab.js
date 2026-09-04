@@ -238,7 +238,16 @@ function initContractsTab(containerId) {
         if (!result.ok) throw new Error(result.body.error || 'สร้างไฟล์ไม่สำเร็จ');
         // สร้าง PDF จริงฝั่ง browser เอง (html2canvas + jsPDF) จาก block ย่อหน้า/ตารางที่ server ส่งมา —
         // แทนที่การ render ด้วย pdf-lib ฝั่ง server แบบเดิม (2026-09-04, ดู contract-html-renderer.js)
-        return renderContractPdf(result.body.blocks, { title: result.body.title, letterheadDataUrl: flatSession.letterheadDataUrl });
+        // CS ดูตัวอย่างนี้ก่อนลูกค้ากรอกฟอร์มเลย จึงยังไม่มีรูปแนบ/ผู้ปกครอง-ผู้ค้ำใดๆ — renderer จะข้ามหน้า
+        // รูปแนบไปเองถ้าไม่มีไฟล์ (ดู buildPhotoPagesHtml ใน contract-html-renderer.js)
+        return renderContractPdf(result.body.blocks, {
+          title: result.body.title,
+          letterheadDataUrl: flatSession.letterheadDataUrl,
+          customer: placeholderCustomer,
+          contractDate: flatSession.contractDate,
+          hasGuardian: false,
+          hasGuarantor: false,
+        });
       })
       .then(function (blob) {
         window.open(URL.createObjectURL(blob), '_blank');

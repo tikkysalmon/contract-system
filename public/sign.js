@@ -657,7 +657,16 @@
         if (!result.ok) throw new Error(result.body.error || 'สร้างไฟล์ไม่สำเร็จ');
         // สร้าง PDF จริงฝั่ง browser เอง (html2canvas + jsPDF) จาก block ย่อหน้า/ตารางที่ server ส่งมา —
         // แทนที่การ render ด้วย pdf-lib ฝั่ง server แบบเดิม (2026-09-04, ดู contract-html-renderer.js)
-        return renderContractPdf(result.body.blocks, { title: result.body.title, letterheadDataUrl: session.letterheadDataUrl });
+        // ส่ง customer/contractDate/hasGuardian/hasGuarantor ไปด้วย (2026-09-04 รอบนี้) ให้ renderer สร้างหน้า
+        // รูปแนบ (บัตร ปชช./คู่บัตร ที่ลูกค้าอัปโหลดไปแล้วในขั้นตอนก่อนหน้านี้) + บล็อกลายเซ็นเองได้
+        return renderContractPdf(result.body.blocks, {
+          title: result.body.title,
+          letterheadDataUrl: session.letterheadDataUrl,
+          customer: state.data,
+          contractDate: session.contractDate,
+          hasGuardian: requiresGuardianNow(),
+          hasGuarantor: requiresGuarantorNow(),
+        });
       })
       .then(function (blob) {
         var url = URL.createObjectURL(blob);
