@@ -572,10 +572,11 @@
       .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
       .then(function (result) {
         if (!result.ok) throw new Error(result.body.error || 'สร้างไฟล์ไม่สำเร็จ');
-        var byteChars = atob(result.body.pdfBase64);
-        var bytes = new Uint8Array(byteChars.length);
-        for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-        var blob = new Blob([bytes], { type: 'application/pdf' });
+        // สร้าง PDF จริงฝั่ง browser เอง (html2canvas + jsPDF) จาก block ย่อหน้า/ตารางที่ server ส่งมา —
+        // แทนที่การ render ด้วย pdf-lib ฝั่ง server แบบเดิม (2026-09-04, ดู contract-html-renderer.js)
+        return renderContractPdf(result.body.blocks, { title: result.body.title, letterheadDataUrl: session.letterheadDataUrl });
+      })
+      .then(function (blob) {
         var url = URL.createObjectURL(blob);
         window.open(url, '_blank');
         state.data.viewedContracts[soNumber] = true;

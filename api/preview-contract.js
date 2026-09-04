@@ -1,12 +1,12 @@
-// Vercel serverless function — สร้าง PDF ตัวอย่างสัญญาให้ลูกค้าอ่านก่อนลงลายมือชื่อ (ขั้นตอน "sign" ใน sign.js)
+// Vercel serverless function — เตรียมเนื้อหาสัญญาตัวอย่างให้ลูกค้าอ่านก่อนลงลายมือชื่อ (ขั้นตอน "sign" ใน
+// sign.js) — คืน block ย่อหน้า/ตาราง (JSON) ไม่ใช่ PDF สำเร็จรูป — ฝั่ง client (contract-html-renderer.js)
+// เป็นคนสร้าง PDF จริงเอง ด้วยเทคนิคเดียวกับ debt-tracker's หนังสือบอกเลิกสัญญา (html2canvas + jsPDF, ดู
+// contract-html-renderer.js) แทนที่การ render ด้วย pdf-lib ฝั่ง server แบบเดิม (2026-09-04 user ขอให้ทำ
+// แบบเดียวกับ debt-tracker — คุมหน้าตาได้เองทั้งหมด ไม่ต้องพึ่งบริการแปลงไฟล์ภายนอกที่มีค่าใช้จ่าย/ต้องสมัคร)
 //
-// ทำไมไม่แปลง docx -> PDF จริง: เครื่องนี้ไม่มี LibreOffice/Word และยังไม่ได้ตั้งค่า CloudConvert API key —
-// วิธีที่ใช้แทนคือ docxtemplater เติมข้อมูลลง master-*.docx จริง (เทมเพลตที่ verify แล้วว่าคำต่อคำตรงกับ
-// ต้นฉบับ 100%) แล้วแยกเป็นย่อหน้า/ตารางตามที่ปรากฏจริง (ดู _lib/docx-blocks.js) ก่อน render เป็น PDF เองด้วย
-// pdf-lib (ดู _lib/pdf-text-layout.js) — เนื้อหาถูกต้องครบถ้วนคำต่อคำเหมือนต้นฉบับ รวมถึงตารางแสดงการผ่อนชำระ
-// ที่วาดเป็นกริดจริงแล้ว (2026-09-03 user ขอ) แต่ typography/การขึ้นหน้าใหม่โดยรวมยังไม่ตรงกับ Word เป๊ะ
-// (ฟอนต์/ระยะบรรทัด/การจัดหน้าเป็นของ pdf-lib เอง ไม่ใช่ layout engine ของ Word จริง — ต้องใช้ LibreOffice/
-// CloudConvert ถึงจะได้ pixel-perfect แบบไฟล์ .docx ต้นฉบับในโฟลเดอร์เป๊ะ ยังไม่มีให้ใช้ในเครื่องนี้)
+// เนื้อหาข้อความยังมาจากการเติมข้อมูลลง master-*.docx จริงด้วย docxtemplater เหมือนเดิม (เทมเพลตที่ verify
+// แล้วว่าคำต่อคำตรงกับต้นฉบับ 100%) แล้วแยกเป็น block ด้วย _lib/docx-blocks.js — แค่ไม่ได้ render จบเป็น PDF
+// เองฝั่ง server อีกต่อไป
 //
 // ข้อจำกัดที่ทราบแล้ว (ยังไม่แก้ในรอบนี้):
 // 1. รูปถ่าย (บัตร ปชช./เซลฟี่/ผู้ค้ำ/ผู้ปกครอง) ยังไม่ฝังจริงในตัวอย่างนี้ — {%src} เป็น syntax เฉพาะของ
@@ -18,7 +18,6 @@ const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
-const { renderTextToPdf } = require('./_lib/pdf-text-layout');
 const { parseDocxBodyToBlocks } = require('./_lib/docx-blocks');
 const { numberToThaiBahtText } = require('../public/validation.js');
 
@@ -34,15 +33,6 @@ const TEMPLATE_FILES = {
 const IMAGE_INNER = '} {#$isImage} {%src} {/} {#!$isImage} {$fileName} {/} {/';
 function stripImageTags(xmlText, placeholderText) {
   return xmlText.split(IMAGE_INNER).join('} [' + placeholderText + '] {/');
-}
-
-// แปลง data URL (เช่น "data:image/png;base64,iVBORw0...") ที่ CS อัปโหลดหัวจดหมายไว้ผ่าน cs-review.js
-// กลับเป็น Buffer จริงให้ pdf-lib ฝังลง PDF ได้ — คืน null ถ้าไม่มี/รูปแบบไม่ถูกต้อง
-function parseDataUrl(dataUrl) {
-  if (!dataUrl) return null;
-  const m = /^data:(image\/(png|jpe?g));base64,(.+)$/.exec(dataUrl);
-  if (!m) return null;
-  return { mime: m[1] === 'image/jpg' ? 'image/jpeg' : m[1], bytes: Buffer.from(m[3], 'base64') };
 }
 
 function fmtMoney(n) { return Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -170,19 +160,14 @@ module.exports = async function handler(req, res) {
     doc.render(templateData);
 
     const outXml = doc.getZip().file('word/document.xml').asText();
-    // แยกเป็น block ย่อหน้า/ตารางตามที่ปรากฏจริงในเอกสาร (ไม่ตัด tag ทิ้งรวมเป็นข้อความก้อนเดียวแบบเดิม)
-    // ให้ตารางแสดงการผ่อนชำระออกมาเป็นตารางจริงใน PDF แทนที่จะเป็นตัวเลขไหลรวมกันอ่านไม่ออก (2026-09-03 user ขอ)
+    // แยกเป็น block ย่อหน้า/ตารางตามที่ปรากฏจริงในเอกสาร (ไม่ตัด tag ทิ้งรวมเป็นข้อความก้อนเดียว) ให้ตาราง
+    // แสดงการผ่อนชำระออกมาเป็นตารางจริงตอนขึ้น HTML/PDF ฝั่ง client แทนที่จะเป็นตัวเลขไหลรวมกันอ่านไม่ออก
     const blocks = parseDocxBodyToBlocks(outXml);
 
-    const letterhead = parseDataUrl(body.session && body.session.letterheadDataUrl);
-    const pdfBytes = await renderTextToPdf({
-      title: 'ตัวอย่างสัญญาเช่าซื้อ (ฉบับร่างก่อนลงลายมือชื่อ)',
+    res.status(200).json({
       blocks: blocks,
-      letterheadBytes: letterhead && letterhead.bytes,
-      letterheadMime: letterhead && letterhead.mime,
+      title: 'ตัวอย่างสัญญาเช่าซื้อ (ฉบับร่างก่อนลงลายมือชื่อ)',
     });
-
-    res.status(200).json({ pdfBase64: Buffer.from(pdfBytes).toString('base64') });
   } catch (err) {
     res.status(500).json({ error: err.message, stack: err.stack });
   }
