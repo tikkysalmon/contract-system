@@ -378,6 +378,28 @@ auto-sync ระหว่าง 2 โฟลเดอร์)
 - **ยังไม่ได้ทำ**: หน้าเซ็นของพนักงานยังไม่มี "ดูเอกสารที่ลูกค้าเซ็นแล้ว" (รูปภาพ/PDF จริง) ก่อนตัดสินใจเซ็น —
   ตอนนี้เห็นแค่ชื่อลูกค้า+รายการสินค้า+เวลาส่งฟอร์ม ถ้าต้องการให้พนักงานเห็นเอกสารเต็มก่อนเซ็นค่อยทำเพิ่มทีหลังได้
 
+## เสร็จเพิ่ม (2026-09-04 รอบ 24) — พนักงานบันทึกลายเซ็นไว้ใช้ซ้ำ + แก้บั๊ก Vercel edge cache เสิร์ฟข้อมูลเก่า
+- **`api/staff-signature.js` (ใหม่)**: GET `?username=` คืนลายเซ็นที่พนักงานคนนั้นเคยบันทึกไว้ (base64 inline,
+  `null` ถ้ายังไม่เคยมี) / POST `{username, signatureDataUrl}` upsert ทั้งไฟล์ใน Storage (prefix
+  `staff-saved-signatures/`, คนละ prefix กับลายเซ็นที่เซ็นจริงต่อสัญญา) และแถวในตาราง `staff_signatures` ใหม่
+  (`username` เป็น primary key — กรองด้วย username ตรงๆ ตามที่ user ย้ำว่า **"เห็นเฉพาะลายเซ็นของตัวเองเท่านั้น"**)
+- **`supabase-staff-signature-2.sql` (ใหม่, user รันแล้ว)**: สร้างตาราง `staff_signatures`
+  (`username text primary key, signature_path text, updated_at timestamptz`)
+- **`public/staff-sign-tab.js`**: โหลดลายเซ็นที่บันทึกไว้ตอนเปิดแท็บ (`loadSavedSignature()`) ถ้ามีจะวาดลงบน
+  canvas ให้อัตโนมัติตอนเปิดกล่องเซ็น (ประหยัดเวลาไม่ต้องวาดใหม่ทุกครั้งตามที่ user ขอ) พร้อมข้อความแจ้งเตือนว่า
+  เติมลายเซ็นที่บันทึกไว้ล่าสุดให้แล้ว — พนักงานยังลบ/วาดใหม่ทับได้ตามปกติ หลังกด "ยืนยันเซ็น" สำเร็จ ระบบยิง
+  POST ไปบันทึกลายเซ็นล่าสุดไว้ใช้ครั้งถัดไปด้วย (fire-and-forget ไม่บล็อกการเซ็นถ้าบันทึกไม่สำเร็จ)
+- **พบและแก้บั๊กจริง**: หลัง POST ลายเซ็นใหม่แล้ว GET กลับมาทันทีได้ **ลายเซ็นเก่า** กลับมาแทน แม้ข้อมูลจริงใน
+  Storage/DB จะอัปเดตถูกต้องแล้ว (ยืนยันด้วย byte-size และ `updated_at` ที่ตรงกับของใหม่) — root cause คือ
+  response header เดิมเป็นค่า default ของ Vercel (`Cache-Control: public, max-age=0, must-revalidate`) ที่ edge
+  node บางจุดยัง cache ไว้ได้ — แก้โดยเพิ่ม `res.setHeader('Cache-Control', 'no-store')` เป็นบรรทัดแรกในทุก
+  handler ของทั้ง 8 ไฟล์ใน `api/` (ไม่ใช่แค่ `staff-signature.js` — ป้องกัน edge cache แบบเดียวกันเกิดกับ
+  endpoint อื่นในอนาคตด้วย) ปรับ `dev-server.js`'s `fakeRes` mock ให้รองรับ `.setHeader()` ไม่ให้ local dev พัง
+- **ทดสอบจริงบน production แล้ว**: save→fetch→save-ค่าใหม่→fetch ซ้ำ 3 รอบติดกัน ได้ค่าล่าสุดถูกต้องทุกครั้ง
+  response header ยืนยัน `Cache-Control: no-store` แล้ว — **ลบข้อมูลทดสอบ (`testuser1`/`testuser2`) ออกจากทั้ง
+  ตาราง `staff_signatures` และไฟล์ใน Storage เรียบร้อยแล้ว** ผ่าน debug endpoint ชั่วคราวที่สร้าง/ทดสอบ/ลบทิ้ง
+  ในรอบเดียวกัน (ไม่เหลือไฟล์ debug ค้างอยู่ใน repo)
+
 ## ยังไม่ได้ทำ / บล็อกอยู่
 1. **`api/preview-contract.js` ยังไม่ใช่ PDF ตัวจริงที่จะส่งมอบท้ายสุด** — เป็น "ตัวอย่างให้อ่านก่อนเซ็น" เท่านั้น
    (layout จาก pdf-lib เอง ไม่ตรงกับหน้าตา Word ต้นฉบับเป๊ะ, ยังไม่ฝังรูปถ่ายบัตร/เซลฟี่/ลายเซ็นจริงในตัวอย่าง —
