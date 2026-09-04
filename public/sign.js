@@ -1,10 +1,24 @@
-(function () {
+(async function () {
   'use strict';
 
-  // ถ้ามาจาก cs-review.html (โหมดทดสอบในเครื่อง ?demo=1) ใช้ session ที่ CS เพิ่งสร้างจริงจาก CRM
-  // แทน MOCK_SESSION คงที่ — สะพานชั่วคราวผ่าน localStorage เท่านั้น รอ token จริงจาก Supabase ในอนาคต
+  // ลำดับความสำคัญของแหล่งข้อมูล session (2026-09-04):
+  // 1. ?token=... จริงจากลิงก์ที่ CS สร้างให้ลูกค้า -> ดึงจริงจาก Supabase ผ่าน /api/get-session
+  // 2. ?demo=1 -> session ที่ CS เพิ่งสร้างในหน้าเดียวกัน (ทดสอบในเครื่องผ่าน localStorage เร็วๆ)
+  // 3. ไม่มีทั้งคู่ -> window.MOCK_SESSION (เปิด sign.html ตรงๆ ทดสอบ UI เฉยๆ)
   var session = window.MOCK_SESSION;
-  if (location.search.indexOf('demo=1') !== -1) {
+  var realToken = new URLSearchParams(location.search).get('token');
+  if (realToken) {
+    try {
+      var tokenRes = await fetch('/api/get-session?token=' + encodeURIComponent(realToken));
+      var tokenBody = await tokenRes.json();
+      if (!tokenRes.ok || !tokenBody.session) throw new Error(tokenBody.error || 'ไม่พบข้อมูลลิงก์นี้');
+      session = tokenBody.session;
+    } catch (err) {
+      document.getElementById('app').innerHTML =
+        '<div class="card"><h2>เปิดลิงก์ไม่สำเร็จ</h2><p style="color:var(--danger);">' + err.message + '</p></div>';
+      return; // ไม่มีข้อมูลจริงให้แสดง หยุดตั้งแต่ตรงนี้ ไม่ render ฟอร์มต่อ
+    }
+  } else if (location.search.indexOf('demo=1') !== -1) {
     try {
       var stored = localStorage.getItem('demoSession');
       if (stored) session = JSON.parse(stored);

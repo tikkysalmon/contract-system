@@ -5,8 +5,9 @@ function initContractsTab(containerId) {
   'use strict';
 
   // TODO: ระบบล็อกอินพนักงานจริง (แผนก/สิทธิ์) อยู่ที่ app.js — เป็นแค่ mock ยังไม่เช็ค credential จริง
-  // TODO: "สร้างลิงก์" ตอนนี้ใช้ localStorage เป็นสะพานทดสอบในเครื่องเท่านั้น เมื่อมี Supabase จริงแล้ว
-  //       ต้องเปลี่ยนไปเรียก POST /api/create-session เพื่อสร้าง token จริงแทน
+  // "สร้างลิงก์" เรียก POST /api/create-session เขียนลง Supabase จริงแล้ว (2026-09-04 — เดิมใช้ localStorage
+  // เป็นสะพานทดสอบในเครื่องเท่านั้น) ได้ token จริงกลับมา ใช้สร้างลิงก์ /sign.html?token=... ที่เปิดข้ามเครื่อง/
+  // เบราว์เซอร์ได้แล้ว
 
   var LETTERHEAD_KEY = 'contractLetterheadDataUrl';
 
@@ -24,6 +25,9 @@ function initContractsTab(containerId) {
     installmentCount: null,
     firstDueDate: '',
     linkCreated: false,
+    creatingLink: false,
+    linkError: null,
+    lastLinkUrl: null,
     letterheadDataUrl: localStorage.getItem(LETTERHEAD_KEY) || null,
   };
 
@@ -109,11 +113,10 @@ function initContractsTab(containerId) {
       });
   }
 
-  function createLink() {
+  async function createLink() {
     var r = state.result;
     var contractDate = new Date().toISOString().slice(0, 10);
     var session = {
-      token: 'demo-' + Date.now(),
       soNumber: r.soNumber,
       contractNo: buildContractNo(contractDate, r.soNumber), // SALMONyyyymmdd-xxxxx (2026-09-03 user ขอ)
       contractDate: contractDate,
@@ -132,9 +135,24 @@ function initContractsTab(containerId) {
       customer: r.customer,
       letterheadDataUrl: state.letterheadDataUrl || null,
     };
-    localStorage.setItem('demoSession', JSON.stringify(session));
-    state.linkCreated = true;
-    state.lastSession = session;
+    state.creatingLink = true;
+    state.linkError = null;
+    render();
+    try {
+      var res = await fetch('/api/create-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: session }),
+      });
+      var body = await res.json();
+      if (!res.ok || !body.token) throw new Error(body.error || 'สร้างลิงก์ไม่สำเร็จ');
+      state.lastSession = session;
+      state.lastLinkUrl = location.origin + '/sign.html?token=' + body.token;
+      state.linkCreated = true;
+    } catch (err) {
+      state.linkError = 'สร้างลิงก์ไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_ANON_KEY บน server ต้องตั้งก่อน)';
+    }
+    state.creatingLink = false;
     render();
   }
 
@@ -182,13 +200,19 @@ function initContractsTab(containerId) {
         '</div></div>' +
         '</div>' +
         '<p>ยอดผ่อนต่องวดที่คำนวณได้: <b id="computedInstallmentAmount">' + fmtMoney(computeInstallmentAmount()) + ' บาท</b></p>' +
-        '<button class="btn btn-primary" id="btnCreateLink">สร้างลิงก์ให้ลูกค้า</button>' +
+        '<button class="btn btn-primary" id="btnCreateLink"' + (state.creatingLink ? ' disabled' : '') + '>' +
+        (state.creatingLink ? 'กำลังสร้างลิงก์...' : 'สร้างลิงก์ให้ลูกค้า') + '</button>' +
+        (state.linkError ? '<p style="color:var(--danger);margin-top:10px;">' + state.linkError + '</p>' : '') +
         '</div>';
 
       if (state.linkCreated) {
         html += '<div class="card"><h2>สร้างลิงก์แล้ว</h2>' +
-          '<p class="hint">เวอร์ชันทดสอบในเครื่อง — บันทึกไว้ใน localStorage ของเบราว์เซอร์นี้เท่านั้น ยังไม่ใช่ token จริงที่ส่งให้ลูกค้าได้ (รอ Supabase เชื่อมจริง)</p>' +
-          '<a href="sign.html?demo=1" target="_blank" class="btn btn-secondary">เปิดฟอร์มลูกค้า (โหมดทดสอบ)</a> ' +
+          '<p class="hint">ลิงก์จริงจากฐานข้อมูล ใช้ได้จากเครื่อง/เบราว์เซอร์ไหนก็ได้ ส่งให้ลูกค้าทาง LINE/SMS ได้เลย (หมดอายุใน 7 วัน)</p>' +
+          '<div class="so-search-pill" style="margin-bottom:10px;">' +
+          '<div class="so-search-input-wrap"><input type="text" id="linkUrlOutput" value="' + state.lastLinkUrl.replace(/"/g, '&quot;') + '" readonly /></div>' +
+          '<button type="button" class="so-search-type" id="btnCopyLink" style="cursor:pointer;">📋 คัดลอก</button>' +
+          '</div>' +
+          '<a href="' + state.lastLinkUrl + '" target="_blank" class="btn btn-secondary">เปิดฟอร์มลูกค้า</a> ' +
           '<button class="btn btn-ghost" id="btnPreviewContract" style="margin-left:8px;">📄 ดูตัวอย่างสัญญา (PDF)</button>' +
           '<div class="err" id="previewContractErr"></div>' +
           '</div>';
@@ -217,6 +241,13 @@ function initContractsTab(containerId) {
     }
     if (state.linkCreated) {
       document.getElementById('btnPreviewContract').addEventListener('click', previewContract);
+      document.getElementById('btnCopyLink').addEventListener('click', function () {
+        var input = document.getElementById('linkUrlOutput');
+        input.select();
+        navigator.clipboard && navigator.clipboard.writeText(state.lastLinkUrl).catch(function () {
+          document.execCommand('copy'); // fallback เบราว์เซอร์เก่า/ไม่ใช่ https ที่ clipboard API ใช้ไม่ได้
+        });
+      });
     }
   }
 

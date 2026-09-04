@@ -2,6 +2,12 @@
 
 แผนเต็มอยู่ที่ `C:\Users\user\.claude\plans\https-salmonenterprise-sg-larksuite-com-cozy-rose.md`
 
+**⚠️ 2026-09-04: ย้ายขึ้นระบบจริงแล้ว** — repo จริงที่ deploy อยู่คือ `C:\Users\user\contract-system`
+(GitHub: `tikkysalmon/contract-system`, public) ไม่ใช่โฟลเดอร์นี้อีกต่อไป โฟลเดอร์
+`15_ระบบทำสัญญา\webapp` นี้เป็นสำเนาต้นทางที่ยังใช้พัฒนา/ทดสอบในเครื่องได้เหมือนเดิม แต่**ทุกครั้งที่แก้โค้ด
+ต้อง copy ไฟล์ที่เปลี่ยนไปที่ `contract-system` แล้ว commit/push ด้วย ถึงจะขึ้นเว็บจริง** (ยังไม่ได้ตั้ง
+auto-sync ระหว่าง 2 โฟลเดอร์)
+
 ## เสร็จแล้ว
 - `public/sign.html` + `public/sign.js` + `public/validation.js` + `public/style.css` — ฟอร์มลูกค้าหลายขั้นตอน
   พร้อม validation (เลขบัตร ปชช. checksum, เบอร์โทร, กฎอายุ 19 ปี+อนุโลม 3 เดือน), ขั้นตอนผู้ปกครอง/ผู้ค้ำแบบมีเงื่อนไข,
@@ -221,6 +227,36 @@
   ยิง request จริงผ่าน HTTP (ไม่ใช่แค่เรียก handler ตรงในสคริปต์) ยืนยันแล้วว่าได้เนื้อหาครบ (6 หน้า, มี text
   draw operator 36 จุดแค่หน้าแรก) **user ควรลองเปิด/สร้างลิงก์ใหม่อีกครั้งในเบราว์เซอร์ ของเดิมที่ค้างอยู่ (ถ้ามี
   tab เปิดค้าง) อาจยังเป็น blob เก่าจากก่อนแก้ ต้องเรียกใหม่**
+
+## เสร็จเพิ่ม (2026-09-04 รอบ 18) — ขึ้นระบบจริง: repo ใหม่ + Vercel + Supabase project จริง
+- **สร้าง repo ใหม่ `tikkysalmon/contract-system`** (public, ยืนยันกับ user แล้ว) ที่ `C:\Users\user\contract-
+  system` ตามแพทเทิร์นเดิมของโปรเจกต์ (แยก repo นอก `AI\claude code` เหมือน `debt-tracker`/`esign-approval`)
+  copy `public/`, `api/`, `templates/`, `supabase-setup.sql`, `package.json` ฯลฯ มาจากโฟลเดอร์นี้ (ไม่รวม
+  `node_modules/`) รัน `npm install` + `templates/verify_masters.js` ผ่านหมดในที่ใหม่ก่อน push จริง
+- **user สร้าง Supabase project ใหม่เองแล้ว** (แยกจาก debt-tracker ตามที่ user ขอ เพราะข้อมูลใหญ่) รัน
+  `supabase-setup.sql` ผ่าน SQL Editor เรียบร้อย — ตรวจสอบแล้วว่าตาราง `staff_users`/`contract_sessions`/
+  `contract_submissions` ถูกสร้างจริงผ่าน REST API
+- **`api/create-session.js` + `api/get-session.js` (ใหม่)**: แทนที่ localStorage demo bridge เดิมด้วย
+  Supabase จริง — CS กด "สร้างลิงก์" เขียน row ใหม่ลง `contract_sessions` จริง (เก็บ session object เต็มไว้ใน
+  `crm_snapshot` jsonb) ได้ token จริงกลับมา ลูกค้าเปิด `sign.html?token=...` ดึงข้อมูลจริงจาก Supabase — **ใช้
+  งานได้ข้ามเครื่อง/เบราว์เซอร์แล้ว** (ไม่ใช่แค่ localStorage ในเบราว์เซอร์เดียวแบบเดิม)
+  - **เจอบั๊กจริงระหว่างทดสอบ**: ตาราง `contract_sessions` เปิด RLS อยู่ (ไม่ใช่ปิดตามที่คาดตอนแรก) ใช้
+    `SUPABASE_ANON_KEY` เขียนไม่ได้ (error 42501) — แก้โดยเปลี่ยนไปใช้ **`SUPABASE_SERVICE_ROLE_KEY`** แทน
+    (ปลอดภัยเพราะโค้ดนี้รันฝั่ง server เท่านั้น ไม่เคยถูกเรียกตรงจากเบราว์เซอร์) ต้องตั้งค่านี้ใน Vercel
+    project settings แทน `SUPABASE_ANON_KEY` — **ยังไม่ต้องตั้งค่า RLS policy เพิ่มเติม**
+  - ทดสอบ round-trip จริงผ่าน HTTP ครบ (create-session → get-session) ได้ข้อมูลถูกต้อง 100% รวมถึงข้อความ
+    ภาษาไทย (เจอปัญหา encoding เพี้ยนตอนทดสอบครั้งแรกแต่เป็นแค่ปัญหา encoding ของ terminal ตอนพิมพ์ curl เอง
+    ไม่ใช่บั๊กจริงในโค้ด — ยืนยันด้วยการส่ง payload ผ่านไฟล์ JSON แทน ได้ผลถูกต้อง) แล้วลบ test row ทิ้งจาก
+    ฐานข้อมูลจริงเรียบร้อย
+- **`contracts-tab.js`**: `createLink()` เป็น async แล้ว เรียก `/api/create-session` จริง มีสถานะ loading/error
+  ระหว่างสร้างลิงก์ การ์ด "สร้างลิงก์แล้ว" เปลี่ยนจากปุ่มเปิดโหมดทดสอบ (`?demo=1`) เป็นกล่องแสดง URL จริง
+  พร้อมปุ่ม "คัดลอก" ให้ CS เอาไปส่งลูกค้าทาง LINE/SMS ได้เลย
+- **`sign.js`**: อ่าน `?token=...` จาก URL ก่อนเป็นอันดับแรก (ถ้ามี ดึงจริงจาก `/api/get-session`) ตกไปที่
+  `?demo=1`/localStorage แล้วค่อยตกไปที่ `MOCK_SESSION` ตามลำดับเดิมถ้าไม่มี token จริง — ถ้าดึง token จริง
+  ไม่สำเร็จ (ลิงก์ผิด/หมดอายุ) จะโชว์ข้อความ error แทนที่จะ render ฟอร์มเปล่าๆ
+- **ยังไม่ทำในรอบนี้**: ขั้นตอน "ลูกค้ากรอกฟอร์มเสร็จ → ส่งกลับ" (`submitContract()`) ยังเป็น mock (แค่ log
+  ไม่ได้เขียนลง `contract_submissions` หรืออัปโหลดรูปเข้า Supabase Storage จริง) — ต้องทำต่อเป็นรอบถัดไป ก่อน
+  จะให้ลูกค้าจริงใช้งานได้ครบวงจร
 
 ## ยังไม่ได้ทำ / บล็อกอยู่
 1. **`api/preview-contract.js` ยังไม่ใช่ PDF ตัวจริงที่จะส่งมอบท้ายสุด** — เป็น "ตัวอย่างให้อ่านก่อนเซ็น" เท่านั้น
