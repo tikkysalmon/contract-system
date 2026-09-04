@@ -230,6 +230,7 @@ async function fetchCustomerSoListLight(customerId, token) {
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store'); // 2026-09-04 กัน Vercel edge cache เสิร์ฟข้อมูลเก่า (บั๊กจริงที่เจอ: GET /api/staff-signature หลังอัปเดตแล้วยังได้ค่าเก่า)
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;

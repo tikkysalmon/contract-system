@@ -22,6 +22,7 @@ function parseDataUrl(dataUrl) {
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store'); // 2026-09-04 กัน Vercel edge cache เสิร์ฟข้อมูลเก่า (บั๊กจริงที่เจอ: GET /api/staff-signature หลังอัปเดตแล้วยังได้ค่าเก่า)
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server' });
     return;

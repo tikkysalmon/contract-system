@@ -47,9 +47,14 @@ async function serveApi(apiName, parsed, req, res) {
     const fakeReq = { method: req.method, query: parsed.query, body: parsedBody };
     const fakeRes = {
       _status: 200,
+      _headers: {},
       status: function (c) { this._status = c; return this; },
+      // เพิ่มรองรับ setHeader (2026-09-04) — บาง endpoint (เช่น staff-signature.js) ตั้ง Cache-Control: no-store
+      // เอง กันเจอ edge cache ของ Vercel จริงเสิร์ฟข้อมูลเก่า (บั๊กจริงที่เจอ: บันทึกลายเซ็นใหม่แล้ว GET กลับมา
+      // ได้ค่าเก่าเพราะ Vercel cache ไว้) — จำลองพฤติกรรมเดียวกันในเครื่องด้วยเพื่อไม่ให้พลาดจุดนี้อีก
+      setHeader: function (k, v) { this._headers[k] = v; },
       json: function (obj) {
-        res.writeHead(this._status, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.writeHead(this._status, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, this._headers));
         res.end(JSON.stringify(obj));
       },
     };
