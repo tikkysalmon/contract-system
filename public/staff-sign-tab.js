@@ -15,7 +15,18 @@ function initStaffSignTab(containerId, currentUser) {
     signingId: null, // submissionId ที่กำลังเปิดเซ็นอยู่ (null = ยังไม่เปิด)
     submitting: false,
     submitError: null,
+    savedSignatureDataUrl: null, // ลายเซ็นที่พนักงานคนนี้เคยบันทึกไว้ (2026-09-04) — โหลดครั้งเดียวตอนเข้าหน้า
   };
+
+  // โหลดลายเซ็นที่บันทึกไว้ล่าสุดของพนักงานคนนี้ (ถ้ามี) — กรองด้วย username ตรงๆ เห็นแค่ของตัวเองเท่านั้น
+  // ตามที่ user ขอ ไม่ต้องรอก่อนโหลดคิว (ยิงพร้อมกัน) เผื่อคนไม่เคยบันทึกไว้เลยก็ไม่ต้องรอ
+  async function loadSavedSignature() {
+    try {
+      var res = await fetch('/api/staff-signature?username=' + encodeURIComponent(currentUser.username));
+      var body = await res.json();
+      if (res.ok && body.signatureDataUrl) state.savedSignatureDataUrl = body.signatureDataUrl;
+    } catch (e) { /* ไม่มีลายเซ็นบันทึกไว้ก็แค่วาดใหม่ปกติ ไม่ critical */ }
+  }
 
   function fmtDateTime(iso) {
     if (!iso) return '-';
@@ -74,6 +85,14 @@ function initStaffSignTab(containerId, currentUser) {
       });
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'เซ็นไม่สำเร็จ');
+      state.savedSignatureDataUrl = signatureDataUrl;
+      // บันทึกลายเซ็นนี้ไว้ใช้ครั้งถัดไป (2026-09-04) — ไม่บล็อกความสำเร็จของการเซ็นหลัก ถ้าขั้นตอนนี้พังก็แค่
+      // ต้องวาดใหม่รอบหน้า ไม่ใช่ปัญหาร้ายแรง
+      fetch('/api/staff-signature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser.username, signatureDataUrl: signatureDataUrl }),
+      }).catch(function () { /* เงียบไว้ ไม่ critical */ });
       state.signingId = null;
       await loadQueue(); // โหลดคิวใหม่ (รายการที่เพิ่งเซ็นจะหายไปจากคิว)
       return;
@@ -97,6 +116,16 @@ function initStaffSignTab(containerId, currentUser) {
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#1f2430';
     sigPad = { canvas: canvas, ctx: ctx, drawing: false, hasStroke: false };
+
+    // เติมลายเซ็นที่บันทึกไว้ล่าสุดให้อัตโนมัติ (2026-09-04 ลดเวลาวาดใหม่) — กด "ล้างลายเซ็น" ถ้าอยากวาดใหม่
+    if (state.savedSignatureDataUrl) {
+      var img = new Image();
+      img.onload = function () {
+        ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        sigPad.hasStroke = true;
+      };
+      img.src = state.savedSignatureDataUrl;
+    }
 
     function pos(e) {
       var r = canvas.getBoundingClientRect();
@@ -139,6 +168,7 @@ function initStaffSignTab(containerId, currentUser) {
         '<h2>เซ็นเอกสาร — ' + (item ? item.customerName : '') + '</h2>' +
         '<p class="hint">รายการ: ' + (item ? item.products.join(', ') : '') + ' (' + (item ? item.soNumbers.join(', ') : '') + ')</p>' +
         '<p class="hint">ลูกค้าส่งฟอร์ม/เซ็นชื่อแล้วเมื่อ ' + (item ? fmtDateTime(item.submittedAt) : '') + ' — ลงลายมือชื่อพนักงาน (' + currentUser.username + ') เพื่อยืนยันอนุมัติสัญญานี้</p>' +
+        (state.savedSignatureDataUrl ? '<p class="hint">เติมลายเซ็นที่บันทึกไว้ล่าสุดให้แล้ว — กด "ล้างลายเซ็น" ถ้าต้องการวาดใหม่</p>' : '') +
         '<div class="sig-pad-wrap"><canvas id="staffSigCanvas"></canvas></div>' +
         '<div class="sig-tools"><button type="button" class="btn btn-ghost" id="staffSigClear">ล้างลายเซ็น</button></div>' +
         (state.submitError ? '<p style="color:var(--danger);margin-top:10px;">' + state.submitError + '</p>' : '') +
@@ -179,4 +209,5 @@ function initStaffSignTab(containerId, currentUser) {
   }
 
   loadQueue();
+  loadSavedSignature(); // ยิงพร้อมกับ loadQueue ไม่ต้องรอกัน (คนละ endpoint ไม่เกี่ยวข้องกัน)
 }
