@@ -1,7 +1,8 @@
-// "ข้อมูลลูกค้าทำสัญญา" (คิวเซ็นเอกสาร) — เดิมเป็นหน้าว่างรอสเปก ตอนนี้เป็นคิวเอกสารที่ลูกค้าเซ็น/ส่งฟอร์ม
-// แล้ว รอพนักงานเซ็นทีหลัง (2026-09-04 ตามที่ user ขอ "นำการเซ็นออนไลน์ของระบบขออนุมัติเอกสารมาใช้" — ยืนยัน
-// ลำดับ: ลูกค้าเซ็นก่อน พนักงาน 1 คนเซ็นทีหลัง ผ่านการล็อกอินเข้า app.html เดิม เห็นคิวรอเซ็น ไม่ใช่ token link
-// แบบผู้เซ็นภายนอกของ esign-approval)
+// "ข้อมูลลูกค้าทำสัญญา" — เดิม (2026-09-04 รอบแรก) เป็นแค่คิวเอกสารรอพนักงานเซ็น ตอนนี้ (2026-09-04 รอบนี้
+// ตามที่ user ขอ "หากมีส่งกลับมาแล้วให้แสดงข้อมูลไว้ที่เมนูข้อมูลลูกค้าทำสัญญา") แสดงรายชื่อลูกค้าที่ส่งฟอร์ม
+// กลับมาแล้วทุกคน กดดูข้อมูลเต็มได้ (ส่วนตัว/ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง-ผู้ค้ำ/รูปเอกสารที่แนบ) ส่วนคนที่
+// ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" เพิ่มขึ้นมา (ฟังก์ชันเดิมจากรอบก่อน — นำการเซ็นออนไลน์ของระบบขออนุมัติ
+// เอกสารมาใช้ ลูกค้าเซ็นก่อน พนักงาน 1 คนเซ็นทีหลัง ผ่านการล็อกอินเข้า app.html เดิม)
 // ใช้: initStaffSignTab('containerElementId', currentUser)  — currentUser: { username, department }
 function initStaffSignTab(containerId, currentUser) {
   'use strict';
@@ -12,6 +13,7 @@ function initStaffSignTab(containerId, currentUser) {
     loading: true,
     error: null,
     queue: [],
+    expandedId: null, // submissionId ที่กำลังกาง "ดูข้อมูลลูกค้า" อยู่ (null = ยุบทั้งหมด)
     signingId: null, // submissionId ที่กำลังเปิดเซ็นอยู่ (null = ยังไม่เปิด)
     submitting: false,
     submitError: null,
@@ -42,12 +44,17 @@ function initStaffSignTab(containerId, currentUser) {
     try {
       var res = await fetch('/api/staff-sign-queue');
       var body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error || 'โหลดคิวไม่สำเร็จ');
+      if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
       state.queue = body.queue || [];
     } catch (err) {
-      state.error = 'โหลดคิวไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้รัน supabase-staff-signature.sql ต้องรันก่อน)';
+      state.error = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้รัน supabase-staff-signature.sql ต้องรันก่อน)';
     }
     state.loading = false;
+    render();
+  }
+
+  function toggleExpand(submissionId) {
+    state.expandedId = state.expandedId === submissionId ? null : submissionId;
     render();
   }
 
@@ -94,7 +101,7 @@ function initStaffSignTab(containerId, currentUser) {
         body: JSON.stringify({ username: currentUser.username, signatureDataUrl: signatureDataUrl }),
       }).catch(function () { /* เงียบไว้ ไม่ critical */ });
       state.signingId = null;
-      await loadQueue(); // โหลดคิวใหม่ (รายการที่เพิ่งเซ็นจะหายไปจากคิว)
+      await loadQueue(); // โหลดรายการใหม่ (แถวที่เพิ่งเซ็นจะเปลี่ยนสถานะเป็น "เซ็นแล้ว")
       return;
     } catch (err) {
       state.submitError = 'เซ็นไม่สำเร็จ: ' + err.message;
@@ -154,12 +161,78 @@ function initStaffSignTab(containerId, currentUser) {
     });
   }
 
+  // ---------- ข้อมูลเต็มของลูกค้า (ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง-ผู้ค้ำ/ไฟล์แนบ) ----------
+  function formatAddress(addr) {
+    if (!addr) return '-';
+    var parts = [];
+    if (addr.detail) parts.push(addr.detail);
+    if (addr.subdistrictName) parts.push('ต./แขวง' + addr.subdistrictName);
+    if (addr.districtName) parts.push('อ./เขต' + addr.districtName);
+    if (addr.provinceName) parts.push('จ.' + addr.provinceName);
+    if (addr.zip) parts.push(addr.zip);
+    return parts.length ? parts.join(' ') : '-';
+  }
+
+  function infoRow(label, value) {
+    return '<tr><td style="text-align:left;color:var(--muted);width:170px;">' + label + '</td><td>' + (value || '-') + '</td></tr>';
+  }
+
+  function fileThumbHtml(url, label) {
+    if (!url) return '';
+    return '<a href="' + url + '" target="_blank" style="display:inline-block;text-align:center;margin:0 10px 10px 0;">' +
+      '<img src="' + url + '" style="width:110px;height:80px;object-fit:cover;border:1px solid var(--border);border-radius:8px;display:block;" />' +
+      '<span style="font-size:12px;color:var(--muted);">' + label + '</span></a>';
+  }
+
+  function customerDetailHtml(item) {
+    var c = item.customer || {};
+    var addr = c.address || {};
+    var ship = c.shippingAddress || {};
+    var ref = c.reference || {};
+    var guardian = c.guardian || {};
+    var guarantor = c.guarantor || {};
+    var hasGuardian = !!(guardian.firstLastName && guardian.firstLastName.trim());
+    var hasGuarantor = !!(guarantor.firstLastName && guarantor.firstLastName.trim());
+
+    var html = '<div style="padding:14px 0 4px;border-top:1px solid var(--border);">' +
+      '<table class="installment-table" style="margin-bottom:12px;">' +
+      infoRow('ชื่อ-นามสกุล', (c.title || '') + (c.firstLastName || '-')) +
+      infoRow('อายุ', c.age ? (c.age + ' ปี') : '-') +
+      infoRow('เลขบัตรประชาชน', c.citizenId) +
+      infoRow('เบอร์โทร', c.phone) +
+      infoRow('สัญชาติ', c.nationality) +
+      infoRow('ที่อยู่ปัจจุบัน', formatAddress(addr)) +
+      infoRow('ที่อยู่จัดส่งสินค้า', ship.sameAsCurrent ? 'ใช้ที่อยู่เดียวกับที่อยู่ปัจจุบัน' : formatAddress(ship)) +
+      infoRow('บุคคลอ้างอิง', ref.firstLastName ? (ref.firstLastName + ' (' + (ref.relation || '-') + ') โทร ' + (ref.phone || '-')) : '-') +
+      (hasGuardian ? infoRow('ผู้ปกครอง', (guardian.title || '') + guardian.firstLastName + ' โทร ' + (guardian.phone || '-') + ' บัตร ' + (guardian.citizenId || '-')) : '') +
+      (hasGuarantor ? infoRow('ผู้ค้ำประกัน', (guarantor.title || '') + guarantor.firstLastName + ' อายุ ' + (guarantor.age || '-') + ' ปี โทร ' + (guarantor.phone || '-') + ' บัตร ' + (guarantor.citizenId || '-')) : '') +
+      '</table>' +
+      '<div style="margin-bottom:4px;color:var(--muted);font-size:13px;">เอกสารแนบ (คลิกเพื่อดูเต็ม)</div>' +
+      fileThumbHtml(item.files.idCard, 'บัตร ปชช. ลูกค้า') +
+      fileThumbHtml(item.files.selfieWithId, 'คู่บัตร ลูกค้า') +
+      fileThumbHtml(item.files.signature, 'ลายเซ็นลูกค้า') +
+      (hasGuardian ? fileThumbHtml(item.files.guardianId, 'บัตร ปชช. ผู้ปกครอง') : '') +
+      (hasGuardian ? fileThumbHtml(item.files.guardianSignature, 'ลายเซ็นผู้ปกครอง') : '') +
+      (hasGuarantor ? fileThumbHtml(item.files.guarantorId, 'บัตร ปชช. ผู้ค้ำ') : '') +
+      (hasGuarantor ? fileThumbHtml(item.files.guarantorSignature, 'ลายเซ็นผู้ค้ำ') : '') +
+      (item.files.staffSignature ? fileThumbHtml(item.files.staffSignature, 'ลายเซ็นพนักงาน') : '') +
+      '</div>';
+    return html;
+  }
+
+  function statusBadgeHtml(item) {
+    if (item.staffSignedAt) {
+      return '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">เซ็นแล้ว โดย ' + (item.staffSignedBy || '-') + '</span>';
+    }
+    return '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">รอเซ็น</span>';
+  }
+
   function render() {
     var app = document.getElementById(containerId);
     var html = '';
 
     if (state.loading) {
-      html = '<div class="card">กำลังโหลดคิว...</div>';
+      html = '<div class="card">กำลังโหลดข้อมูล...</div>';
     } else if (state.error) {
       html = '<div class="card"><p style="color:var(--danger);">' + state.error + '</p></div>';
     } else if (state.signingId) {
@@ -178,18 +251,23 @@ function initStaffSignTab(containerId, currentUser) {
         '</div>' +
         '</div>';
     } else if (state.queue.length === 0) {
-      html = '<div class="card"><h2>คิวเอกสารรอเซ็น</h2><p class="hint">ไม่มีเอกสารรอเซ็นตอนนี้ — ลูกค้ายังไม่ส่งฟอร์ม หรือเซ็นครบแล้วทั้งหมด</p></div>';
+      html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่มีลูกค้าส่งฟอร์มกลับมา — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
     } else {
-      html = '<div class="card"><h2>คิวเอกสารรอเซ็น (' + state.queue.length + ' รายการ)</h2>' +
-        '<p class="hint">ลูกค้ากรอกฟอร์ม/เซ็นชื่อแล้ว รอพนักงานเซ็นยืนยันอนุมัติ</p>' +
+      html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.queue.length + ' รายการ)</h2>' +
+        '<p class="hint">รายชื่อลูกค้าที่กรอกฟอร์ม/เซ็นชื่อส่งกลับมาแล้ว กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็ม รายการที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
         state.queue.map(function (q) {
-          return '<div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--border);">' +
+          var expanded = state.expandedId === q.submissionId;
+          return '<div style="padding:12px 0;border-top:1px solid var(--border);">' +
+            '<div style="display:flex;align-items:center;gap:10px;">' +
             '<div style="flex:1;">' +
-            '<b>' + q.customerName + '</b><br>' +
+            '<b>' + q.customerName + '</b> ' + statusBadgeHtml(q) + '<br>' +
             '<span style="color:var(--muted);font-size:13px;">' + q.products.join(', ') + ' (' + q.soNumbers.join(', ') + ')</span><br>' +
             '<span style="color:var(--muted);font-size:12px;">ส่งฟอร์มเมื่อ ' + fmtDateTime(q.submittedAt) + '</span>' +
             '</div>' +
-            '<button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '">เซ็นเอกสาร</button>' +
+            '<button class="btn btn-ghost btnToggleExpand" data-id="' + q.submissionId + '">' + (expanded ? 'ซ่อนข้อมูล' : 'ดูข้อมูลลูกค้า') + '</button>' +
+            (!q.staffSignedAt ? '<button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '">เซ็นเอกสาร</button>' : '') +
+            '</div>' +
+            (expanded ? customerDetailHtml(q) : '') +
             '</div>';
         }).join('') +
         '</div>';
@@ -204,6 +282,9 @@ function initStaffSignTab(containerId, currentUser) {
     } else if (!state.loading && !state.error) {
       Array.prototype.forEach.call(document.querySelectorAll('.btnOpenSign'), function (btn) {
         btn.addEventListener('click', function () { openSignPanel(btn.getAttribute('data-id')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.btnToggleExpand'), function (btn) {
+        btn.addEventListener('click', function () { toggleExpand(btn.getAttribute('data-id')); });
       });
     }
   }

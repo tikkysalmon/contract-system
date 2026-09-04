@@ -57,6 +57,10 @@ async function serveApi(apiName, parsed, req, res) {
         res.writeHead(this._status, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, this._headers));
         res.end(JSON.stringify(obj));
       },
+      // เพิ่มรองรับ writeHead/end ตรงๆ (2026-09-04) — submission-file.js สตรีมไฟล์รูป/ลายเซ็นกลับเป็น binary
+      // ตรงๆ ไม่ผ่าน .json() เหมือน endpoint อื่น ส่งต่อไปที่ res จริงของ http.createServer ได้เลย
+      writeHead: function (status, headers) { res.writeHead(status, headers); },
+      end: function (body) { res.end(body); },
     };
     try {
       await handler(fakeReq, fakeRes);

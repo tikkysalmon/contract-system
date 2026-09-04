@@ -39,6 +39,13 @@ function initContractsTab(containerId) {
     linkError: null,
     lastLinkUrl: null,
     letterheadDataUrl: localStorage.getItem(LETTERHEAD_KEY) || null,
+    // รายการลิงก์ที่เคยสร้างไว้ทั้งหมด (2026-09-04 user ขอ ให้ตรวจสอบได้ว่าลูกค้ารายไหนสร้างลิงก์แล้ว/ยัง
+    // ไม่ส่งข้อมูลกลับมา คัดลอกลิงก์เดิมส่งซ้ำได้) — โหลดครั้งเดียวตอนเปิดแท็บ รีโหลดใหม่ทุกครั้งหลังสร้างลิงก์
+    // ใหม่สำเร็จ กันรายการที่เพิ่งสร้างไม่ขึ้นทันที
+    sessionList: [],
+    sessionListLoading: true,
+    sessionListError: null,
+    sessionListFilter: '',
   };
 
   function fmtMoney(n) { return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -291,6 +298,7 @@ function initContractsTab(containerId) {
       state.lastCustomer = session.customer;
       state.lastLinkUrl = location.origin + '/sign.html?token=' + body.token;
       state.linkCreated = true;
+      loadSessionList(); // รีโหลดรายการลิงก์ ให้ลิงก์ที่เพิ่งสร้างขึ้นในตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" ทันที
     } catch (err) {
       state.linkError = 'สร้างลิงก์ไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server ต้องตั้งก่อน)';
     }
@@ -298,9 +306,101 @@ function initContractsTab(containerId) {
     render();
   }
 
+  // รายการลิงก์ที่สร้างไว้ทั้งหมด (2026-09-04) — ให้ CS ตรวจสอบว่าลูกค้ารายไหนสร้างลิงก์แล้ว/ยังไม่ส่งข้อมูล
+  // กลับมา และคัดลอกลิงก์เดิมส่งซ้ำได้ถ้ายังไม่ส่ง — ถ้าส่งแล้วให้ไปดูข้อมูลเต็มที่เมนู "ข้อมูลลูกค้าทำสัญญา" แทน
+  async function loadSessionList() {
+    state.sessionListLoading = true;
+    state.sessionListError = null;
+    render();
+    try {
+      var res = await fetch('/api/cs-session-list');
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'โหลดรายการลิงก์ไม่สำเร็จ');
+      state.sessionList = body.sessions || [];
+    } catch (err) {
+      state.sessionListError = 'โหลดรายการลิงก์ไม่สำเร็จ: ' + err.message;
+    }
+    state.sessionListLoading = false;
+    render();
+  }
+
+  function copyLinkToken(token) {
+    var url = location.origin + '/sign.html?token=' + token;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(function () { window.prompt('คัดลอกลิงก์นี้:', url); });
+    } else {
+      window.prompt('คัดลอกลิงก์นี้:', url);
+    }
+  }
+
+  function filteredSessionList() {
+    return state.sessionList.filter(function (s) {
+      if (!state.sessionListFilter.trim()) return true;
+      return (s.customerName || '').toLowerCase().indexOf(state.sessionListFilter.trim().toLowerCase()) !== -1;
+    });
+  }
+
+  function sessionListRowsHtml(filtered) {
+    return filtered.map(function (s) {
+      var statusHtml = s.submitted
+        ? '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">ส่งข้อมูลแล้ว</span>'
+        : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">ยังไม่กรอกข้อมูล</span>';
+      var actionHtml = s.submitted
+        ? '<span style="color:var(--muted);font-size:12.5px;">ดูที่เมนู "ข้อมูลลูกค้าทำสัญญา"</span>'
+        : '<button type="button" class="btn btn-ghost btnCopySessionLink" data-token="' + s.token + '">📋 คัดลอกลิงก์</button>';
+      return '<tr>' +
+        '<td style="text-align:left;">' + s.customerName + '</td>' +
+        '<td style="text-align:left;">' + s.products.join(', ') + '<br><span style="color:var(--muted);font-size:12px;">' + s.soNumbers.join(', ') + '</span></td>' +
+        '<td>' + fmtDateShort(s.createdAt) + '</td>' +
+        '<td>' + statusHtml + '</td>' +
+        '<td>' + actionHtml + '</td>' +
+        '</tr>';
+    }).join('') +
+      (filtered.length === 0 ? '<tr><td colspan="5" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>' : '');
+  }
+
+  function wireCopySessionLinkButtons() {
+    Array.prototype.forEach.call(document.querySelectorAll('.btnCopySessionLink'), function (btn) {
+      btn.addEventListener('click', function () {
+        copyLinkToken(btn.getAttribute('data-token'));
+        var original = btn.textContent;
+        btn.textContent = '✅ คัดลอกแล้ว';
+        setTimeout(function () { btn.textContent = original; }, 1500);
+      });
+    });
+  }
+
+  function sessionListHtml() {
+    var h = '<div class="card"><h2>ลิงก์แบบฟอร์มที่สร้างไว้' + (state.sessionList.length ? ' (' + state.sessionList.length + ' รายการล่าสุด)' : '') + '</h2>' +
+      '<p class="hint">ตรวจสอบได้ว่าลูกค้ารายไหนสร้างลิงก์แล้ว/ยังไม่ได้กรอกข้อมูลส่งกลับมา — คัดลอกลิงก์เดิมส่งซ้ำได้ถ้ายังไม่ส่งข้อมูล ถ้าส่งข้อมูลแล้วดูรายละเอียดเต็มได้ที่เมนู "ข้อมูลลูกค้าทำสัญญา"</p>';
+    if (state.sessionListLoading) {
+      h += '<p class="hint">กำลังโหลด...</p></div>';
+      return h;
+    }
+    if (state.sessionListError) {
+      h += '<p style="color:var(--danger);">' + state.sessionListError + '</p></div>';
+      return h;
+    }
+    if (!state.sessionList.length) {
+      h += '<p class="hint">ยังไม่เคยสร้างลิงก์เลย — ค้นหาคำสั่งขายด้านล่างแล้วกด "สร้างลิงก์ให้ลูกค้า"</p></div>';
+      return h;
+    }
+    // ช่องกรองนี้อัปเดตแค่ <tbody id="sessionListTbody"> เอง (ไม่เรียก render() เต็มก้อน) กัน input หลุด focus
+    // ทุกครั้งที่พิมพ์ — ตามแพทเทิร์นเดียวกับช่อง soInput ด้านล่างที่ก็ไม่ re-render ทั้งหน้าเช่นกัน
+    h += '<input type="text" id="sessionListFilterInput" placeholder="พิมพ์ชื่อลูกค้าเพื่อกรอง" value="' + state.sessionListFilter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
+      '<div style="overflow-x:auto;"><table class="installment-table">' +
+      '<thead><tr><th>ลูกค้า</th><th>สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>สถานะ</th><th>การดำเนินการ</th></tr></thead>' +
+      '<tbody id="sessionListTbody">' + sessionListRowsHtml(filteredSessionList()) + '</tbody>' +
+      '</table></div>' +
+      '</div>';
+    return h;
+  }
+
   function render() {
     var app = document.getElementById(containerId);
     var html = '';
+
+    html += sessionListHtml();
 
     html += '<div class="card"><h2>ค้นหาคำสั่งขาย</h2>' +
       '<div class="so-search-pill">' +
@@ -526,7 +626,18 @@ function initContractsTab(containerId) {
         });
       });
     }
+
+    var sessionListFilterInput = document.getElementById('sessionListFilterInput');
+    if (sessionListFilterInput) {
+      sessionListFilterInput.addEventListener('input', function (e) {
+        state.sessionListFilter = e.target.value;
+        document.getElementById('sessionListTbody').innerHTML = sessionListRowsHtml(filteredSessionList());
+        wireCopySessionLinkButtons();
+      });
+    }
+    wireCopySessionLinkButtons();
   }
 
   render();
+  loadSessionList();
 }
