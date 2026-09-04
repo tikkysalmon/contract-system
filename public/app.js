@@ -35,8 +35,8 @@
 
   // เมนูฝั่งซ้าย + แผนกที่มีสิทธิ์เห็นเมนูนั้น (ตามที่ user ระบุ 2026-09-03) — "ผู้จัดการ" เห็นได้ทุกเมนูเสมอ
   // "ค้นหาคำสั่งขาย/สร้างลิงก์" ย้ายไปอยู่ที่ key 'for_cs' แล้ว (เดิมอยู่ที่ 'contracts') ตามที่ user ขอ
-  // 2026-09-03 — 'contracts' ("ข้อมูลลูกค้าทำสัญญา") จึงเหลือเป็นหน้าว่างรอสเปกใหม่ (เช่น หน้าดูรายการสัญญาที่
-  // สร้างไปแล้ว) ยังไม่ได้ระบุจาก user
+  // 2026-09-03 — key 'contracts' ("ข้อมูลลูกค้าทำสัญญา") กลายเป็นคิวเอกสารรอพนักงานเซ็นแล้ว (2026-09-04
+  // ตามที่ user ขอ "นำการเซ็นออนไลน์ของระบบขออนุมัติเอกสารมาใช้" — ลูกค้าเซ็นก่อน พนักงานเซ็นทีหลังที่นี่)
   var MENU_ITEMS = [
     { key: 'contracts', icon: 'contracts', label: 'ข้อมูลลูกค้าทำสัญญา', departments: ['CS', 'บัญชี'] },
     { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
@@ -155,6 +155,13 @@
 
   function renderTabContent() {
     var container = document.getElementById('tabContent');
+    if (state.activeTab === 'contracts') {
+      // เดิมเป็นหน้าว่างรอสเปก ตอนนี้เป็นคิวเอกสารรอพนักงานเซ็น (2026-09-04 user ขอ "นำการเซ็นออนไลน์ของ
+      // ระบบขออนุมัติเอกสารมาใช้" — ลูกค้าเซ็นก่อน พนักงานเซ็นทีหลังผ่านหน้านี้)
+      container.innerHTML = '<div id="staffSignTabRoot"></div>';
+      initStaffSignTab('staffSignTabRoot', state.user);
+      return;
+    }
     if (state.activeTab === 'for_cs') {
       // contracts-tab.js ต้องการ id ของ container ที่จะ render ใส่ ไม่ใช่ id ตายตัวว่า "app" เหมือน cs-review.html
       // ย้ายมาจาก key 'contracts' มาไว้ที่นี่ (2026-09-03 ตามที่ user ขอ) — นี่คือเครื่องมือหลักที่ CS ใช้ทำงาน
