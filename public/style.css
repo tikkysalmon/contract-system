@@ -1,0 +1,229 @@
+@import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+:root {
+  /* โทนสีปรับให้ตรงกับระบบ CRM จริง (crm.salmonphone.com) — ส้ม/พีชอุ่นๆ แทนส้มสดจัดแบบเดิม (2026-09-03) */
+  --primary: #f2914f;
+  --primary-dark: #d97a3a;
+  --primary-light: #ffe3c7;
+  --accent-blue: #3b82f6;
+  --ink: #2d2a26;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --bg: #fffaf5;
+  --card: #ffffff;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --radius: 12px;
+  --icon-gray: #47505b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Prompt", "Noto Sans Thai", "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+.wrap { max-width: 640px; margin: 0 auto; padding: 16px 16px 96px; }
+header.top {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+}
+.brand { font-weight: 700; font-size: 15px; }
+.brand small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+
+.stepper { display: flex; gap: 4px; margin-top: 10px; }
+.stepper .dot {
+  flex: 1; height: 5px; border-radius: 4px; background: var(--border);
+}
+.stepper .dot.done { background: var(--primary); }
+.stepper .dot.current { background: var(--primary); opacity: 0.55; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px; margin-top: 16px;
+}
+.card h2 { margin: 0 0 4px; font-size: 17px; }
+.card .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.field .req { color: var(--danger); }
+.field input[type=text],
+.field input[type=tel],
+.field input[type=date],
+.field select {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 15px; font-family: inherit; background: #fff;
+}
+.field input:focus, .field select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+.field .err { color: var(--danger); font-size: 12.5px; margin-top: 5px; display: none; }
+.field.invalid input, .field.invalid select, .field.invalid .date-display { border-color: var(--danger); }
+.field.invalid .err { display: block; }
+.field.valid input, .field.valid select, .field.valid .date-display { border-color: var(--ok); }
+
+.date-display {
+  /* กล่องนี้ทับด้วย input[type=date] จริงที่โปร่งใส (ดู .date-field-wrap ด้านล่าง) คลิกที่ไหนก็แก้ไขได้
+     — เติมไอคอนปฏิทินด้านขวาไว้เป็นสัญญาณภาพว่ากดแก้ไขได้ ไม่ใช่แค่ข้อความนิ่ง ๆ (2026-09-03 user ทักว่าดู
+     เหมือนแก้ไม่ได้ทั้งที่จริงคลิกแก้ได้อยู่แล้ว) */
+  padding: 10px 40px 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background-color: #fff; font-size: 15px; font-family: inherit; cursor: pointer;
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2347505b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='16' y1='2' x2='16' y2='6'%3E%3C/line%3E%3Cline x1='8' y1='2' x2='8' y2='6'%3E%3C/line%3E%3Cline x1='3' y1='10' x2='21' y2='10'%3E%3C/line%3E%3C/svg%3E");
+}
+.date-field-wrap { position: relative; }
+.date-field-wrap input[type=date] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+
+/* ปฏิทินเลือกวันที่แบบกำหนดเอง (thai-date-picker.js) — popup ลอยใต้ .date-display ของ .date-field-wrap
+   ที่มันสังกัดอยู่ (2026-09-03 ตามภาพตัวอย่างที่ user ส่งมา: ปฏิทินแบบไทย เดือน/ปี พ.ศ., วันนี้เป็นวงกลมขอบฟ้า,
+   วันที่เลือกเป็นวงกลมส้มทึบ) */
+.tdp-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 264px;
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 12px;
+}
+.tdp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tdp-title { font-weight: 700; font-size: 14px; color: var(--ink); }
+.tdp-nav {
+  border: none; background: none; cursor: pointer; font-size: 18px; line-height: 1; color: var(--icon-gray);
+  padding: 4px 8px; border-radius: 8px; font-family: inherit;
+}
+.tdp-nav:hover { background: #f3f4f6; }
+.tdp-weekdays, .tdp-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.tdp-weekdays div { text-align: center; font-size: 11.5px; color: var(--muted); padding: 4px 0 6px; }
+.tdp-cell {
+  border: none; background: none; cursor: pointer; font-family: inherit; font-size: 13.5px; color: var(--ink);
+  aspect-ratio: 1 / 1; border-radius: 999px; display: flex; align-items: center; justify-content: center;
+}
+.tdp-cell:hover:not(.selected) { color: var(--primary-dark); font-weight: 700; }
+.tdp-cell.outside { color: #c9ccd1; }
+.tdp-cell.today { border: 1.5px solid var(--accent-blue); }
+.tdp-cell.selected { background: var(--primary); color: #fff; font-weight: 700; }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .row2 { grid-template-columns: 1fr; } }
+
+.upload-box {
+  border: 2px dashed var(--border); border-radius: 10px; padding: 14px; text-align: center;
+  cursor: pointer; background: #fafafa;
+}
+.upload-box.has-file { border-style: solid; border-color: var(--ok); background: #f0fdf4; }
+.upload-box input[type=file] { display: none; }
+.upload-box img.preview { max-width: 100%; max-height: 160px; border-radius: 6px; margin-top: 8px; }
+.upload-box .upload-msg { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+.so-search-pill {
+  display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 999px;
+  overflow: hidden; background: #fff;
+}
+.so-search-pill:focus-within { border-color: var(--primary); }
+.so-search-pill .so-search-type {
+  border: none; border-right: 1px solid var(--border); background: #fff; padding: 0 14px;
+  font-size: 14px; font-family: inherit; color: var(--ink); cursor: pointer; border-radius: 0;
+}
+.so-search-pill .so-search-input-wrap { flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 14px; min-width: 0; }
+.so-search-pill .so-search-icon { color: var(--icon-gray); display: flex; flex-shrink: 0; cursor: pointer; }
+.so-search-pill .so-search-icon svg { width: 18px; height: 18px; }
+.so-search-pill input {
+  flex: 1; min-width: 0; border: none; padding: 11px 0; font-size: 14px; font-family: inherit;
+  background: transparent; color: var(--ink);
+}
+.so-search-pill input:focus { outline: none; }
+
+.notice {
+  background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;
+  border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px;
+}
+
+.installment-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 10px; }
+.installment-table th, .installment-table td {
+  border: 1px solid var(--border); padding: 6px 8px; text-align: right;
+}
+.installment-table th:first-child, .installment-table td:first-child { text-align: center; }
+.installment-table thead { background: #f3f4f6; }
+
+.contract-text {
+  max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; font-size: 13px; line-height: 1.7; background: #fcfcfd; white-space: pre-wrap;
+}
+
+.sig-pad-wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; touch-action: none; }
+.sig-pad-wrap canvas { display: block; width: 100%; height: 180px; }
+.sig-tools { display: flex; gap: 8px; margin-top: 8px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.btn-primary { background: linear-gradient(180deg, #f7ac74, var(--primary)); color: #fff; border-radius: 999px; }
+.btn-primary:disabled { background: #f2d3b8; cursor: not-allowed; }
+.btn-secondary { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+.btn-ghost { background: transparent; color: var(--muted); }
+
+.nav-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; background: var(--card);
+  border-top: 1px solid var(--border); padding: 12px 16px;
+  display: flex; gap: 10px; justify-content: space-between;
+}
+.nav-bar .btn { flex: 1; }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+.badge-info { background: #e0f2fe; color: #075985; }
+.badge-warn { background: #fef3c7; color: #92400e; }
+
+.center-msg { text-align: center; padding: 60px 20px; color: var(--muted); }
+
+/* ===== app.html: หน้าล็อกอิน + sidebar (2026-09-03, ให้ตรงโทนกับระบบ CRM จริง) ===== */
+.login-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #fff, #fff5ea);
+}
+.login-card { width: 100%; max-width: 360px; padding: 32px 28px; text-align: center; }
+.login-mascot { width: 140px; height: auto; margin: 0 auto 8px; display: block; animation: mascotBounce 2.6s ease-in-out infinite; }
+@keyframes mascotBounce {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(-2deg); }
+}
+.login-title { font-size: 20px; font-weight: 700; margin: 4px 0 2px; }
+.login-subtitle { font-size: 16px; font-weight: 700; margin: 0 0 24px; }
+.login-card .field { text-align: left; }
+.login-card input, .login-card select {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+  font-size: 14px; font-family: inherit; background: #fdfcfb;
+}
+.pwd-wrap { position: relative; }
+.pwd-wrap button {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; color: var(--muted); font-size: 16px; padding: 4px;
+}
+.login-card .btn-primary { width: 100%; margin-top: 8px; padding: 13px; }
+
+.app-shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 240px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--border);
+  padding: 20px 14px; display: flex; flex-direction: column; gap: 4px;
+}
+.sidebar-brand { display: flex; align-items: center; gap: 8px; padding: 0 8px 18px; }
+.sidebar-brand img { width: 34px; height: 34px; object-fit: contain; }
+.sidebar-brand .name { font-weight: 700; font-size: 14px; line-height: 1.3; }
+.sidebar-brand .name small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.menu-item {
+  display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 999px;
+  font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer; border: none; background: none;
+  text-align: left; width: 100%; font-family: inherit;
+}
+.menu-item:hover { background: #fef3e8; }
+.menu-item.active { background: var(--primary-light); color: var(--primary-dark); }
+.menu-item .icon { width: 20px; text-align: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.menu-item .icon svg { width: 19px; height: 19px; color: var(--icon-gray); }
+.sidebar-divider { height: 1px; background: var(--border); margin: 10px 4px; }
+.sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
+.sidebar-footer .who { font-size: 12px; color: var(--muted); padding: 0 14px 8px; }
+.main-content { flex: 1; min-width: 0; padding: 24px 28px 60px; }
+.main-content .wrap { max-width: 720px; margin: 0; padding: 0; }
+.placeholder-panel {
+  border: 2px dashed var(--border); border-radius: var(--radius); padding: 60px 20px;
+  text-align: center; color: var(--muted); background: #fff;
+}
