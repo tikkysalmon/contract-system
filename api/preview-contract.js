@@ -166,15 +166,16 @@ module.exports = async function handler(req, res) {
     const rawBlocks = parseDocxBodyToBlocks(outXml);
 
     // ตัดจำนวนแถวในตารางผ่อนให้เท่ากับ installmentCount จริง (เดิม fix 12 แถวเสมอ เติม "-" ในแถวที่เกิน —
-    // 2026-09-04 user ขอให้แสดงเท่าจำนวนงวดจริงเท่านั้น) + ตัดทุกอย่างหลังตารางทิ้ง (รูปแนบ/ตรารับรองสำเนา/
-    // ลายเซ็นลอยที่ดึงมาจาก docx เป็นขยะตำแหน่งเพี้ยนอยู่แล้ว — ดู docx-blocks.js) เพราะ contract-html-renderer.js
-    // ฝั่ง client เป็นคนสร้างหน้ารูปแนบ+บล็อกลายเซ็นเองทั้งหมดจากข้อมูลลูกค้าจริง ไม่ต้องพึ่งข้อความจาก docx ตรงนี้
+    // 2026-09-04 user ขอให้แสดงเท่าจำนวนงวดจริงเท่านั้น) + ตัดทุกอย่างตั้งแต่ placeholder รูปแนบตัวแรกทิ้ง
+    // (ไม่ใช่ตัดทุกอย่างหลังตารางแบบเดิม — เจอบั๊กจริง: กรณีมีผู้ค้ำ เนื้อหา "หนังสือสัญญาค้ำประกัน" อยู่ต่อ
+    // จากตารางแต่ก่อนรูปแนบ ถูกตัดทิ้งไปด้วยทั้งที่เป็นเนื้อหาจริงที่ต้องเก็บไว้) ส่วนรูปแนบ/ตรารับรองสำเนา/
+    // ลายเซ็น contract-html-renderer.js ฝั่ง client เป็นคนสร้างเองทั้งหมดจากข้อมูลลูกค้าจริง ไม่ต้องพึ่ง docx
     const installmentCount = Number((body.session && body.session.installmentCount) || 0);
     const tableIdx = rawBlocks.findIndex((b) => b.type === 'table');
     const headingIdx = rawBlocks.findIndex((b) => b.type === 'paragraph' && b.text.indexOf('ตารางแสดงภาระหนี้') === 0);
-    let blocks = rawBlocks;
+    const photoPlaceholderIdx = rawBlocks.findIndex((b) => b.type === 'paragraph' && b.text.indexOf('แนบไฟล์รูปถ่าย') !== -1);
+    let blocks = photoPlaceholderIdx !== -1 ? rawBlocks.slice(0, photoPlaceholderIdx) : rawBlocks;
     if (tableIdx !== -1) {
-      blocks = rawBlocks.slice(0, tableIdx + 1);
       blocks[tableIdx] = Object.assign({}, blocks[tableIdx], {
         rows: installmentCount > 0 ? blocks[tableIdx].rows.slice(0, installmentCount) : blocks[tableIdx].rows,
       });

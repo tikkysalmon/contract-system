@@ -9,6 +9,21 @@
 
 function stripTags(xml) { return xml.replace(/<[^>]+>/g, ''); }
 
+// ตัด <w:drawing>...</w:drawing> (กล่องข้อความลอย/floating textbox) ทิ้งทั้งก้อนตั้งแต่ระดับ XML ก่อนแยก
+// ย่อหน้า (2026-09-04) — เทมเพลตนี้มี 7 กล่องเสมอ (ตรวจสอบแล้วทั้ง master-downpayment.docx และ
+// master-installment.docx) ล้วนเป็นลายเซ็น/ตรารับรองสำเนาที่ Word เก็บตำแหน่งไว้แบบ absolute (wp:positionV/H)
+// ซึ่งคำนวณย้อนกลับมาวางตำแหน่งให้ตรงเป๊ะไม่ได้โดยไม่มี layout engine ของ Word จริง — ตัดทิ้งตรงนี้แทนที่จะ
+// กรองด้วยข้อความทีหลัง (isFloatingTextboxNoise ด้านล่าง) เพราะการกรองด้วยข้อความอย่างเดียวเคยลบเนื้อหาจริง
+// หลุดไปด้วย (บั๊กที่เจอ: ตัดทุกอย่างหลังตารางผ่อนทิ้งหมด รวมถึง "หนังสือสัญญาค้ำประกัน" ที่เป็นเนื้อหาจริง
+// ของกรณีมีผู้ค้ำ ซึ่งอยู่ต่อจากตารางแต่ก่อนรูปแนบ) ตัดที่ต้นตอแบบนี้แม่นกว่าและไม่ต้องเดา
+function stripFloatingDrawings(xml) {
+  return xml.split('<w:drawing>').map(function (chunk, i) {
+    if (i === 0) return chunk; // ก่อน <w:drawing> ตัวแรก ไม่มีอะไรต้องตัด
+    var endIdx = chunk.indexOf('</w:drawing>');
+    return endIdx === -1 ? chunk : chunk.slice(endIdx + '</w:drawing>'.length);
+  }).join('');
+}
+
 function decodeXmlEntities(s) {
   return s
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
@@ -55,7 +70,10 @@ function runsFromParagraphXml(pXml) {
 // จากข้อมูลลูกค้าจริง (ชื่อ/รูปที่อัปโหลด) วางในตำแหน่งที่อ่านเข้าใจง่าย (ท้ายเนื้อหาสัญญา + หน้ารูปแนบ)
 function isFloatingTextboxNoise(text) {
   return /ลายเซ็น/.test(text) || /สำเนาถูกต้อง/.test(text) ||
-    text === 'เอกสารฉบับนี้ใช้สำหรับผ่อนสินค้ากับบจก.แซลม่อน เอ็นเตอร์ไพรส์เท่านั้น';
+    text === 'เอกสารฉบับนี้ใช้สำหรับผ่อนสินค้ากับบจก.แซลม่อน เอ็นเตอร์ไพรส์เท่านั้น' ||
+    // ย่อหน้าทั้งก้อนเป็นแค่ "(ชื่อ)" ในวงเล็บเดี่ยวๆ ล้วน — เศษที่เหลือจากบรรทัดชื่อใต้ลายเซ็นลอย (ปกติอยู่
+    // ในกล่องข้อความลอยเดียวกันกับ "ลายเซ็น..." ที่ตัดไปแล้วข้างบน แต่บางจุดเป็นย่อหน้าแยกนอกกล่องลอยด้วย)
+    /^\(.+\)$/.test(text);
 }
 
 function paragraphsFromXml(xml) {
@@ -78,7 +96,8 @@ function tableFromXml(tableXml) {
   });
 }
 
-function parseDocxBodyToBlocks(xml) {
+function parseDocxBodyToBlocks(rawXml) {
+  var xml = stripFloatingDrawings(rawXml);
   var tblStart = xml.indexOf('<w:tbl>');
   var tblEnd = xml.indexOf('</w:tbl>');
   if (tblStart === -1 || tblEnd === -1) return paragraphsFromXml(xml);
