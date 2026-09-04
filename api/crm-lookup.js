@@ -170,52 +170,92 @@ async function buildSoData(soNumber, token) {
   };
 }
 
+// ค้นหาลูกค้าด้วยชื่อ (2026-09-04) — endpoint จริงที่ user เจอผ่าน Network tab ของ CRM เอง (ผมเดาไม่ถูกอยู่
+// นาน ลอง query param ไปหลายชื่อ ไม่มีตัวไหนกรองได้จริงจนกว่าจะได้ URL จริงจากเบราว์เซอร์ user):
+// GET /crm/customer?page=1&pageSize=10&mode=quick&searchBy=name&searchValue=<ชื่อ>
+async function searchCustomersByName(name, token) {
+  const data = await crmGet(
+    '/crm/customer?page=1&pageSize=20&mode=quick&searchBy=name&searchValue=' + encodeURIComponent(name),
+    token
+  );
+  return (data.customers || []).map(function (c) {
+    return {
+      customerId: c.customerId,
+      firstLastName: (c.firstName + ' ' + c.lastName).trim(),
+      telNo: c.telNo,
+      productAmount: c.productAmount, // จำนวน SO ทั้งหมดของลูกค้าคนนี้ (จาก CRM ตรงๆ)
+    };
+  });
+}
+
+// ดึง SO ทั้งหมดของลูกค้าคนหนึ่ง (จาก customerId) แล้ว resolve แต่ละ SO ให้เต็ม (ราคา/ตารางผ่อน) ด้วย
+// buildSoData() — ใช้ทั้งตอนหา "SO อื่นของลูกค้าคนเดียวกัน" (จากการค้นหาด้วยเลข SO) และตอนค้นหาด้วยชื่อลูกค้า
+// โดยตรง (แสดงทุก SO ให้ CS ติ๊กเลือกเอง ไม่บังคับรวมตัวไหน)
+async function resolveCustomerSoItems(customerId, token) {
+  const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(customerId), token);
+  const soNumbers = (customerDetail.saleOrders || []).map(function (so) { return so.saleOrderId; }).filter(Boolean);
+  const resolved = await Promise.all(soNumbers.map(function (id) {
+    return buildSoData(id, token).catch(function () { return null; }); // ข้ามตัวที่ดึงพังไปทีละตัว ไม่ให้ทั้งชุดพัง
+  }));
+  return resolved.filter(function (item) { return item && !item.unsupported; });
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
   const soNumber = String((req.query && req.query.so) || '').trim();
-  if (!soNumber) {
-    res.status(400).json({ error: 'ต้องระบุเลขที่คำสั่งขาย (so)' });
+  const customerName = String((req.query && req.query.name) || '').trim();
+  const customerId = String((req.query && req.query.customerId) || '').trim();
+  if (!soNumber && !customerName && !customerId) {
+    res.status(400).json({ error: 'ต้องระบุเลขที่คำสั่งขาย (so) หรือชื่อลูกค้า (name)' });
     return;
   }
 
   try {
     let token = cachedToken || (cachedToken = await crmLogin());
-    let data;
-    try {
-      data = await buildSoData(soNumber, token);
-    } catch (err) {
-      if (err.status === 401) {
-        // token หมดอายุ/ไม่ถูกต้อง ลอง login ใหม่ 1 ครั้ง
-        token = cachedToken = await crmLogin();
-        data = await buildSoData(soNumber, token);
-      } else {
+    async function withRetryOn401(fn) {
+      try {
+        return await fn(token);
+      } catch (err) {
+        if (err.status === 401) { token = cachedToken = await crmLogin(); return fn(token); } // token หมดอายุ ลอง login ใหม่ 1 ครั้ง
         throw err;
       }
     }
 
+    // โหมดค้นหาด้วยชื่อลูกค้า — ถ้าเจอลูกค้าตรงชื่อมากกว่า 1 คน คืนลิสต์ให้ CS เลือกก่อน (แล้วค่อยเรียกซ้ำด้วย
+    // customerId) ถ้าเจอพอดี 1 คน resolve SO ทั้งหมดของคนนั้นให้เลย ไม่ต้องถามซ้ำ
+    if (customerName) {
+      const customers = await withRetryOn401(function (t) { return searchCustomersByName(customerName, t); });
+      if (!customers.length) { res.status(200).json({ error: 'ไม่พบลูกค้าชื่อนี้ในระบบ' }); return; }
+      if (customers.length > 1) { res.status(200).json({ customers: customers }); return; }
+      const items = await withRetryOn401(function (t) { return resolveCustomerSoItems(customers[0].customerId, t); });
+      res.status(200).json({ customer: customers[0], items: items });
+      return;
+    }
+
+    if (customerId) {
+      const items = await withRetryOn401(function (t) { return resolveCustomerSoItems(customerId, t); });
+      res.status(200).json({ items: items });
+      return;
+    }
+
+    // โหมดเดิม — ค้นหาด้วยเลข SO ตรงๆ
+    const data = await withRetryOn401(function (t) { return buildSoData(soNumber, t); });
     if (data.unsupported) {
       res.status(200).json({ error: data.unsupported });
       return;
     }
 
     // ข้อจำกัดของ CRM (2026-09-04 user แจ้ง): ถ้าลูกค้าซื้อวางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกัน CRM บังคับ
-    // เปิดแยกเป็นคนละ SO — ดึง SO อื่นๆ ของลูกค้าคนเดียวกันมาด้วย (แค่เลข SO จาก /crm/customer/{id} ก่อน แล้ว
-    // เรียก buildSoData() ซ้ำต่อ SO เพื่อได้ราคา/ชื่อสินค้าเต็มๆ ให้ CS เห็นพอตัดสินใจว่าจะรวมเข้าลิงก์เดียวกัน
-    // ไหม) ถ้าขั้นตอนนี้ล้มเหลว (เช่น SO อื่นดึงไม่สำเร็จ) ไม่ทำให้การค้นหา SO หลักพังไปด้วย แค่ไม่มีลิสต์ให้เลือกเพิ่ม
+    // เปิดแยกเป็นคนละ SO — ดึง SO อื่นๆ ของลูกค้าคนเดียวกันมาด้วย ให้ CS เห็นพอตัดสินใจว่าจะรวมเข้าลิงก์เดียวกัน
+    // ไหม ถ้าขั้นตอนนี้ล้มเหลว (เช่น SO อื่นดึงไม่สำเร็จ) ไม่ทำให้การค้นหา SO หลักพังไปด้วย แค่ไม่มีลิสต์ให้เลือกเพิ่ม
     let otherItems = [];
     if (data.customerId) {
       try {
-        const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(data.customerId), token);
-        const otherSoNumbers = (customerDetail.saleOrders || [])
-          .map(function (so) { return so.saleOrderId; })
-          .filter(function (id) { return id && id !== data.soNumber; });
-        const resolved = await Promise.all(otherSoNumbers.map(function (id) {
-          return buildSoData(id, token).catch(function () { return null; }); // ข้ามตัวที่ดึงพังไปทีละตัว
-        }));
-        otherItems = resolved.filter(function (item) { return item && !item.unsupported; });
+        const allItems = await resolveCustomerSoItems(data.customerId, token);
+        otherItems = allItems.filter(function (item) { return item.soNumber !== data.soNumber; });
       } catch (e) { /* ข้ามไป ไม่ critical */ }
     }
 
