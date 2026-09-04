@@ -258,14 +258,18 @@ function initContractsTab(containerId) {
 
       // SO อื่นของลูกค้าคนเดียวกัน (2026-09-04) — ข้อจำกัดของ CRM: วางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกันต้อง
       // เปิดแยก SO แต่ user ต้องการให้ลูกค้ากรอกฟอร์มครั้งเดียว จึงให้ CS ติ๊กรวม SO อื่นเข้าลิงก์เดียวกันได้ตรงนี้
+      // — ไม่กรองด้วยเงื่อนไขเวลา/สถานะใดๆ (2026-09-04 user ยืนยันว่าไม่ต้อง กันเคสกรองผิดตกหล่น) แสดง SO อื่น
+      // ทั้งหมดของลูกค้าคนเดียวกัน (ยึดตาม customerId เดียวกันจาก CRM เป็นตัวกรองเดียว) พร้อมชื่อลูกค้ากำกับไว้ให้
+      // CS เห็นชัดๆ ว่าเป็นคนเดียวกันจริงก่อนตัดสินใจติ๊ก (ไม่ใช่แค่เชื่อระบบเฉยๆ)
       if (state.otherItems.length > 0) {
         html += '<div class="card"><h2>พบคำสั่งขายอื่นของลูกค้าคนนี้</h2>' +
-          '<p class="hint">เช่น อุปกรณ์เสริมที่ CRM บังคับแยกเป็นคนละ SO — ติ๊กเลือกเพื่อรวมเข้าลิงก์เดียวกัน ลูกค้าจะกรอกข้อมูล/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO</p>' +
+          '<p class="hint">ลูกค้า "' + (state.result.customer.firstLastName || '-') + '" มี SO อื่นในระบบด้วย — ตรวจชื่อให้ตรงกันก่อนติ๊กเลือกรวมเข้าลิงก์เดียวกัน (เช่น อุปกรณ์เสริมที่ CRM บังคับแยกเป็นคนละ SO) ลูกค้าจะกรอกข้อมูล/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO — SO ที่ไม่เกี่ยวข้องกับรายการนี้อย่าติ๊ก</p>' +
           state.otherItems.map(function (it) {
             var checked = !!state.includedSoNumbers[it.soNumber];
             return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border);">' +
               '<input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' />' +
-              '<span style="flex:1;">' + it.product + (it.color ? ' (' + it.color + ')' : '') + ' — ' + it.soNumber + '</span>' +
+              '<span style="flex:1;">' + it.product + (it.color ? ' (' + it.color + ')' : '') + ' — ' + it.soNumber +
+              '<br><span style="color:var(--muted);font-size:12.5px;">ลูกค้า: ' + (it.customer.firstLastName || '-') + '</span></span>' +
               '<b>' + fmtMoney(it.remainingBalance) + ' บาท</b>' +
               '</label>';
           }).join('') +
