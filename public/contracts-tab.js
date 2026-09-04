@@ -21,9 +21,10 @@ function initContractsTab(containerId) {
     soNumber: '',
     loading: false,
     error: null,
-    result: null,
-    installmentCount: null,
-    firstDueDate: '',
+    result: null,           // ข้อมูล SO หลักที่ค้นหา (body.data)
+    otherItems: [],         // SO อื่นของลูกค้าคนเดียวกัน (body.otherItems) — เช่น อุปกรณ์เสริมที่ CRM บังคับแยก SO
+    includedSoNumbers: {},  // { soNumber: true } — SO อื่นที่ CS ติ๊กเลือกรวมเข้าลิงก์เดียวกัน (SO หลักรวมเสมอ)
+    itemInputs: {},         // { soNumber: { installmentCount, firstDueDate } } — ยืนยันแยกต่อ SO
     linkCreated: false,
     creatingLink: false,
     linkError: null,
@@ -43,9 +44,44 @@ function initContractsTab(containerId) {
       '<table class="installment-table"><thead><tr><th>วันที่ชำระ</th><th>ประเภท</th><th>งวดที่</th><th>จำนวนเงิน</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
+  // ตั้งค่าเริ่มต้นของ "จำนวนงวดที่ผ่อน"/"วันเริ่มผ่อนงวดแรก" ให้ item หนึ่ง (เรียกตอนโหลด SO หลัก และตอน CS
+  // ติ๊กรวม SO อื่นเข้ามาใหม่) — ไม่ทับถ้ามีอยู่แล้ว กันค่าที่ CS แก้ไปแล้วหายตอน re-render
+  function initItemInput(item) {
+    if (state.itemInputs[item.soNumber]) return;
+    var firstDueDate = item.nextDueDateFromCrm;
+    if (!firstDueDate) {
+      var d = new Date(); d.setMonth(d.getMonth() + 1);
+      firstDueDate = d.toISOString().slice(0, 10);
+    }
+    state.itemInputs[item.soNumber] = {
+      installmentCount: item.installmentCountFromCrm || 12,
+      firstDueDate: firstDueDate,
+    };
+  }
+
+  // SO ที่จะรวมเข้าลิงก์เดียวกันจริง — SO หลักเสมอ + SO อื่นที่ CS ติ๊กเลือก (2026-09-04 ตามข้อจำกัด CRM ที่
+  // บังคับแยก SO เวลาซื้อวางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกัน แต่ user ต้องการให้ลูกค้ากรอกฟอร์มครั้งเดียว)
+  function selectedItems() {
+    if (!state.result) return [];
+    var items = [state.result];
+    state.otherItems.forEach(function (it) {
+      if (state.includedSoNumbers[it.soNumber]) items.push(it);
+    });
+    return items;
+  }
+
+  function computeInstallmentAmountFor(item) {
+    var cfg = state.itemInputs[item.soNumber];
+    if (!item || !cfg || !cfg.installmentCount) return 0;
+    return item.remainingBalance / cfg.installmentCount;
+  }
+
   async function doLookup() {
     state.error = null;
     state.result = null;
+    state.otherItems = [];
+    state.includedSoNumbers = {};
+    state.itemInputs = {};
     state.linkCreated = false;
     if (!state.soNumber.trim()) { state.error = 'กรุณากรอกเลขที่คำสั่งขาย'; render(); return; }
     state.loading = true;
@@ -57,13 +93,8 @@ function initContractsTab(containerId) {
         state.error = body.error || 'เกิดข้อผิดพลาด';
       } else {
         state.result = body.data;
-        state.installmentCount = body.data.installmentCountFromCrm || 12;
-        if (body.data.nextDueDateFromCrm) {
-          state.firstDueDate = body.data.nextDueDateFromCrm;
-        } else {
-          var d = new Date(); d.setMonth(d.getMonth() + 1);
-          state.firstDueDate = d.toISOString().slice(0, 10);
-        }
+        state.otherItems = body.otherItems || [];
+        initItemInput(state.result);
       }
     } catch (err) {
       state.error = 'เรียก API ไม่สำเร็จ: ' + err.message + ' (ถ้ารันไฟล์นี้ตรงๆ ผ่าน file:// ต้องรันผ่าน dev-server.js ก่อน — ดู README)';
@@ -72,16 +103,14 @@ function initContractsTab(containerId) {
     render();
   }
 
-  function computeInstallmentAmount() {
-    if (!state.result || !state.installmentCount) return 0;
-    return state.result.remainingBalance / state.installmentCount;
-  }
-
   // ให้ CS/ผู้ทดสอบดูเอกสารจริงได้ทันทีหลังสร้างลิงก์ ไม่ต้องเดินฟอร์มลูกค้าทั้งชุดก่อน (2026-09-03 user ขอ
   // "ในหน้าเว็บทดสอบต้องการเห็นตัวอย่างเอกสารจริงทั้งหมด") ใช้ข้อมูลลูกค้า placeholder ("-") ไปก่อนเพราะ
-  // ตอนนี้ลูกค้ายังไม่ได้กรอกฟอร์ม — ตัวเลขราคา/ตารางผ่อนเป็นของจริงจาก CRM ครบ
-  function previewContract() {
-    var btn = document.getElementById('btnPreviewContract');
+  // ตอนนี้ลูกค้ายังไม่ได้กรอกฟอร์ม — ตัวเลขราคา/ตารางผ่อนเป็นของจริงจาก CRM ครบ — มีหลาย SO รวมกันได้ ปุ่มดู
+  // ตัวอย่างสัญญาจึงแยกทีละฉบับต่อ SO (แต่ละฉบับก็เป็น session แบบเดิม เดี่ยว ไม่ต้องแก้ preview-contract.js)
+  function previewContractFor(soNumber) {
+    var item = state.lastSessionItems.filter(function (it) { return it.soNumber === soNumber; })[0];
+    if (!item) return;
+    var btn = document.getElementById('btnPreviewContract__' + soNumber);
     var errEl = document.getElementById('previewContractErr');
     errEl.textContent = '';
     btn.disabled = true;
@@ -90,10 +119,15 @@ function initContractsTab(containerId) {
       title: '-', firstLastName: '-', age: '-', citizenId: '-', phone: '-', nationality: 'ไทย',
       reference: { firstLastName: '-', phone: '-', relation: '-' },
     };
+    var flatSession = Object.assign({
+      contractDate: state.lastContractDate,
+      customer: state.lastCustomer,
+      letterheadDataUrl: state.letterheadDataUrl || null,
+    }, item);
     fetch('/api/preview-contract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: state.lastSession, customer: placeholderCustomer }),
+      body: JSON.stringify({ session: flatSession, customer: placeholderCustomer }),
     })
       .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
       .then(function (result) {
@@ -109,31 +143,39 @@ function initContractsTab(containerId) {
       })
       .finally(function () {
         btn.disabled = false;
-        btn.textContent = '📄 ดูตัวอย่างสัญญา (PDF)';
+        btn.textContent = '📄 ดูตัวอย่างสัญญา: ' + item.product + ' (PDF)';
       });
   }
 
+  // สร้าง session เดียวที่รวมทุก SO ที่เลือกไว้ — ลูกค้ากรอกข้อมูล/เซ็นครั้งเดียว แต่ระบบจะออกสัญญาแยกฉบับ
+  // ต่อ SO (แต่ละฉบับมีตารางผ่อนของตัวเอง ตามที่ user ยืนยัน 2026-09-04 ว่า "แยกตารางผ่อนตาม SO เดิม")
   async function createLink() {
-    var r = state.result;
+    var items = selectedItems();
     var contractDate = new Date().toISOString().slice(0, 10);
+    var sessionItems = items.map(function (r) {
+      var cfg = state.itemInputs[r.soNumber];
+      return {
+        soNumber: r.soNumber,
+        contractNo: buildContractNo(contractDate, r.soNumber), // SALMONyyyymmdd-xxxxx ต่อ SO (2026-09-03 user ขอ)
+        product: r.product,
+        color: r.color,
+        planType: r.planType,
+        productPrice: r.productPrice,
+        totalDiscount: r.totalDiscount,
+        netPrice: r.netPrice,
+        downPayment: r.downPayment,
+        installmentsPaidSoFar: r.installmentsPaidSoFar,
+        installmentsPaidCount: r.installmentsPaidCount,
+        remainingBalance: r.remainingBalance,
+        installmentCount: cfg.installmentCount,
+        firstDueDate: cfg.firstDueDate,
+      };
+    });
     var session = {
-      soNumber: r.soNumber,
-      contractNo: buildContractNo(contractDate, r.soNumber), // SALMONyyyymmdd-xxxxx (2026-09-03 user ขอ)
       contractDate: contractDate,
-      product: r.product,
-      color: r.color,
-      planType: r.planType,
-      productPrice: r.productPrice,
-      totalDiscount: r.totalDiscount,
-      netPrice: r.netPrice,
-      downPayment: r.downPayment,
-      installmentsPaidSoFar: r.installmentsPaidSoFar,
-      installmentsPaidCount: r.installmentsPaidCount,
-      remainingBalance: r.remainingBalance,
-      installmentCount: state.installmentCount,
-      firstDueDate: state.firstDueDate,
-      customer: r.customer,
+      customer: items[0].customer, // สมมติลูกค้าคนเดียวกันทุก SO ที่รวม (ตรงตามสเปก — ดึงมาจาก SO เดียวกัน)
       letterheadDataUrl: state.letterheadDataUrl || null,
+      items: sessionItems,
     };
     state.creatingLink = true;
     state.linkError = null;
@@ -146,11 +188,13 @@ function initContractsTab(containerId) {
       });
       var body = await res.json();
       if (!res.ok || !body.token) throw new Error(body.error || 'สร้างลิงก์ไม่สำเร็จ');
-      state.lastSession = session;
+      state.lastSessionItems = sessionItems;
+      state.lastContractDate = contractDate;
+      state.lastCustomer = session.customer;
       state.lastLinkUrl = location.origin + '/sign.html?token=' + body.token;
       state.linkCreated = true;
     } catch (err) {
-      state.linkError = 'สร้างลิงก์ไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_ANON_KEY บน server ต้องตั้งก่อน)';
+      state.linkError = 'สร้างลิงก์ไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server ต้องตั้งก่อน)';
     }
     state.creatingLink = false;
     render();
@@ -171,12 +215,10 @@ function initContractsTab(containerId) {
       (state.error ? '<p style="color:var(--danger);margin-top:10px;">' + state.error + '</p>' : '') +
       '</div>';
 
-    if (state.result) {
-      var r = state.result;
+    function itemSummaryHtml(r, title) {
       var planLabel = r.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
       var accumulatedLabel = r.planType === 'downpayment' ? 'ยอดวางดาวน์' : 'ยอดผ่อนสะสม';
-
-      html += '<div class="card"><h2>ข้อมูลจาก CRM</h2><span class="badge badge-info">' + planLabel + '</span>' +
+      return '<div class="card"><h2>' + title + '</h2><span class="badge badge-info">' + planLabel + '</span>' +
         '<table class="installment-table" style="margin-top:10px;">' +
         row('วิธีการผ่อน', planLabel) +
         row('สินค้า', r.product + (r.color ? ' (' + r.color + ')' : '')) +
@@ -189,19 +231,53 @@ function initContractsTab(containerId) {
         '</table>' +
         paymentHistoryHtml(r.paymentHistory) +
         '</div>';
+    }
 
-      html += '<div class="card"><h2>CS กรอกยืนยันก่อนสร้างลิงก์</h2>' +
+    function confirmBlockHtml(r) {
+      var cfg = state.itemInputs[r.soNumber];
+      var suffix = '__' + r.soNumber;
+      return '<div class="card"><h2>CS กรอกยืนยันก่อนสร้างลิงก์ — ' + r.product + '</h2>' +
         '<p class="hint">ตัวเลขจาก CRM เป็นแค่ค่าเริ่มต้น กรุณาตรวจสอบ/แก้ไขให้ตรงกับที่ตกลงกับลูกค้าจริงก่อนกดสร้างลิงก์</p>' +
         '<div class="row2">' +
-        '<div class="field"><label>จำนวนงวดที่ผ่อน</label><input type="text" id="installmentCountInput" value="' + state.installmentCount + '" /></div>' +
+        '<div class="field"><label>จำนวนงวดที่ผ่อน</label><input type="text" id="installmentCountInput' + suffix + '" data-so="' + r.soNumber + '" value="' + cfg.installmentCount + '" /></div>' +
         '<div class="field"><label>วันเริ่มผ่อนงวดแรก</label>' +
-        '<div class="date-field-wrap" id="firstDueDateWrap">' +
-        '<div class="date-display">' + (isoToDDMMYYYY(state.firstDueDate) || 'เลือกวันที่') + '</div>' +
+        '<div class="date-field-wrap" id="firstDueDateWrap' + suffix + '">' +
+        '<div class="date-display">' + (isoToDDMMYYYY(cfg.firstDueDate) || 'เลือกวันที่') + '</div>' +
         '</div></div>' +
         '</div>' +
-        '<p>ยอดผ่อนต่องวดที่คำนวณได้: <b id="computedInstallmentAmount">' + fmtMoney(computeInstallmentAmount()) + ' บาท</b></p>' +
+        '<p>ยอดผ่อนต่องวดที่คำนวณได้: <b id="computedInstallmentAmount' + suffix + '">' + fmtMoney(computeInstallmentAmountFor(r)) + ' บาท</b></p>' +
+        '</div>';
+    }
+
+    function row(label, value, bold) {
+      return '<tr><td style="text-align:left">' + label + '</td><td' + (bold ? ' style="font-weight:700"' : '') + '>' + value + '</td></tr>';
+    }
+
+    if (state.result) {
+      html += itemSummaryHtml(state.result, 'ข้อมูลจาก CRM');
+
+      // SO อื่นของลูกค้าคนเดียวกัน (2026-09-04) — ข้อจำกัดของ CRM: วางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกันต้อง
+      // เปิดแยก SO แต่ user ต้องการให้ลูกค้ากรอกฟอร์มครั้งเดียว จึงให้ CS ติ๊กรวม SO อื่นเข้าลิงก์เดียวกันได้ตรงนี้
+      if (state.otherItems.length > 0) {
+        html += '<div class="card"><h2>พบคำสั่งขายอื่นของลูกค้าคนนี้</h2>' +
+          '<p class="hint">เช่น อุปกรณ์เสริมที่ CRM บังคับแยกเป็นคนละ SO — ติ๊กเลือกเพื่อรวมเข้าลิงก์เดียวกัน ลูกค้าจะกรอกข้อมูล/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO</p>' +
+          state.otherItems.map(function (it) {
+            var checked = !!state.includedSoNumbers[it.soNumber];
+            return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border);">' +
+              '<input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' />' +
+              '<span style="flex:1;">' + it.product + (it.color ? ' (' + it.color + ')' : '') + ' — ' + it.soNumber + '</span>' +
+              '<b>' + fmtMoney(it.remainingBalance) + ' บาท</b>' +
+              '</label>';
+          }).join('') +
+          '</div>';
+      }
+
+      var items = selectedItems();
+      items.forEach(function (r) { html += confirmBlockHtml(r); });
+
+      html += '<div class="card">' +
         '<button class="btn btn-primary" id="btnCreateLink"' + (state.creatingLink ? ' disabled' : '') + '>' +
-        (state.creatingLink ? 'กำลังสร้างลิงก์...' : 'สร้างลิงก์ให้ลูกค้า') + '</button>' +
+        (state.creatingLink ? 'กำลังสร้างลิงก์...' : 'สร้างลิงก์ให้ลูกค้า' + (items.length > 1 ? ' (' + items.length + ' รายการ)' : '')) + '</button>' +
         (state.linkError ? '<p style="color:var(--danger);margin-top:10px;">' + state.linkError + '</p>' : '') +
         '</div>';
 
@@ -212,8 +288,12 @@ function initContractsTab(containerId) {
           '<div class="so-search-input-wrap"><input type="text" id="linkUrlOutput" value="' + state.lastLinkUrl.replace(/"/g, '&quot;') + '" readonly /></div>' +
           '<button type="button" class="so-search-type" id="btnCopyLink" style="cursor:pointer;">📋 คัดลอก</button>' +
           '</div>' +
-          '<a href="' + state.lastLinkUrl + '" target="_blank" class="btn btn-secondary">เปิดฟอร์มลูกค้า</a> ' +
-          '<button class="btn btn-ghost" id="btnPreviewContract" style="margin-left:8px;">📄 ดูตัวอย่างสัญญา (PDF)</button>' +
+          '<a href="' + state.lastLinkUrl + '" target="_blank" class="btn btn-secondary">เปิดฟอร์มลูกค้า</a>' +
+          '<div style="margin-top:10px;">' +
+          state.lastSessionItems.map(function (item) {
+            return '<button class="btn btn-ghost" id="btnPreviewContract__' + item.soNumber + '" data-so="' + item.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดูตัวอย่างสัญญา: ' + item.product + ' (PDF)</button>';
+          }).join('') +
+          '</div>' +
           '<div class="err" id="previewContractErr"></div>' +
           '</div>';
       }
@@ -221,26 +301,43 @@ function initContractsTab(containerId) {
 
     app.innerHTML = html;
 
-    function row(label, value, bold) {
-      return '<tr><td style="text-align:left">' + label + '</td><td' + (bold ? ' style="font-weight:700"' : '') + '>' + value + '</td></tr>';
-    }
-
     document.getElementById('soInput').addEventListener('input', function (e) { state.soNumber = e.target.value; });
     document.getElementById('soInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLookup(); });
     document.getElementById('btnSearch').addEventListener('click', doLookup);
+
     if (state.result) {
-      document.getElementById('installmentCountInput').addEventListener('input', function (e) {
-        state.installmentCount = Number(e.target.value) || 0;
-        document.getElementById('computedInstallmentAmount').textContent = fmtMoney(computeInstallmentAmount()) + ' บาท';
+      Array.prototype.forEach.call(document.querySelectorAll('.otherSoCheck'), function (cb) {
+        cb.addEventListener('change', function () {
+          var so = cb.getAttribute('data-so');
+          state.includedSoNumbers[so] = cb.checked;
+          if (cb.checked) {
+            var item = state.otherItems.filter(function (it) { return it.soNumber === so; })[0];
+            if (item) initItemInput(item);
+          }
+          render();
+        });
       });
-      attachThaiDatePicker(document.getElementById('firstDueDateWrap'), {
-        value: state.firstDueDate,
-        onChange: function (iso) { state.firstDueDate = iso; },
+
+      selectedItems().forEach(function (r) {
+        var suffix = '__' + r.soNumber;
+        document.getElementById('installmentCountInput' + suffix).addEventListener('input', function (e) {
+          state.itemInputs[r.soNumber].installmentCount = Number(e.target.value) || 0;
+          document.getElementById('computedInstallmentAmount' + suffix).textContent = fmtMoney(computeInstallmentAmountFor(r)) + ' บาท';
+        });
+        attachThaiDatePicker(document.getElementById('firstDueDateWrap' + suffix), {
+          value: state.itemInputs[r.soNumber].firstDueDate,
+          onChange: function (iso) { state.itemInputs[r.soNumber].firstDueDate = iso; },
+        });
       });
+
       document.getElementById('btnCreateLink').addEventListener('click', createLink);
     }
     if (state.linkCreated) {
-      document.getElementById('btnPreviewContract').addEventListener('click', previewContract);
+      state.lastSessionItems.forEach(function (item) {
+        document.getElementById('btnPreviewContract__' + item.soNumber).addEventListener('click', function () {
+          previewContractFor(item.soNumber);
+        });
+      });
       document.getElementById('btnCopyLink').addEventListener('click', function () {
         var input = document.getElementById('linkUrlOutput');
         input.select();

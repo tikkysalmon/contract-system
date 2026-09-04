@@ -116,33 +116,41 @@
   }
 
   // ---------- Step: order summary (9 รายการตามที่ยืนยันกับ user) ----------
+  // session.items[] อาจมีมากกว่า 1 รายการ (2026-09-04 — ข้อจำกัด CRM: วางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกัน
+  // ต้องเปิดแยกเป็นคนละ SO แต่ user ต้องการให้ลูกค้ากรอกฟอร์ม/เซ็นครั้งเดียว) แสดงเป็นตารางแยกทีละ SO
   function renderOrderSummary(container) {
-    var s = session;
-    var planLabel = s.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)'; // ป้ายที่ user ยืนยันแล้ว 2026-09-03
-    var accumulatedLabel = s.planType === 'downpayment' ? 'ยอดวางดาวน์' : 'ยอดผ่อนสะสม';
-    var installmentAmount = s.installmentCount ? s.remainingBalance / s.installmentCount : 0;
-    var firstDue = new Date(s.firstDueDate);
-    var dueDay = firstDue.getDate();
-
-    container.innerHTML =
-      '<div class="card">' +
+    var html = '<div class="card">' +
       '<h2>รายการที่ทำสัญญา</h2>' +
-      '<p class="hint">กรุณาตรวจสอบยอดให้ถูกต้องก่อนเริ่มกรอกข้อมูล หากพบว่าไม่ตรงกับที่ตกลงไว้ กรุณาติดต่อพนักงานก่อนดำเนินการต่อ</p>' +
-      '<p><span class="badge badge-info">' + planLabel + '</span></p>' +
-      '<table class="installment-table">' +
-      row('วิธีการผ่อน', planLabel) +
-      row('รายการสินค้าที่ผ่อน', s.product + (s.color ? ' (' + s.color + ')' : '')) +
-      row('ราคาสินค้า', fmtMoney(s.productPrice) + ' บาท') +
-      row('ส่วนลดรวม', fmtMoney(s.totalDiscount) + ' บาท') +
-      row(accumulatedLabel, fmtMoney(s.downPayment) + ' บาท') +
-      (s.installmentsPaidCount > 0 ? row('งวดที่ผ่อนไปแล้ว', s.installmentsPaidCount + ' งวด (' + fmtMoney(s.installmentsPaidSoFar) + ' บาท)') : '') +
-      row('ยอดคงเหลือสุทธิ', fmtMoney(s.remainingBalance) + ' บาท', true) +
-      row('จำนวนงวดที่ต้องผ่อน', s.installmentCount + ' งวด') +
-      row('ยอดผ่อนต่องวด', fmtMoney(installmentAmount) + ' บาท') +
-      row('วันที่ครบกำหนดชำระ (ทุกวันที่)', 'วันที่ ' + dueDay + ' ของทุกเดือน') +
-      row('เริ่มผ่อนงวดแรกวันที่', fmtDate(firstDue)) +
-      '</table>' +
+      '<p class="hint">กรุณาตรวจสอบยอดให้ถูกต้องก่อนเริ่มกรอกข้อมูล หากพบว่าไม่ตรงกับที่ตกลงไว้ กรุณาติดต่อพนักงานก่อนดำเนินการต่อ' +
+      (session.items.length > 1 ? ' (สัญญาชุดนี้มี ' + session.items.length + ' รายการ กรอกข้อมูล/เซ็นชื่อครั้งเดียวใช้ได้กับทุกรายการ)' : '') + '</p>' +
       '</div>';
+
+    session.items.forEach(function (s) {
+      var planLabel = s.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)'; // ป้ายที่ user ยืนยันแล้ว 2026-09-03
+      var accumulatedLabel = s.planType === 'downpayment' ? 'ยอดวางดาวน์' : 'ยอดผ่อนสะสม';
+      var installmentAmount = s.installmentCount ? s.remainingBalance / s.installmentCount : 0;
+      var firstDue = new Date(s.firstDueDate);
+      var dueDay = firstDue.getDate();
+
+      html += '<div class="card">' +
+        '<h2>' + s.product + (s.color ? ' (' + s.color + ')' : '') + '</h2>' +
+        '<p><span class="badge badge-info">' + planLabel + '</span></p>' +
+        '<table class="installment-table">' +
+        row('วิธีการผ่อน', planLabel) +
+        row('ราคาสินค้า', fmtMoney(s.productPrice) + ' บาท') +
+        row('ส่วนลดรวม', fmtMoney(s.totalDiscount) + ' บาท') +
+        row(accumulatedLabel, fmtMoney(s.downPayment) + ' บาท') +
+        (s.installmentsPaidCount > 0 ? row('งวดที่ผ่อนไปแล้ว', s.installmentsPaidCount + ' งวด (' + fmtMoney(s.installmentsPaidSoFar) + ' บาท)') : '') +
+        row('ยอดคงเหลือสุทธิ', fmtMoney(s.remainingBalance) + ' บาท', true) +
+        row('จำนวนงวดที่ต้องผ่อน', s.installmentCount + ' งวด') +
+        row('ยอดผ่อนต่องวด', fmtMoney(installmentAmount) + ' บาท') +
+        row('วันที่ครบกำหนดชำระ (ทุกวันที่)', 'วันที่ ' + dueDay + ' ของทุกเดือน') +
+        row('เริ่มผ่อนงวดแรกวันที่', fmtDate(firstDue)) +
+        '</table>' +
+        '</div>';
+    });
+
+    container.innerHTML = html;
 
     function row(label, value, bold) {
       return '<tr><td style="text-align:left">' + label + '</td><td' + (bold ? ' style="font-weight:700"' : '') + '>' + value + '</td></tr>';
@@ -178,19 +186,21 @@
     { value: 'Set ของแถมน่ารักๆ คละสี', planTag: 'both' },
     { value: 'ไม่รับของแถม', planTag: 'both' },
   ];
+  // ใช้แผนของรายการแรกตัดสินของแถมที่เลือกได้ (2026-09-04) — สมมติทุก SO ที่รวมในลิงก์เดียวกันเป็นแผนเดียวกัน
+  // ตรงตามสเปกจริง (ซื้อพร้อมกันครั้งเดียว แค่ CRM บังคับแยก SO เท่านั้น)
   function giftOptionsForCurrentPlan() {
-    return GIFT_OPTIONS.filter(function (o) { return o.planTag === 'both' || o.planTag === session.planType; });
+    return GIFT_OPTIONS.filter(function (o) { return o.planTag === 'both' || o.planTag === session.items[0].planType; });
   }
   // โปสเตอร์ของแถมจริง (2026-09-03) — ไฟล์ตั้งชื่อโดย user เองตอนเซฟไว้ใน 15_ระบบทำสัญญา แล้วคัดลอกเข้า assets/
   // "ซื้อสด_วางดาวน์" = แผนวางดาวน์, "เครดิตผ่าน_ผ่อนครบรับของ_ปิดยอด" = แผนเครดิตผ่าน (ผ่อนไปใช้ไป)
-  var GIFT_POSTER_SRC = session.planType === 'downpayment' ? 'assets/gift-downpayment.jpeg' : 'assets/gift-installment.jpeg';
+  var GIFT_POSTER_SRC = session.items[0].planType === 'downpayment' ? 'assets/gift-downpayment.jpeg' : 'assets/gift-installment.jpeg';
 
   function renderGiftSelection(container) {
     var options = giftOptionsForCurrentPlan();
     container.innerHTML =
       '<div class="card">' +
       '<h2>เลือกของแถม</h2>' +
-      '<p class="hint">เลือกของแถมที่ต้องการรับพร้อมสัญญานี้ (แสดงเฉพาะรายการที่ใช้ได้กับแผน' + (session.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน') + ' ของท่าน) ดูรูปตัวอย่างของแถมแต่ละ Set ด้านล่าง</p>' +
+      '<p class="hint">เลือกของแถมที่ต้องการรับพร้อมสัญญานี้ (แสดงเฉพาะรายการที่ใช้ได้กับแผน' + (session.items[0].planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน') + ' ของท่าน) ดูรูปตัวอย่างของแถมแต่ละ Set ด้านล่าง</p>' +
       '<img src="' + GIFT_POSTER_SRC + '" alt="ตัวอย่างของแถม" style="width:100%;border-radius:10px;border:1px solid var(--border);margin-bottom:14px;cursor:zoom-in;" id="giftPosterImg" />' +
       fieldHtml({ id: 'giftItem', label: 'รายการของแถม', required: true, type: 'select', value: state.data.giftItem,
         options: [{ value: '', label: '— เลือก —' }].concat(options.map(function (o) { return { value: o.value, label: o.value }; })) }) +
@@ -462,18 +472,21 @@
   }
 
   // ---------- Step: review (ตารางผ่อนรายงวดเต็ม 12 แถว — สรุปยอดรวมแสดงไปแล้วในขั้นตอน "รายการที่ทำสัญญา") ----------
+  // แยกตารางต่อ SO เดิม (2026-09-04 user ยืนยัน — ไม่รวมยอดข้ามรายการ แม้กรอกฟอร์มครั้งเดียว)
   function renderReview(container) {
-    var s = session;
-    var rows = buildInstallmentSchedule(s.remainingBalance, s.installmentCount, s.firstDueDate);
-    var rowsHtml = rows.map(function (r) {
-      return '<tr><td>' + r.no + '</td><td>' + fmtDate(r.dueDate) + '</td><td>' + fmtMoney(r.amount) + '</td></tr>';
-    }).join('');
-    container.innerHTML =
-      '<div class="card">' +
-      '<h2>ตารางผ่อนชำระรายงวด</h2>' +
-      '<p class="hint">ตรวจสอบยอดให้ถูกต้องก่อนไปขั้นตอนเซ็นสัญญา หากพบว่ายอดผิด กรุณาติดต่อพนักงาน (CS) ก่อนดำเนินการต่อ</p>' +
-      '<table class="installment-table"><thead><tr><th>งวดที่</th><th>วันครบกำหนด</th><th>จำนวนเงิน</th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
-      '</div>';
+    var html = '';
+    session.items.forEach(function (s) {
+      var rows = buildInstallmentSchedule(s.remainingBalance, s.installmentCount, s.firstDueDate);
+      var rowsHtml = rows.map(function (r) {
+        return '<tr><td>' + r.no + '</td><td>' + fmtDate(r.dueDate) + '</td><td>' + fmtMoney(r.amount) + '</td></tr>';
+      }).join('');
+      html += '<div class="card">' +
+        '<h2>ตารางผ่อนชำระรายงวด — ' + s.product + '</h2>' +
+        '<p class="hint">ตรวจสอบยอดให้ถูกต้องก่อนไปขั้นตอนเซ็นสัญญา หากพบว่ายอดผิด กรุณาติดต่อพนักงาน (CS) ก่อนดำเนินการต่อ</p>' +
+        '<table class="installment-table"><thead><tr><th>งวดที่</th><th>วันครบกำหนด</th><th>จำนวนเงิน</th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
+        '</div>';
+    });
+    container.innerHTML = html;
   }
   function fmtMoney(n) { return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function fmtDate(d) { var dd = d instanceof Date ? d : new Date(d); return dd.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }); }
@@ -482,25 +495,31 @@
   var sigPad = null; // { canvas, ctx, drawing, hasStroke }
 
   function renderSign(container) {
-    var s = session, d = state.data;
+    var d = state.data;
     var needGuardian = requiresGuardianNow();
     var needGuarantor = requiresGuarantorNow();
+    if (!d.viewedContracts) d.viewedContracts = {}; // { soNumber: true } — ต้องกดอ่านครบทุกรายการก่อนเซ็นได้
+
+    var summaryLines = 'สัญญาเช่าซื้อระหว่าง บริษัท แซลม่อน เอ็นเตอร์ไพรส์ จำกัด ("ผู้ให้เช่าซื้อ") กับ ' +
+      (d.title || '') + (d.firstLastName || '(ยังไม่ได้กรอกชื่อ)') + ' ("ผู้เช่าซื้อ")\n\n' +
+      session.items.map(function (s) {
+        return (s.planType === 'downpayment' ? 'แบบวางดาวน์' : 'แบบผ่อนชำระ') + ' — ' + s.product + ' ' + s.color +
+          ': ยอดคงเหลือสุทธิ ' + fmtMoney(s.remainingBalance) + ' บาท | ผ่อน ' + s.installmentCount + ' งวด';
+      }).join('\n') + '\n' +
+      (needGuardian ? '\nมีผู้ปกครองให้ความยินยอม: ' + (d.guardian.firstLastName || '-') : '') +
+      (needGuarantor ? '\nมีผู้ค้ำประกัน: ' + (d.guarantor.firstLastName || '-') : '');
 
     container.innerHTML =
       '<div class="card">' +
       '<h2>สรุปสัญญาก่อนลงลายมือชื่อ</h2>' +
-      '<div class="contract-text">' +
-      'สัญญาเช่าซื้อ' + (s.planType === 'downpayment' ? 'แบบวางดาวน์' : 'แบบผ่อนชำระ') + ' ระหว่าง บริษัท แซลม่อน เอ็นเตอร์ไพรส์ จำกัด ("ผู้ให้เช่าซื้อ") กับ ' +
-      (d.title || '') + (d.firstLastName || '(ยังไม่ได้กรอกชื่อ)') + ' ("ผู้เช่าซื้อ")\n\n' +
-      'สินค้า: ' + s.product + ' ' + s.color + '\n' +
-      'ยอดคงเหลือสุทธิ: ' + fmtMoney(s.remainingBalance) + ' บาท | ผ่อน ' + s.installmentCount + ' งวด\n' +
-      (needGuardian ? 'มีผู้ปกครองให้ความยินยอม: ' + (d.guardian.firstLastName || '-') + '\n' : '') +
-      (needGuarantor ? 'มีผู้ค้ำประกัน: ' + (d.guarantor.firstLastName || '-') + '\n' : '') +
-      '</div>' +
-      '<button type="button" class="btn btn-secondary" id="btnReadContract" style="margin-top:12px;width:100%;">📄 อ่านสัญญาฉบับเต็ม (PDF)</button>' +
+      '<div class="contract-text">' + summaryLines + '</div>' +
+      session.items.map(function (s) {
+        return '<button type="button" class="btn btn-secondary btnReadContract" data-so="' + s.soNumber + '" style="margin-top:12px;width:100%;">' +
+          '📄 อ่านสัญญาฉบับเต็ม: ' + s.product + ' (PDF)</button>';
+      }).join('') +
       '<p class="err" id="contractPdfErr" style="margin-top:6px;"></p>' +
       '<div class="field" style="margin-top:14px;">' +
-      '<label><input type="checkbox" id="agreeBox" /> ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขในสัญญาฉบับเต็มที่แนบไว้ข้างต้น</label>' +
+      '<label><input type="checkbox" id="agreeBox" /> ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขในสัญญาฉบับเต็มทุกฉบับที่แนบไว้ข้างต้น</label>' +
       '<p class="err" id="agree_err"></p>' +
       '</div>' +
       '</div>' +
@@ -519,7 +538,9 @@
 
     document.getElementById('agreeBox').checked = !!d.agreeContract;
     document.getElementById('agreeBox').addEventListener('change', function (e) { d.agreeContract = e.target.checked; });
-    document.getElementById('btnReadContract').addEventListener('click', openContractPdf);
+    Array.prototype.forEach.call(document.querySelectorAll('.btnReadContract'), function (btn) {
+      btn.addEventListener('click', function () { openContractPdf(btn.getAttribute('data-so'), btn); });
+    });
 
     setupSignaturePad();
     if (needGuardian) setupSignatureUploadTool('guardianSig', function (dataUrl) { d.guardianSignature = dataUrl; });
@@ -528,16 +549,25 @@
 
   // เรียก /api/preview-contract สร้าง PDF ตัวอย่างสัญญาจริง (เติมข้อมูลลง master template จริง) แล้วเปิดในแท็บใหม่
   // ให้ลูกค้าอ่านก่อนลงลายมือชื่อ — ยังไม่ฝังรูปถ่ายจริงในตัวอย่างนี้ (ดูหมายเหตุใน api/preview-contract.js)
-  function openContractPdf() {
-    var btn = document.getElementById('btnReadContract');
+  // มีหลายรายการได้ (2026-09-04) — เรียกทีละ SO, preview-contract.js เดิมรับ session แบบเดี่ยวอยู่แล้ว ไม่ต้อง
+  // แก้ฝั่งนั้น แค่ประกอบ flat session จาก item + ฟิลด์ร่วม (contractDate/customer/letterheadDataUrl) เอง
+  function openContractPdf(soNumber, btn) {
+    var item = session.items.filter(function (it) { return it.soNumber === soNumber; })[0];
+    if (!item) return;
     var errEl = document.getElementById('contractPdfErr');
     errEl.textContent = '';
     btn.disabled = true;
+    var originalText = btn.textContent;
     btn.textContent = 'กำลังสร้างไฟล์...';
+    var flatSession = Object.assign({
+      contractDate: session.contractDate,
+      customer: session.customer,
+      letterheadDataUrl: session.letterheadDataUrl,
+    }, item);
     fetch('/api/preview-contract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: session, customer: state.data }),
+      body: JSON.stringify({ session: flatSession, customer: state.data }),
     })
       .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
       .then(function (result) {
@@ -548,14 +578,14 @@
         var blob = new Blob([bytes], { type: 'application/pdf' });
         var url = URL.createObjectURL(blob);
         window.open(url, '_blank');
-        state.data.hasViewedContract = true;
+        state.data.viewedContracts[soNumber] = true;
       })
       .catch(function (err) {
         errEl.textContent = 'เปิดไฟล์สัญญาไม่สำเร็จ: ' + err.message + ' (ถ้าเปิดไฟล์นี้ตรงๆ ผ่าน file:// ต้องรันผ่าน dev-server.js ก่อน)';
       })
       .finally(function () {
         btn.disabled = false;
-        btn.textContent = '📄 อ่านสัญญาฉบับเต็ม (PDF)';
+        btn.textContent = originalText;
       });
   }
 
@@ -702,9 +732,13 @@
     showInlineError('guardianSig_err', ''); // showInlineError เองก็เช็ค null อยู่แล้วถ้าไม่มี element นี้ในหน้า
     showInlineError('guarantorSig_err', '');
 
-    if (!state.data.hasViewedContract) {
+    var viewed = state.data.viewedContracts || {};
+    var allViewed = session.items.every(function (s) { return viewed[s.soNumber]; });
+    if (!allViewed) {
       errors.hasViewedContract = true;
-      showInlineError('contractPdfErr', 'กรุณากดอ่านสัญญาฉบับเต็มก่อนดำเนินการต่อ');
+      showInlineError('contractPdfErr', session.items.length > 1
+        ? 'กรุณากดอ่านสัญญาฉบับเต็มให้ครบทุกรายการก่อนดำเนินการต่อ'
+        : 'กรุณากดอ่านสัญญาฉบับเต็มก่อนดำเนินการต่อ');
     }
     if (!state.data.agreeContract) {
       errors.agree = true;
