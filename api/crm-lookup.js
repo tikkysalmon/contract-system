@@ -180,9 +180,23 @@ module.exports = async function handler(req, res) {
     const accumulatedAmount = downPayment + installmentsPaidSoFar; // รวมทั้งหมดที่จ่ายมา (ควรตรงกับ saleOrder.accumulatedAmount ของ CRM)
     const remainingBalance = netPrice - accumulatedAmount;
 
+    // ข้อจำกัดของ CRM (2026-09-04 user แจ้ง): ถ้าลูกค้าซื้อวางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกัน CRM บังคับ
+    // เปิดแยกเป็นคนละ SO — ดึง SO อื่นๆ ของลูกค้าคนเดียวกันมาด้วย (ไม่ใช้ dob/phone จาก endpoint นี้ตามที่
+    // เคยตัดออกไปแล้ว 2026-09-03 ใช้แค่ field saleOrders[] เพื่อให้ CS เลือกรวม SO อื่นเข้าลิงก์เดียวกันได้)
+    // ถ้าเรียกไม่สำเร็จ (เช่น customerId ไม่มี) ไม่ทำให้การค้นหา SO หลักพังไปด้วย แค่ไม่มีลิสต์ให้เลือกเพิ่ม
+    let otherSaleOrders = [];
+    if (saleOrder.customerId) {
+      try {
+        const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(saleOrder.customerId), token);
+        otherSaleOrders = (customerDetail.saleOrders || []).filter(function (so) {
+          return so.saleOrderId !== saleOrder.saleOrderId;
+        });
+      } catch (e) { /* ข้ามไป ไม่ critical */ }
+    }
+
     res.status(200).json({
       mock: false,
-      raw: { saleOrder }, // เก็บดิบไว้ให้ CS ตรวจสอบ/debug ได้ ไม่ใช่แค่ค่าที่ map แล้ว
+      raw: { saleOrder: saleOrder, otherSaleOrders: otherSaleOrders }, // เก็บดิบไว้ให้ CS ตรวจสอบ/debug ได้ ไม่ใช่แค่ค่าที่ map แล้ว
       data: {
         soNumber: saleOrder.saleOrderId,
         product: product,
