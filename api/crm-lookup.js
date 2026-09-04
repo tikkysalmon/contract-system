@@ -189,8 +189,8 @@ async function searchCustomersByName(name, token) {
 }
 
 // ดึง SO ทั้งหมดของลูกค้าคนหนึ่ง (จาก customerId) แล้ว resolve แต่ละ SO ให้เต็ม (ราคา/ตารางผ่อน) ด้วย
-// buildSoData() — ใช้ทั้งตอนหา "SO อื่นของลูกค้าคนเดียวกัน" (จากการค้นหาด้วยเลข SO) และตอนค้นหาด้วยชื่อลูกค้า
-// โดยตรง (แสดงทุก SO ให้ CS ติ๊กเลือกเอง ไม่บังคับรวมตัวไหน)
+// buildSoData() — ใช้หา "SO อื่นของลูกค้าคนเดียวกัน" ตอนค้นหาด้วยเลข SO (ปกติมีแค่ 1-2 รายการ ค่า resolve
+// ทั้งหมดไปเลยไม่แพงมาก)
 async function resolveCustomerSoItems(customerId, token) {
   const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(customerId), token);
   const soNumbers = (customerDetail.saleOrders || []).map(function (so) { return so.saleOrderId; }).filter(Boolean);
@@ -198,6 +198,35 @@ async function resolveCustomerSoItems(customerId, token) {
     return buildSoData(id, token).catch(function () { return null; }); // ข้ามตัวที่ดึงพังไปทีละตัว ไม่ให้ทั้งชุดพัง
   }));
   return resolved.filter(function (item) { return item && !item.unsupported; });
+}
+
+// ป้ายภาษาไทยเท่าที่ยืนยันตรงกับหน้า CRM จริงแล้ว (จากภาพตัวอย่างที่ user ส่งมา 2026-09-04) — ค่าอื่นที่ยังไม่
+// รู้จักโชว์ค่าดิบแทนการเดา (เหมือนแพทเทิร์น TYPE_LABELS ด้านบน)
+var SO_STATUS_LABELS = {
+  INSTALLMENT_AFTER_CREDIT_APPROVAL: 'ผ่อนหลังเครดิตผ่าน',
+};
+var SO_PAYMENT_STATUS_LABELS = {
+  PENDING_PAYMENT: 'รอชำระเงิน',
+};
+
+// ดึงลิสต์ SO ของลูกค้าคนหนึ่งแบบ "เบา" (ไม่เรียก buildSoData ทีละใบ ไม่ต้องรอนาน) ใช้ตอนค้นหาด้วยชื่อลูกค้า
+// เพราะลูกค้าอาจมี SO เก่าที่ไม่เกี่ยวข้องปนอยู่เยอะ — โชว์ตารางให้ CS ติ๊กเลือกก่อน (เหมือนหน้า CRM จริงที่
+// user ส่งภาพมา) ค่อย resolve เต็มเฉพาะรายการที่ติ๊กทีหลัง (ผ่าน endpoint เดิม ?so=) ไม่ resolve ทุกใบล่วงหน้า
+async function fetchCustomerSoListLight(customerId, token) {
+  const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(customerId), token);
+  return (customerDetail.saleOrders || []).map(function (so) {
+    return {
+      soNumber: so.saleOrderId,
+      status: so.status,
+      statusLabel: SO_STATUS_LABELS[so.status] || so.status,
+      percentCredit: so.percentCredit,
+      paymentStatus: so.paymentStatus,
+      paymentStatusLabel: SO_PAYMENT_STATUS_LABELS[so.paymentStatus] || so.paymentStatus,
+      overDueDateCount: so.overDueDateCount,
+      createdAt: so.createdAt,
+      productPrice: so.productPrice,
+    };
+  });
 }
 
 module.exports = async function handler(req, res) {
@@ -225,19 +254,21 @@ module.exports = async function handler(req, res) {
     }
 
     // โหมดค้นหาด้วยชื่อลูกค้า — ถ้าเจอลูกค้าตรงชื่อมากกว่า 1 คน คืนลิสต์ให้ CS เลือกก่อน (แล้วค่อยเรียกซ้ำด้วย
-    // customerId) ถ้าเจอพอดี 1 คน resolve SO ทั้งหมดของคนนั้นให้เลย ไม่ต้องถามซ้ำ
+    // customerId) ถ้าเจอพอดี 1 คน ดึงลิสต์ SO แบบเบาให้ CS ติ๊กเลือกต่อเลย (ยังไม่ resolve ราคา/ตารางผ่อนเต็ม
+    // — รอ CS ยืนยันว่าจะรวม SO ไหนก่อน ค่อยเรียก ?so= ต่อ SO ที่เลือกจริงเท่านั้น กันดึงข้อมูล SO เก่าที่ไม่
+    // เกี่ยวข้องทิ้งเปล่าๆ ถ้าลูกค้ามีประวัติซื้อเยอะ)
     if (customerName) {
       const customers = await withRetryOn401(function (t) { return searchCustomersByName(customerName, t); });
       if (!customers.length) { res.status(200).json({ error: 'ไม่พบลูกค้าชื่อนี้ในระบบ' }); return; }
       if (customers.length > 1) { res.status(200).json({ customers: customers }); return; }
-      const items = await withRetryOn401(function (t) { return resolveCustomerSoItems(customers[0].customerId, t); });
-      res.status(200).json({ customer: customers[0], items: items });
+      const soList = await withRetryOn401(function (t) { return fetchCustomerSoListLight(customers[0].customerId, t); });
+      res.status(200).json({ customer: customers[0], soList: soList });
       return;
     }
 
     if (customerId) {
-      const items = await withRetryOn401(function (t) { return resolveCustomerSoItems(customerId, t); });
-      res.status(200).json({ items: items });
+      const soList = await withRetryOn401(function (t) { return fetchCustomerSoListLight(customerId, t); });
+      res.status(200).json({ soList: soList });
       return;
     }
 
