@@ -13,26 +13,29 @@ async function crmLogin() {
 }
 
 module.exports = async function handler(req, res) {
-  const q = String((req.query && req.query.q) || 'หทัยรัตน์');
   const token = await crmLogin();
   const candidates = [
-    '/crm/customer?name=' + encodeURIComponent(q),
-    '/crm/customer?search=' + encodeURIComponent(q),
-    '/crm/customer/search?q=' + encodeURIComponent(q),
-    '/crm/customer/search?name=' + encodeURIComponent(q),
-    '/crm/customers?name=' + encodeURIComponent(q),
-    '/crm/customers?search=' + encodeURIComponent(q),
-    '/crm/sale-order?customerName=' + encodeURIComponent(q),
-    '/crm/sale-order?search=' + encodeURIComponent(q),
-    '/crm/sale-order/search?customerName=' + encodeURIComponent(q),
-    '/crm/sale-order/search?q=' + encodeURIComponent(q),
+    '/crm/sale-order?customerName=' + encodeURIComponent('หทัยรัตน์'),
+    '/crm/sale-order?customerName=' + encodeURIComponent('หทัยรัตน์  อินยาศรี'),
+    '/crm/sale-order?customerName=' + encodeURIComponent('อินยาศรี'),
+    '/crm/sale-order?customerName=' + encodeURIComponent('zzznonsensexyz'),
+    '/crm/sale-order?customerName=',
   ];
   const results = [];
   for (const path of candidates) {
     try {
       const r = await fetch(CRM_API_BASE + path, { headers: { Authorization: 'Bearer ' + token } });
-      const text = await r.text();
-      results.push({ path: path, status: r.status, bodySnippet: text.slice(0, 400) });
+      const data = await r.json().catch(function () { return null; });
+      const orders = data && data.saleOrders;
+      results.push({
+        path: path,
+        status: r.status,
+        count: Array.isArray(orders) ? orders.length : null,
+        firstFew: Array.isArray(orders) ? orders.slice(0, 3).map(function (o) {
+          return o.saleOrderId + ' | ' + o.customerFirstName + o.customerLastName;
+        }) : data,
+        pagination: data && data.pagination,
+      });
     } catch (e) {
       results.push({ path: path, error: e.message });
     }
