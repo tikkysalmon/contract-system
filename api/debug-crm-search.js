@@ -14,15 +14,11 @@ async function crmLogin() {
 
 module.exports = async function handler(req, res) {
   const token = await crmLogin();
-  const candidates = [
-    '/crm/sale-order?customerName=' + encodeURIComponent('หทัยรัตน์'),
-    '/crm/sale-order?customerName=' + encodeURIComponent('หทัยรัตน์  อินยาศรี'),
-    '/crm/sale-order?customerName=' + encodeURIComponent('อินยาศรี'),
-    '/crm/sale-order?customerName=' + encodeURIComponent('zzznonsensexyz'),
-    '/crm/sale-order?customerName=',
-  ];
+  const name = 'อินยาศรี';
+  const getCandidates = ['keyword', 'q', 'name', 'customer', 'customerFirstName', 'customerLastName', 'search', 'fullName', 'firstName'];
   const results = [];
-  for (const path of candidates) {
+  for (const param of getCandidates) {
+    const path = '/crm/sale-order?' + param + '=' + encodeURIComponent(name);
     try {
       const r = await fetch(CRM_API_BASE + path, { headers: { Authorization: 'Bearer ' + token } });
       const data = await r.json().catch(function () { return null; });
@@ -31,13 +27,24 @@ module.exports = async function handler(req, res) {
         path: path,
         status: r.status,
         count: Array.isArray(orders) ? orders.length : null,
-        firstFew: Array.isArray(orders) ? orders.slice(0, 3).map(function (o) {
-          return o.saleOrderId + ' | ' + o.customerFirstName + o.customerLastName;
-        }) : data,
-        pagination: data && data.pagination,
+        firstId: Array.isArray(orders) && orders[0] ? orders[0].saleOrderId : null,
       });
     } catch (e) {
       results.push({ path: path, error: e.message });
+    }
+  }
+  // ลอง POST body ด้วย เผื่อ filter ต้องส่งแบบนี้แทน query string
+  for (const bodyKey of ['customerName', 'keyword', 'search']) {
+    try {
+      const r = await fetch(CRM_API_BASE + '/crm/sale-order', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [bodyKey]: name }),
+      });
+      const text = await r.text();
+      results.push({ path: 'POST /crm/sale-order {' + bodyKey + '}', status: r.status, bodySnippet: text.slice(0, 200) });
+    } catch (e) {
+      results.push({ path: 'POST /crm/sale-order {' + bodyKey + '}', error: e.message });
     }
   }
   res.status(200).json({ results: results });
