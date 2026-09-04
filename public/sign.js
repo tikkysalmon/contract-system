@@ -514,7 +514,8 @@
       '</div>' +
 
       (needGuardian ? signatureUploadCardHtml('guardianSig', 'ลายมือชื่อผู้ปกครอง') : '') +
-      (needGuarantor ? signatureUploadCardHtml('guarantorSig', 'ลายมือชื่อผู้ค้ำประกัน') : '');
+      (needGuarantor ? signatureUploadCardHtml('guarantorSig', 'ลายมือชื่อผู้ค้ำประกัน') : '') +
+      '<p class="err" id="submitErr" style="margin-top:10px;"></p>';
 
     document.getElementById('agreeBox').checked = !!d.agreeContract;
     document.getElementById('agreeBox').addEventListener('change', function (e) { d.agreeContract = e.target.checked; });
@@ -776,12 +777,38 @@
     }
   }
 
+  // ส่งข้อมูลลูกค้า + ไฟล์ทั้งหมดไป /api/submit-contract จริง (2026-09-04 แทนที่ console.log mock เดิม) —
+  // อัปโหลดรูป/ลายเซ็นเข้า Supabase Storage + บันทึก contract_submissions + อัปเดตสถานะ session จริง
+  // ถ้าเปิดหน้านี้แบบไม่มี token จริง (?demo=1 หรือ MOCK_SESSION ตรงๆ) ยังใช้ mock เดิม (แค่ log) เหมือนก่อน
+  // เพราะไม่มี session จริงใน DB ให้ผูกกับ submission นี้
   function submitContract() {
-    // TODO: แทนที่ด้วย fetch('/api/contract-generate', {method:'POST', body: JSON.stringify({token, ...state.data})})
-    // เมื่อ backend (docxtemplater fill -> CloudConvert -> pdf-lib stamp) พร้อมใช้งานจริง
-    console.log('SUBMIT (mock) — payload ที่จะส่งจริงในอนาคต:', JSON.stringify(state.data, null, 2));
-    state.stepIndex = visibleSteps().length; // เกิน index สุดท้าย -> แสดงหน้าจบ
-    renderCurrentStep();
+    if (!realToken) {
+      console.log('SUBMIT (mock — ไม่มี token จริง) — payload:', JSON.stringify(state.data, null, 2));
+      state.stepIndex = visibleSteps().length;
+      renderCurrentStep();
+      return;
+    }
+    var btn = document.getElementById('btnNext');
+    var errEl = document.getElementById('submitErr');
+    if (errEl) errEl.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'กำลังส่งข้อมูล...';
+    fetch('/api/submit-contract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: realToken, customer: state.data }),
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.body.error || 'ส่งข้อมูลไม่สำเร็จ');
+        state.stepIndex = visibleSteps().length;
+        renderCurrentStep();
+      })
+      .catch(function (err) {
+        if (errEl) errEl.textContent = 'ส่งข้อมูลไม่สำเร็จ: ' + err.message;
+        btn.disabled = false;
+        btn.textContent = 'ส่งข้อมูล';
+      });
   }
 
   document.getElementById('btnNext').addEventListener('click', goNext);
