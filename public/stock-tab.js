@@ -1,7 +1,7 @@
 // "สำหรับสต๊อค" (2026-09-06) — แทนที่ระบบเดิมที่ดึงจาก Lark Base (ดู ระบบจัดการออเดอร์.tsx ที่ user ส่งมา
 // อ้างอิง UI/PDF เดิม) ระบบใหม่ดึงข้อมูลสด 2 แหล่ง: เครดิตผ่าน/วางดาวน์ (จากเมนู "ข้อมูลลูกค้าทำสัญญา" สถานะ
 // "สัญญาลูกค้าเรียบร้อย") + ซื้อสด/ปิดยอด (จาก CRM ตรงๆ — ยังไม่ได้ต่อจริง รอ endpoint list/กรองออเดอร์จาก CRM
-// ดู TODO ใน api/stock-orders-list.js) ให้สต๊อคกำหนด "รอบการเบิก" แล้วพิมพ์ใบเบิกประจำวันเป็น PDF ก่อนพิมพ์จริง
+// ดู TODO ใน api/stock-orders.js) ให้สต๊อคกำหนด "รอบการเบิก" แล้วพิมพ์ใบเบิกประจำวันเป็น PDF ก่อนพิมพ์จริง
 // ใช้: initStockTab('containerElementId', currentUser)
 function initStockTab(containerId, currentUser) {
   'use strict';
@@ -45,7 +45,7 @@ function initStockTab(containerId, currentUser) {
         printStatus: state.filterPrintStatus,
         showCancelled: String(state.showCancelled),
       });
-      var res = await fetch('/api/stock-orders-list?' + params.toString());
+      var res = await fetch('/api/stock-orders?' + params.toString());
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
       state.orders = body.orders || [];
@@ -72,7 +72,7 @@ function initStockTab(containerId, currentUser) {
     state.assigning = true;
     render();
     try {
-      var res = await fetch('/api/stock-order-update', {
+      var res = await fetch('/api/stock-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -93,7 +93,7 @@ function initStockTab(containerId, currentUser) {
   }
 
   async function markPrintedAndReload(soNumbers) {
-    var res = await fetch('/api/stock-order-update', {
+    var res = await fetch('/api/stock-orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'markPrinted', soNumbers: soNumbers, staffName: currentUser.username }),
@@ -114,7 +114,7 @@ function initStockTab(containerId, currentUser) {
   async function confirmCancel() {
     var soNumber = state.cancelingSo;
     try {
-      var res = await fetch('/api/stock-order-update', {
+      var res = await fetch('/api/stock-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel', soNumber: soNumber, staffName: currentUser.username, reason: state.cancelReason }),

@@ -29,7 +29,7 @@ function initStaffSignTab(containerId, currentUser) {
     submitError: null,
     savedSignatureDataUrl: null, // ลายเซ็นที่พนักงานคนนี้เคยบันทึกไว้ (2026-09-04) — โหลดครั้งเดียวตอนเข้าหน้า
     // ปฏิเสธ/ขอแก้ไขข้อมูล (2026-09-06) — พนักงานตรวจแล้วพบว่าข้อมูลบางส่วนผิด ระบุกลุ่มที่ต้องแก้แล้วส่งลิงก์
-    // เดิมกลับให้ลูกค้าแก้ไขเฉพาะจุดนั้น (ดู staff-reject-submission.js / sign.js)
+    // เดิมกลับให้ลูกค้าแก้ไขเฉพาะจุดนั้น (ดู staff-actions.js / sign.js)
     rejectingId: null, // submissionId ที่กำลังเปิดปฏิเสธอยู่ (null = ยังไม่เปิด)
     rejectChecked: {}, // { personal: true, uploads: true, ... }
     rejectNote: '',
@@ -101,10 +101,10 @@ function initStaffSignTab(containerId, currentUser) {
     btn.disabled = true;
     btn.textContent = 'กำลังยืนยัน...';
     try {
-      var res = await fetch('/api/staff-confirm-submission', {
+      var res = await fetch('/api/staff-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId: submissionId, staffName: currentUser.username }),
+        body: JSON.stringify({ action: 'confirm', submissionId: submissionId, staffName: currentUser.username }),
       });
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'ยืนยันไม่สำเร็จ');
@@ -141,10 +141,11 @@ function initStaffSignTab(containerId, currentUser) {
     state.rejectError = null;
     render();
     try {
-      var res = await fetch('/api/staff-reject-submission', {
+      var res = await fetch('/api/staff-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'reject',
           submissionId: state.rejectingId,
           staffName: currentUser.username,
           rejectedFields: rejectedFields,
@@ -230,10 +231,11 @@ function initStaffSignTab(containerId, currentUser) {
     state.submitError = null;
     render();
     try {
-      var res = await fetch('/api/staff-sign-submit', {
+      var res = await fetch('/api/staff-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'sign',
           submissionId: state.signingId,
           staffName: currentUser.username,
           signatureDataUrl: signatureDataUrl,
