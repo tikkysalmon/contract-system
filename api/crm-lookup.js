@@ -219,6 +219,7 @@ async function fetchCustomerSoListLight(customerId, token) {
       soNumber: so.saleOrderId,
       status: so.status,
       statusLabel: SO_STATUS_LABELS[so.status] || so.status,
+      planType: mapPlanType(so.installmentType), // ใช้โชว์คอลัมน์ "วิธีการผ่อน" ในตารางเบา (2026-09-06)
       percentCredit: so.percentCredit,
       paymentStatus: so.paymentStatus,
       paymentStatusLabel: SO_PAYMENT_STATUS_LABELS[so.paymentStatus] || so.paymentStatus,
