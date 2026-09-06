@@ -402,6 +402,7 @@ function initStaffSignTab(containerId, currentUser) {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
     needs_correction: 'background:#fee2e2;color:#b91c1c;',
     customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
+    awaiting_staff_sign: 'background:#ede9fe;color:#6d28d9;',
     complete: 'background:#dcfce7;color:#15803d;',
   };
   function statusBadgeHtml(item) {
@@ -537,6 +538,7 @@ function initCsStatusView(containerId) {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
     needs_correction: 'background:#fee2e2;color:#b91c1c;',
     customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
+    awaiting_staff_sign: 'background:#ede9fe;color:#6d28d9;',
     complete: 'background:#dcfce7;color:#15803d;',
   };
   function statusBadge(status) {
