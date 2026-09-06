@@ -71,8 +71,20 @@ module.exports = async function handler(req, res) {
       return;
     }
     const sessionId = sessRows[0].id;
+    const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
 
-    // อัปโหลดไฟล์ทั้งหมดที่มี (บัตร/เซลฟี่/ผู้ค้ำ/ผู้ปกครอง/ลายเซ็น) — ข้ามช่องที่เป็น null/ไม่มี
+    // ส่งซ้ำหลังพนักงานปฏิเสธ/ขอแก้ไข (2026-09-06) — มีแถว contract_submissions เดิมของ session นี้อยู่แล้ว
+    // 1 แถวเสมอ (ไม่ insert ซ้ำ) หาไว้ก่อนเผื่อต้อง (1) UPDATE แถวเดิมแทน insert ใหม่ (2) เอา path รูปเดิมมาใช้
+    // ต่อสำหรับฟิลด์รูปที่รอบนี้ไม่ได้ให้แก้ (sign.js ไม่โชว์ขั้นตอนอัปโหลดใหม่ให้ ค่าที่ส่งมาจะเป็น null)
+    const existingRes = await fetch(
+      SUPABASE_URL + '/rest/v1/contract_submissions?session_id=eq.' + encodeURIComponent(sessionId) + '&select=id,file_paths',
+      { headers: authHeaders }
+    );
+    const existingRows = existingRes.ok ? await existingRes.json() : [];
+    const existing = existingRows[0] || null;
+    const existingFilePaths = (existing && existing.file_paths) || {};
+
+    // อัปโหลดไฟล์ทั้งหมดที่มีมาใหม่รอบนี้ (บัตร/เซลฟี่/ผู้ค้ำ/ผู้ปกครอง/ลายเซ็น) — ข้ามช่องที่เป็น null/ไม่มี
     const fileFields = {
       idCard: customer.files && customer.files.idCard,
       selfieWithId: customer.files && customer.files.selfieWithId,
@@ -82,7 +94,7 @@ module.exports = async function handler(req, res) {
       guardianSignature: customer.guardianSignature,
       guarantorSignature: customer.guarantorSignature,
     };
-    const filePaths = {};
+    const filePaths = Object.assign({}, existingFilePaths); // เริ่มจาก path เดิมทั้งหมด แล้วทับด้วยไฟล์ใหม่ที่ส่งมารอบนี้
     for (const key of Object.keys(fileFields)) {
       const parsed = parseDataUrl(fileFields[key]);
       if (!parsed) continue;
@@ -98,29 +110,43 @@ module.exports = async function handler(req, res) {
     delete customerData.guardianSignature;
     delete customerData.guarantorSignature;
 
-    const insertRes = await fetch(SUPABASE_URL + '/rest/v1/contract_submissions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify({ session_id: sessionId, customer_data: customerData, file_paths: filePaths }),
-    });
-    if (!insertRes.ok) {
-      const text = await insertRes.text();
-      throw new Error('บันทึกข้อมูลลูกค้าไม่สำเร็จ (HTTP ' + insertRes.status + '): ' + text.slice(0, 300));
+    if (existing) {
+      // อัปเดตแถวเดิม + เคลียร์สถานะปฏิเสธ/เซ็นของพนักงานทิ้ง (ต้องให้พนักงานตรวจ/เซ็นใหม่จากข้อมูลที่แก้แล้ว)
+      const updateRes = await fetch(SUPABASE_URL + '/rest/v1/contract_submissions?id=eq.' + encodeURIComponent(existing.id), {
+        method: 'PATCH',
+        headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+        body: JSON.stringify({
+          customer_data: customerData,
+          file_paths: filePaths,
+          submitted_at: new Date().toISOString(),
+          rejected_at: null,
+          rejected_by: null,
+          rejected_fields: null,
+          rejected_note: null,
+          staff_signature_path: null,
+          staff_signed_by: null,
+          staff_signed_at: null,
+        }),
+      });
+      if (!updateRes.ok) {
+        const text = await updateRes.text();
+        throw new Error('บันทึกข้อมูลลูกค้าไม่สำเร็จ (HTTP ' + updateRes.status + '): ' + text.slice(0, 300));
+      }
+    } else {
+      const insertRes = await fetch(SUPABASE_URL + '/rest/v1/contract_submissions', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+        body: JSON.stringify({ session_id: sessionId, customer_data: customerData, file_paths: filePaths }),
+      });
+      if (!insertRes.ok) {
+        const text = await insertRes.text();
+        throw new Error('บันทึกข้อมูลลูกค้าไม่สำเร็จ (HTTP ' + insertRes.status + '): ' + text.slice(0, 300));
+      }
     }
 
     await fetch(SUPABASE_URL + '/rest/v1/contract_sessions?token=eq.' + encodeURIComponent(token), {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
-        Prefer: 'return=minimal',
-      },
+      headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
       body: JSON.stringify({ status: 'submitted' }),
     });
 

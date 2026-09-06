@@ -186,7 +186,9 @@ module.exports = async function handler(req, res) {
 
     res.status(200).json({
       blocks: blocks,
-      title: 'ตัวอย่างสัญญาเช่าซื้อ (ฉบับร่างก่อนลงลายมือชื่อ)',
+      // final=true (2026-09-06) — พนักงานกด "ดาวน์โหลดสัญญา" ตรวจเอกสารที่ลูกค้าเซ็น/ส่งกลับมาแล้วจริง
+      // ไม่ใช่ฉบับร่างก่อนเซ็นอีกต่อไป (ดู staff-sign-tab.js)
+      title: (body.final ? 'สัญญาเช่าซื้อ (ฉบับที่ลูกค้าลงลายมือชื่อแล้ว)' : 'ตัวอย่างสัญญาเช่าซื้อ (ฉบับร่างก่อนลงลายมือชื่อ)'),
     });
   } catch (err) {
     res.status(500).json({ error: err.message, stack: err.stack });

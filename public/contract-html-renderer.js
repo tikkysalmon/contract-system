@@ -85,11 +85,15 @@ function blockHtml(block) {
 }
 
 // ---------- บล็อกลายเซ็น (สร้างเองจากข้อมูลลูกค้าจริง — ไม่พึ่งข้อความลายเซ็นลอยที่ดึงมาจาก docx เพราะ
-// ตำแหน่งเพี้ยน ดูเหตุผลใน docx-blocks.js) เว้นช่องว่างให้เซ็นเสมอ ไม่ฝังรูปลายเซ็นจริงแม้จะมีแล้ว (2026-09-04
-// user ขอ "เว้นช่องลายเซ็นให้ลูกค้า" — preview นี้เป็นฉบับอ่านก่อนเซ็น ให้เห็นเป็นช่องว่างสม่ำเสมอทุกครั้ง) ----------
-function signatureLineHtml(label, name) {
+// ตำแหน่งเพี้ยน ดูเหตุผลใน docx-blocks.js) ตอน "อ่านสัญญาก่อนเซ็น" (sign.js) / "ดูตัวอย่างก่อนลูกค้ากรอกฟอร์ม"
+// (contracts-tab.js) ยังไม่มีรูปลายเซ็นจริงให้ใช้เลยเว้นช่องว่างเหมือนเดิม — แต่ถ้ามี signatureUrl ส่งมาจริง
+// (2026-09-06, ตอนพนักงานกด "ดาวน์โหลดสัญญา" ตรวจเอกสารที่ลูกค้าเซ็นส่งกลับมาแล้ว) ให้ฝังรูปลายเซ็นจริงแทน
+// ช่องว่าง เพื่อให้พนักงานตรวจสอบเอกสารฉบับจริงได้ครบ ไม่ใช่ฉบับร่างเปล่าๆ ----------
+function signatureLineHtml(label, name, signatureUrl) {
   return '<div style="text-align:center; width:46%;">' +
-    '<div style="height:34px;"></div>' +
+    (signatureUrl
+      ? '<img src="' + signatureUrl + '" style="height:44px;max-width:100%;object-fit:contain;display:block;margin:0 auto;" />'
+      : '<div style="height:34px;"></div>') +
     '<div style="font-size:12.5px;">ลายเซ็น .............................................. ' + escHtml(label) + '</div>' +
     '<div style="font-size:12.5px;">(' + escHtml(name) + ')</div>' +
     '</div>';
@@ -97,18 +101,20 @@ function signatureLineHtml(label, name) {
 
 function signatureBlockHtml(meta) {
   var c = meta.customer || {};
+  var files = c.files || {};
+  var staffSig = meta.staffSignature || {};
   var html = '<div style="display:flex; justify-content:space-between; margin-top:22px;">' +
-    signatureLineHtml('ผู้เช่าซื้อ', ((c.title || '') + (c.firstLastName || '')) || '-') +
-    signatureLineHtml('ผู้แทนผู้ให้เช่าซื้อ', 'พนักงานฝ่ายบัญชีหนี้สิน บจก. แซลม่อน เอ็นเตอร์ไพรส์') +
+    signatureLineHtml('ผู้เช่าซื้อ', ((c.title || '') + (c.firstLastName || '')) || '-', files.signature) +
+    signatureLineHtml('ผู้แทนผู้ให้เช่าซื้อ', staffSig.name || 'พนักงานฝ่ายบัญชีหนี้สิน บจก. แซลม่อน เอ็นเตอร์ไพรส์', staffSig.url) +
     '</div>';
   if (meta.hasGuardian && c.guardian && c.guardian.firstLastName) {
     html += '<div style="display:flex; justify-content:center; margin-top:16px;">' +
-      signatureLineHtml('ผู้ให้ความยินยอม (ผู้ปกครอง)', (c.guardian.title || '') + c.guardian.firstLastName) +
+      signatureLineHtml('ผู้ให้ความยินยอม (ผู้ปกครอง)', (c.guardian.title || '') + c.guardian.firstLastName, files.guardianSignature) +
       '</div>';
   }
   if (meta.hasGuarantor && c.guarantor && c.guarantor.firstLastName) {
     html += '<div style="display:flex; justify-content:center; margin-top:16px;">' +
-      signatureLineHtml('ผู้ค้ำประกัน', (c.guarantor.title || '') + c.guarantor.firstLastName) +
+      signatureLineHtml('ผู้ค้ำประกัน', (c.guarantor.title || '') + c.guarantor.firstLastName, files.guarantorSignature) +
       '</div>';
   }
   return html;

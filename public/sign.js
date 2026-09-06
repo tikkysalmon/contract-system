@@ -6,6 +6,7 @@
   // 2. ?demo=1 -> session ที่ CS เพิ่งสร้างในหน้าเดียวกัน (ทดสอบในเครื่องผ่าน localStorage เร็วๆ)
   // 3. ไม่มีทั้งคู่ -> window.MOCK_SESSION (เปิด sign.html ตรงๆ ทดสอบ UI เฉยๆ)
   var session = window.MOCK_SESSION;
+  var correction = null; // { previousData, fields, note } — ตั้งค่าถ้าพนักงานปฏิเสธแล้วขอให้แก้ไข (2026-09-06)
   var realToken = new URLSearchParams(location.search).get('token');
   if (realToken) {
     try {
@@ -13,6 +14,7 @@
       var tokenBody = await tokenRes.json();
       if (!tokenRes.ok || !tokenBody.session) throw new Error(tokenBody.error || 'ไม่พบข้อมูลลิงก์นี้');
       session = tokenBody.session;
+      correction = tokenBody.correction || null;
     } catch (err) {
       document.getElementById('app').innerHTML =
         '<div class="card"><h2>เปิดลิงก์ไม่สำเร็จ</h2><p style="color:var(--danger);">' + err.message + '</p></div>';
@@ -33,7 +35,7 @@
       nationality: session.customer.nationality || 'ไทย',
       address: { detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
       shippingAddress: { sameAsCurrent: true, detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
-      reference: { firstLastName: '', phone: '', relation: '' },
+      reference: { firstLastName: '', phone: '', relation: '', relationOther: '' },
       guardian: { title: '', firstLastName: '', phone: '', citizenId: '' },
       guarantor: { title: '', firstLastName: '', age: '', phone: '', citizenId: '' },
       files: { idCard: null, selfieWithId: null, guardianId: null, guarantorId: null },
@@ -43,7 +45,25 @@
       agreeContract: false,
     },
     errors: {},
+    correctionGroups: null, // ['personal','uploads',...] — ไม่ null แปลว่ากำลังแก้ไขหลังพนักงานปฏิเสธ (2026-09-06)
+    correctionNote: '',
   };
+
+  // เติมข้อมูลเดิมที่ลูกค้าเคยกรอกไว้ก่อน (ยกเว้นรูป/ลายเซ็น — ไม่ได้เก็บใน customer_data ดู submit-contract.js)
+  // แล้วเปิดให้แก้ไขเฉพาะขั้นตอนที่พนักงานระบุว่าผิดเท่านั้น (ดู visibleSteps ด้านล่าง) ส่วนที่เหลือ (รวมถึง
+  // 'review'/'sign' ที่โชว์เสมอ) ใช้ค่าเดิมที่ถูกต้องอยู่แล้วตรงๆ ไม่ต้องให้ลูกค้ากรอกซ้ำ (2026-09-06 user ขอ
+  // "แก้ไขเฉพาะข้อมูลที่ไม่ถูกต้องเท่านั้น")
+  if (correction && correction.previousData) {
+    var prevData = correction.previousData;
+    ['title', 'firstLastName', 'age', 'citizenId', 'phone', 'nationality', 'giftItem', 'agreeContract'].forEach(function (k) {
+      if (prevData[k] !== undefined) state.data[k] = prevData[k];
+    });
+    ['address', 'shippingAddress', 'reference', 'guardian', 'guarantor'].forEach(function (k) {
+      if (prevData[k]) Object.assign(state.data[k], prevData[k]);
+    });
+    state.correctionGroups = Array.isArray(correction.fields) ? correction.fields : [];
+    state.correctionNote = correction.note || '';
+  }
 
   // เก็บแค่ "อายุ" จากลูกค้า (ไม่เก็บวันเกิด/เดือนเกิดเลย — user ตัดสินใจ 2026-09-03 ว่าไม่ต้องเพิ่มช่องเดือนเกิด
   // เพราะถ้าจะเช็คแม่นจริงควรใช้ OCR อ่านวันเกิดจากบัตร ปชช. ตอนอัปโหลด ผ่าน API key แทน ไม่ใช่ให้ลูกค้าพิมพ์เอง)
@@ -72,7 +92,17 @@
     { key: 'sign', title: 'อ่านสัญญาและลงลายมือชื่อ', visible: function () { return true; }, render: renderSign, validate: validateSign },
   ];
 
-  function visibleSteps() { return STEP_DEFS.filter(function (s) { return s.visible(); }); }
+  // ขั้นตอนที่โชว์เสมอตอนแก้ไขหลังถูกปฏิเสธ (2026-09-06) — ไม่ว่าจะแก้ไขกลุ่มไหน ต้องดูตารางผ่อน/เซ็นชื่อใหม่
+  // เสมอ (ลายเซ็นเดิมผูกกับข้อมูลชุดเดิมที่ผิด ถือเป็นโมฆะไปแล้ว) ส่วน 'order'/'gift' ไม่ต้องกรอกซ้ำ (ข้อมูลเดิม
+  // ถูกต้องอยู่แล้ว ไม่ใช่สิ่งที่พนักงานให้แก้)
+  var CORRECTION_ALWAYS_STEPS = ['review', 'sign'];
+  function visibleSteps() {
+    var defs = STEP_DEFS.filter(function (s) { return s.visible(); });
+    if (!state.correctionGroups) return defs;
+    return defs.filter(function (s) {
+      return CORRECTION_ALWAYS_STEPS.indexOf(s.key) !== -1 || state.correctionGroups.indexOf(s.key) !== -1;
+    });
+  }
   function currentDef() { return visibleSteps()[state.stepIndex]; }
 
   // ---------- generic field helpers ----------
@@ -317,6 +347,11 @@
         options: [{ value: '', label: '— เลือก —' }, { value: 'บิดา/มารดา', label: 'บิดา/มารดา' }, { value: 'คู่สมรส', label: 'คู่สมรส' },
           { value: 'พี่น้อง', label: 'พี่น้อง' }, { value: 'ญาติ', label: 'ญาติ' }, { value: 'เพื่อน/เพื่อนร่วมงาน', label: 'เพื่อน/เพื่อนร่วมงาน' }, { value: 'อื่นๆ', label: 'อื่นๆ' }] }) +
       '</div>' +
+      // เลือก "อื่นๆ" แล้วโชว์ช่องระบุเพิ่ม (2026-09-06 user ขอ) — ค่าที่กรอกจะไปแทนที่ relation ตอนส่งข้อมูลจริง
+      // (ดู submitContract) ผู้ใช้ปลายทาง (พนักงานตรวจสอบ/เอกสารสัญญา) จึงเห็นข้อความที่ระบุตรงๆ ไม่เห็นคำว่า "อื่นๆ"
+      '<div id="ref_relationOther_wrap" style="' + (ref.relation === 'อื่นๆ' ? '' : 'display:none;') + '">' +
+      fieldHtml({ id: 'ref_relationOther', label: 'ระบุความเกี่ยวข้อง', required: true, value: ref.relationOther }) +
+      '</div>' +
       '</div>';
 
     window.attachAddressPicker.wire('addr', addr, function () { markField('addr_detail', null); });
@@ -326,10 +361,13 @@
     });
     window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
 
-    ['firstLastName', 'phone', 'relation'].forEach(function (key) {
+    ['firstLastName', 'phone', 'relation', 'relationOther'].forEach(function (key) {
       var id = 'ref_' + key;
       document.getElementById(id).addEventListener('input', function (e) { ref[key] = e.target.value; markField(id, null); });
       document.getElementById(id).addEventListener('change', function (e) { ref[key] = e.target.value; markField(id, null); });
+    });
+    document.getElementById('ref_relation').addEventListener('change', function (e) {
+      document.getElementById('ref_relationOther_wrap').style.display = e.target.value === 'อื่นๆ' ? '' : 'none';
     });
   }
 
@@ -348,10 +386,11 @@
     if (!d.reference.firstLastName || d.reference.firstLastName.trim().length < 2) errors.ref_firstLastName = 'กรุณากรอกชื่อ-นามสกุลบุคคลอ้างอิง';
     if (!isValidThaiMobile(d.reference.phone)) errors.ref_phone = 'เบอร์โทรไม่ถูกต้อง (ต้องเป็นเบอร์มือถือไทย 10 หลัก)';
     if (!d.reference.relation) errors.ref_relation = 'กรุณาเลือกความเกี่ยวข้อง';
+    if (d.reference.relation === 'อื่นๆ' && (!d.reference.relationOther || !d.reference.relationOther.trim())) errors.ref_relationOther = 'กรุณาระบุความเกี่ยวข้อง';
 
     var allIds = ['addr_detail', 'addr_province', 'addr_district', 'addr_subdistrict',
       'ship_detail', 'ship_province', 'ship_district', 'ship_subdistrict',
-      'ref_firstLastName', 'ref_phone', 'ref_relation'];
+      'ref_firstLastName', 'ref_phone', 'ref_relation', 'ref_relationOther'];
     allIds.forEach(function (id) {
       if (!document.getElementById(id + '_field')) return;
       if (errors[id]) markField(id, false, errors[id]);
@@ -859,6 +898,22 @@
     }).join('');
   }
 
+  // ป้ายชื่อขั้นตอนที่พนักงานเลือกได้ตอนกดปฏิเสธ (ตรงกับ step key ใน STEP_DEFS — ดู staff-sign-tab.js)
+  var CORRECTION_GROUP_LABELS = {
+    personal: 'ข้อมูลส่วนตัว', address: 'ที่อยู่และบุคคลอ้างอิง',
+    guardian: 'ข้อมูลผู้ปกครอง', guarantor: 'ข้อมูลผู้ค้ำประกัน', uploads: 'รูปเอกสารที่แนบ',
+  };
+  function correctionNoticeHtml() {
+    if (!state.correctionGroups) return '';
+    var labels = state.correctionGroups.map(function (k) { return CORRECTION_GROUP_LABELS[k] || k; });
+    return '<div class="notice">พนักงานตรวจพบว่าข้อมูลบางส่วนไม่ถูกต้อง กรุณาแก้ไข: <b>' + labels.join(', ') + '</b>' +
+      (state.correctionNote ? '<br>หมายเหตุจากพนักงาน: ' + escHtmlLocal(state.correctionNote) : '') +
+      '<br>ข้อมูลส่วนอื่นที่ถูกต้องอยู่แล้วถูกเติมไว้ให้แล้ว ไม่ต้องกรอกซ้ำ (แต่ต้องตรวจสอบยอด/เซ็นชื่อใหม่อีกครั้งท้ายสุด)</div>';
+  }
+  function escHtmlLocal(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   function renderCurrentStep() {
     var def = currentDef();
     var app = document.getElementById('app');
@@ -868,6 +923,7 @@
       return;
     }
     def.render(app);
+    if (state.correctionGroups) app.insertAdjacentHTML('afterbegin', correctionNoticeHtml());
     renderStepper();
     document.getElementById('btnBack').disabled = state.stepIndex === 0;
     document.getElementById('btnBack').style.visibility = state.stepIndex === 0 ? 'hidden' : 'visible';
@@ -909,6 +965,11 @@
   // ถ้าเปิดหน้านี้แบบไม่มี token จริง (?demo=1 หรือ MOCK_SESSION ตรงๆ) ยังใช้ mock เดิม (แค่ log) เหมือนก่อน
   // เพราะไม่มี session จริงใน DB ให้ผูกกับ submission นี้
   function submitContract() {
+    // ถ้าเลือก "ความเกี่ยวข้อง" เป็น "อื่นๆ" ให้แทนที่ด้วยข้อความที่ลูกค้าระบุเองก่อนส่ง — ปลายทาง (พนักงาน
+    // ตรวจสอบ/preview-contract.js ที่เอาไปแปะในสัญญาจริง) จะได้ข้อความที่ระบุตรงๆ ไม่ใช่คำว่า "อื่นๆ" เฉยๆ
+    if (state.data.reference.relation === 'อื่นๆ' && state.data.reference.relationOther && state.data.reference.relationOther.trim()) {
+      state.data.reference.relation = state.data.reference.relationOther.trim();
+    }
     if (!realToken) {
       console.log('SUBMIT (mock — ไม่มี token จริง) — payload:', JSON.stringify(state.data, null, 2));
       state.stepIndex = visibleSteps().length;

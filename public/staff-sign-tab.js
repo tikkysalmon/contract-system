@@ -18,7 +18,21 @@ function initStaffSignTab(containerId, currentUser) {
     submitting: false,
     submitError: null,
     savedSignatureDataUrl: null, // ลายเซ็นที่พนักงานคนนี้เคยบันทึกไว้ (2026-09-04) — โหลดครั้งเดียวตอนเข้าหน้า
+    // ปฏิเสธ/ขอแก้ไขข้อมูล (2026-09-06) — พนักงานตรวจแล้วพบว่าข้อมูลบางส่วนผิด ระบุกลุ่มที่ต้องแก้แล้วส่งลิงก์
+    // เดิมกลับให้ลูกค้าแก้ไขเฉพาะจุดนั้น (ดู staff-reject-submission.js / sign.js)
+    rejectingId: null, // submissionId ที่กำลังเปิดปฏิเสธอยู่ (null = ยังไม่เปิด)
+    rejectChecked: {}, // { personal: true, uploads: true, ... }
+    rejectNote: '',
+    rejecting: false,
+    rejectError: null,
   };
+  var REJECT_GROUPS = [
+    { key: 'personal', label: 'ข้อมูลส่วนตัว' },
+    { key: 'address', label: 'ที่อยู่และบุคคลอ้างอิง' },
+    { key: 'guardian', label: 'ข้อมูลผู้ปกครอง', onlyIf: 'hasGuardian' },
+    { key: 'guarantor', label: 'ข้อมูลผู้ค้ำประกัน', onlyIf: 'hasGuarantor' },
+    { key: 'uploads', label: 'รูปเอกสารที่แนบ (บัตร/เซลฟี่)' },
+  ];
 
   // โหลดลายเซ็นที่บันทึกไว้ล่าสุดของพนักงานคนนี้ (ถ้ามี) — กรองด้วย username ตรงๆ เห็นแค่ของตัวเองเท่านั้น
   // ตามที่ user ขอ ไม่ต้องรอก่อนโหลดคิว (ยิงพร้อมกัน) เผื่อคนไม่เคยบันทึกไว้เลยก็ไม่ต้องรอ
@@ -68,6 +82,109 @@ function initStaffSignTab(containerId, currentUser) {
   function closeSignPanel() {
     state.signingId = null;
     render();
+  }
+
+  function openRejectPanel(submissionId) {
+    state.rejectingId = submissionId;
+    state.rejectChecked = {};
+    state.rejectNote = '';
+    state.rejectError = null;
+    state.rejecting = false;
+    render();
+  }
+
+  function closeRejectPanel() {
+    state.rejectingId = null;
+    render();
+  }
+
+  async function submitReject() {
+    var rejectedFields = Object.keys(state.rejectChecked).filter(function (k) { return state.rejectChecked[k]; });
+    if (!rejectedFields.length) {
+      state.rejectError = 'กรุณาติ๊กเลือกอย่างน้อย 1 รายการที่ต้องแก้ไข';
+      render();
+      return;
+    }
+    state.rejecting = true;
+    state.rejectError = null;
+    render();
+    try {
+      var res = await fetch('/api/staff-reject-submission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          submissionId: state.rejectingId,
+          staffName: currentUser.username,
+          rejectedFields: rejectedFields,
+          note: state.rejectNote,
+        }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'ปฏิเสธไม่สำเร็จ');
+      state.rejectingId = null;
+      await loadQueue(); // โหลดคิวใหม่ ให้แถวนี้ขึ้นสถานะ "รอลูกค้าแก้ไข" + ปุ่มคัดลอกลิงก์ทันที
+      return;
+    } catch (err) {
+      state.rejectError = 'ปฏิเสธไม่สำเร็จ: ' + err.message;
+    }
+    state.rejecting = false;
+    render();
+  }
+
+  // ---------- ดาวน์โหลดสัญญาฉบับจริง (2026-09-06) — ใช้ endpoint/renderer เดียวกับปุ่ม "ดูตัวอย่างสัญญา" ของ
+  // CS (contracts-tab.js's previewContractFor) แต่ใส่ข้อมูล/รูปแนบ/ลายเซ็นจริงที่ลูกค้าส่งกลับมาแล้วแทน
+  // placeholder — ให้พนักงานตรวจเอกสารฉบับจริงก่อนพิมพ์/ตัดสินใจเซ็นหรือปฏิเสธ ----------
+  function downloadContractFor(submissionId, soNumber) {
+    var item = state.queue.filter(function (q) { return q.submissionId === submissionId; })[0];
+    if (!item) return;
+    var sessionItem = (item.items || []).filter(function (it) { return it.soNumber === soNumber; })[0];
+    if (!sessionItem) return;
+    var btn = document.getElementById('btnDownloadContract__' + submissionId + '__' + soNumber);
+    var errEl = document.getElementById('downloadContractErr__' + submissionId);
+    if (errEl) errEl.textContent = '';
+    var originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'กำลังสร้างไฟล์...';
+
+    var c = item.customer || {};
+    var hg = hasGuardianGuarantor(item);
+    var customerWithFiles = Object.assign({}, c, {
+      files: {
+        idCard: item.files.idCard, selfieWithId: item.files.selfieWithId,
+        guardianId: item.files.guardianId, guarantorId: item.files.guarantorId,
+        signature: item.files.signature, guardianSignature: item.files.guardianSignature, guarantorSignature: item.files.guarantorSignature,
+      },
+    });
+    var flatSession = Object.assign({ contractDate: item.contractDate, customer: c, letterheadDataUrl: item.letterheadDataUrl }, sessionItem);
+
+    fetch('/api/preview-contract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: flatSession, customer: customerWithFiles, final: true }),
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.body.error || 'สร้างไฟล์ไม่สำเร็จ');
+        return renderContractPdf(result.body.blocks, {
+          title: result.body.title,
+          letterheadDataUrl: flatSession.letterheadDataUrl,
+          customer: customerWithFiles,
+          contractDate: flatSession.contractDate,
+          hasGuardian: hg.hasGuardian,
+          hasGuarantor: hg.hasGuarantor,
+          staffSignature: item.staffSignedAt ? { url: item.files.staffSignature, name: item.staffSignedBy } : null,
+        });
+      })
+      .then(function (blob) {
+        window.open(URL.createObjectURL(blob), '_blank');
+      })
+      .catch(function (err) {
+        if (errEl) errEl.textContent = 'สร้างไฟล์ไม่สำเร็จ: ' + err.message;
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      });
   }
 
   async function submitSignature() {
@@ -184,6 +301,52 @@ function initStaffSignTab(containerId, currentUser) {
       '<span style="font-size:12px;color:var(--muted);">' + label + '</span></a>';
   }
 
+  function hasGuardianGuarantor(item) {
+    var c = item.customer || {};
+    return {
+      hasGuardian: !!(c.guardian && c.guardian.firstLastName && c.guardian.firstLastName.trim()),
+      hasGuarantor: !!(c.guarantor && c.guarantor.firstLastName && c.guarantor.firstLastName.trim()),
+    };
+  }
+
+  function copyLinkToken(token) {
+    var url = location.origin + '/sign.html?token=' + token;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(function () { window.prompt('คัดลอกลิงก์นี้:', url); });
+    } else {
+      window.prompt('คัดลอกลิงก์นี้:', url);
+    }
+  }
+
+  var CORRECTION_GROUP_LABELS = {
+    personal: 'ข้อมูลส่วนตัว', address: 'ที่อยู่และบุคคลอ้างอิง',
+    guardian: 'ข้อมูลผู้ปกครอง', guarantor: 'ข้อมูลผู้ค้ำประกัน', uploads: 'รูปเอกสารที่แนบ',
+  };
+
+  function correctionStatusHtml(item) {
+    if (!item.rejectedAt) {
+      return '<button type="button" class="btn btn-ghost btnOpenReject" data-id="' + item.submissionId + '" style="margin-top:10px;">ปฏิเสธ / ขอแก้ไขข้อมูล</button>';
+    }
+    var labels = (item.rejectedFields || []).map(function (k) { return CORRECTION_GROUP_LABELS[k] || k; });
+    return '<div class="notice" style="margin-top:12px;">' +
+      'ส่งกลับให้ลูกค้าแก้ไขแล้ว โดย ' + (item.rejectedBy || '-') + ' เมื่อ ' + fmtDateTime(item.rejectedAt) + '<br>' +
+      'รายการที่ต้องแก้: <b>' + (labels.join(', ') || '-') + '</b>' +
+      (item.rejectedNote ? '<br>หมายเหตุ: ' + item.rejectedNote : '') +
+      '</div>' +
+      '<button type="button" class="btn btn-secondary btnCopyRejectLink" data-token="' + item.token + '" style="margin-top:8px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
+  }
+
+  function downloadContractButtonsHtml(item) {
+    if (!item.items || !item.items.length) return '';
+    return '<div style="margin-top:10px;">' +
+      item.items.map(function (it) {
+        return '<button type="button" class="btn btn-ghost btnDownloadContract" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
+          'id="btnDownloadContract__' + item.submissionId + '__' + it.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดาวน์โหลดสัญญา: ' + it.product + '</button>';
+      }).join('') +
+      '<div class="err" id="downloadContractErr__' + item.submissionId + '"></div>' +
+      '</div>';
+  }
+
   function customerDetailHtml(item) {
     var c = item.customer || {};
     var addr = c.address || {};
@@ -191,8 +354,9 @@ function initStaffSignTab(containerId, currentUser) {
     var ref = c.reference || {};
     var guardian = c.guardian || {};
     var guarantor = c.guarantor || {};
-    var hasGuardian = !!(guardian.firstLastName && guardian.firstLastName.trim());
-    var hasGuarantor = !!(guarantor.firstLastName && guarantor.firstLastName.trim());
+    var hg = hasGuardianGuarantor(item);
+    var hasGuardian = hg.hasGuardian;
+    var hasGuarantor = hg.hasGuarantor;
 
     var html = '<div style="padding:14px 0 4px;border-top:1px solid var(--border);">' +
       '<table class="installment-table" style="margin-bottom:12px;">' +
@@ -216,11 +380,16 @@ function initStaffSignTab(containerId, currentUser) {
       (hasGuarantor ? fileThumbHtml(item.files.guarantorId, 'บัตร ปชช. ผู้ค้ำ') : '') +
       (hasGuarantor ? fileThumbHtml(item.files.guarantorSignature, 'ลายเซ็นผู้ค้ำ') : '') +
       (item.files.staffSignature ? fileThumbHtml(item.files.staffSignature, 'ลายเซ็นพนักงาน') : '') +
+      downloadContractButtonsHtml(item) +
+      correctionStatusHtml(item) +
       '</div>';
     return html;
   }
 
   function statusBadgeHtml(item) {
+    if (item.rejectedAt) {
+      return '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอลูกค้าแก้ไข</span>';
+    }
     if (item.staffSignedAt) {
       return '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">เซ็นแล้ว โดย ' + (item.staffSignedBy || '-') + '</span>';
     }
@@ -250,6 +419,31 @@ function initStaffSignTab(containerId, currentUser) {
         '<button class="btn btn-ghost" id="btnCancelSign">ยกเลิก</button>' +
         '</div>' +
         '</div>';
+    } else if (state.rejectingId) {
+      var rejectItem = state.queue.filter(function (q) { return q.submissionId === state.rejectingId; })[0];
+      var hg = rejectItem ? hasGuardianGuarantor(rejectItem) : { hasGuardian: false, hasGuarantor: false };
+      var groups = REJECT_GROUPS.filter(function (g) {
+        if (g.onlyIf === 'hasGuardian') return hg.hasGuardian;
+        if (g.onlyIf === 'hasGuarantor') return hg.hasGuarantor;
+        return true;
+      });
+      html = '<div class="card">' +
+        '<h2>ปฏิเสธ / ขอแก้ไขข้อมูล — ' + (rejectItem ? rejectItem.customerName : '') + '</h2>' +
+        '<p class="hint">ติ๊กเลือกข้อมูลที่ไม่ถูกต้อง ระบบจะส่งลิงก์เดิมกลับให้ลูกค้าแก้ไขเฉพาะจุดที่เลือก ส่วนข้อมูลอื่นที่ถูกต้องอยู่แล้วจะเติมให้อัตโนมัติไม่ต้องกรอกซ้ำ (ลูกค้าต้องตรวจสอบยอด/เซ็นชื่อใหม่เสมอ)</p>' +
+        groups.map(function (g) {
+          var checked = !!state.rejectChecked[g.key];
+          return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);">' +
+            '<input type="checkbox" class="rejectFieldCheck" data-key="' + g.key + '"' + (checked ? ' checked' : '') + ' />' +
+            '<span>' + g.label + '</span></label>';
+        }).join('') +
+        '<div class="field" style="margin-top:12px;"><label>หมายเหตุ (ไม่บังคับ)</label>' +
+        '<textarea id="rejectNoteInput" rows="3" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;">' + (state.rejectNote || '').replace(/</g, '&lt;') + '</textarea></div>' +
+        (state.rejectError ? '<p style="color:var(--danger);margin-top:10px;">' + state.rejectError + '</p>' : '') +
+        '<div style="margin-top:14px;">' +
+        '<button class="btn btn-primary" id="btnConfirmReject"' + (state.rejecting ? ' disabled' : '') + '>' + (state.rejecting ? 'กำลังบันทึก...' : 'ยืนยันปฏิเสธ') + '</button> ' +
+        '<button class="btn btn-ghost" id="btnCancelReject">ยกเลิก</button>' +
+        '</div>' +
+        '</div>';
     } else if (state.queue.length === 0) {
       html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่มีลูกค้าส่งฟอร์มกลับมา — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
     } else {
@@ -265,7 +459,7 @@ function initStaffSignTab(containerId, currentUser) {
             '<span style="color:var(--muted);font-size:12px;">ส่งฟอร์มเมื่อ ' + fmtDateTime(q.submittedAt) + '</span>' +
             '</div>' +
             '<button class="btn btn-ghost btnToggleExpand" data-id="' + q.submissionId + '">' + (expanded ? 'ซ่อนข้อมูล' : 'ดูข้อมูลลูกค้า') + '</button>' +
-            (!q.staffSignedAt ? '<button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '">เซ็นเอกสาร</button>' : '') +
+            (!q.staffSignedAt && !q.rejectedAt ? '<button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '">เซ็นเอกสาร</button>' : '') +
             '</div>' +
             (expanded ? customerDetailHtml(q) : '') +
             '</div>';
@@ -279,12 +473,33 @@ function initStaffSignTab(containerId, currentUser) {
       setupSignaturePad();
       document.getElementById('btnSubmitSign').addEventListener('click', submitSignature);
       document.getElementById('btnCancelSign').addEventListener('click', closeSignPanel);
+    } else if (state.rejectingId) {
+      Array.prototype.forEach.call(document.querySelectorAll('.rejectFieldCheck'), function (cb) {
+        cb.addEventListener('change', function () { state.rejectChecked[cb.getAttribute('data-key')] = cb.checked; });
+      });
+      document.getElementById('rejectNoteInput').addEventListener('input', function (e) { state.rejectNote = e.target.value; });
+      document.getElementById('btnConfirmReject').addEventListener('click', submitReject);
+      document.getElementById('btnCancelReject').addEventListener('click', closeRejectPanel);
     } else if (!state.loading && !state.error) {
       Array.prototype.forEach.call(document.querySelectorAll('.btnOpenSign'), function (btn) {
         btn.addEventListener('click', function () { openSignPanel(btn.getAttribute('data-id')); });
       });
       Array.prototype.forEach.call(document.querySelectorAll('.btnToggleExpand'), function (btn) {
         btn.addEventListener('click', function () { toggleExpand(btn.getAttribute('data-id')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.btnDownloadContract'), function (btn) {
+        btn.addEventListener('click', function () { downloadContractFor(btn.getAttribute('data-submission-id'), btn.getAttribute('data-so')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.btnOpenReject'), function (btn) {
+        btn.addEventListener('click', function () { openRejectPanel(btn.getAttribute('data-id')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.btnCopyRejectLink'), function (btn) {
+        btn.addEventListener('click', function () {
+          copyLinkToken(btn.getAttribute('data-token'));
+          var original = btn.textContent;
+          btn.textContent = '✅ คัดลอกแล้ว';
+          setTimeout(function () { btn.textContent = original; }, 1500);
+        });
       });
     }
   }

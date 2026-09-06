@@ -29,7 +29,8 @@ module.exports = async function handler(req, res) {
     // staff_signed_at อีกต่อไป (แสดงทุกคนที่ส่งฟอร์มแล้ว) เรียงล่าสุดขึ้นก่อน (ไล่ดูของใหม่ได้ง่ายกว่า)
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/contract_submissions' +
-        '?select=id,submitted_at,customer_data,file_paths,staff_signature_path,staff_signed_at,staff_signed_by,contract_sessions(token,crm_snapshot)' +
+        '?select=id,submitted_at,customer_data,file_paths,staff_signature_path,staff_signed_at,staff_signed_by,' +
+        'rejected_at,rejected_by,rejected_fields,rejected_note,contract_sessions(token,crm_snapshot)' +
         '&order=submitted_at.desc',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
@@ -62,6 +63,16 @@ module.exports = async function handler(req, res) {
         files: files,
         staffSignedAt: row.staff_signed_at,
         staffSignedBy: row.staff_signed_by,
+        // สำหรับปุ่ม "ดาวน์โหลดสัญญา" (2026-09-06) — เรนเดอร์ PDF ฉบับจริงต่อ SO เดียวกับที่ CS ใช้ดูตัวอย่าง
+        // ก่อนลูกค้ากรอกฟอร์ม (ดู contracts-tab.js's previewContractFor) แต่ใช้ข้อมูล/รูปจริงที่ลูกค้าส่งมาแล้ว
+        items: items,
+        contractDate: snapshot.contractDate || null,
+        letterheadDataUrl: snapshot.letterheadDataUrl || null,
+        // สถานะ "พนักงานปฏิเสธ ส่งกลับให้ลูกค้าแก้ไข" (2026-09-06)
+        rejectedAt: row.rejected_at,
+        rejectedBy: row.rejected_by,
+        rejectedFields: row.rejected_fields || [],
+        rejectedNote: row.rejected_note,
       };
     });
 
