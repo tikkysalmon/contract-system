@@ -32,33 +32,14 @@ var MARGIN_BOTTOM = 70; // ~18.5mm ล่าง
 var CONTENT_W = PAGE_W - MARGIN_X * 2;
 var BODY_FONT = "'Sarabun','Noto Sans Thai','Leelawadee UI',sans-serif";
 
-// โลโก้ mark วาดเองด้วย SVG (2026-09-06 user ส่งภาพหัวจดหมายอ้างอิงมา ยังไม่มีไฟล์โลโก้จริงในระบบให้ฝัง
-// ตรงๆ — ถ้ามีไฟล์โลโก้จริงในอนาคต แนะนำอัปโหลดผ่านเมนู "อัพโหลดข้อมูล > ตั้งค่าหัวจดหมาย" แทน จะได้ผลลัพธ์
-// ตรงกับแบรนด์เป๊ะกว่านี้ — โค้ดนี้เป็นแค่ fallback ตอนยังไม่ได้อัปโหลดหัวจดหมาย)
-var LOGO_MARK_SVG = '<svg width="40" height="40" viewBox="0 0 40 40" style="flex-shrink:0;">' +
-  '<circle cx="20" cy="20" r="20" fill="#f2914f"/>' +
-  '<path d="M4 24c6-10 12 10 18 0s12-10 18 0" stroke="#fff" stroke-width="3.4" fill="none" stroke-linecap="round"/>' +
-  '</svg>';
+// หัวฟอร์มบริษัทไฟล์จริง (2026-09-06 user ส่งไฟล์ "หัวฟอร์มบริษัท (อัพเดท).jpg" มาให้ใช้แทนโลโก้ที่เคยวาดเอง
+// ด้วย SVG) ใช้เป็นค่าเริ่มต้นเสมอถ้ายังไม่ได้อัปโหลดหัวจดหมายเอง (custom) ผ่านเมนู "อัพโหลดข้อมูล > ตั้งค่า
+// หัวจดหมาย" — ถ้าอัปโหลดเองไว้ (meta.letterheadDataUrl) ให้ใช้ตัวนั้นแทน
+var DEFAULT_LETTERHEAD_URL = 'assets/letterhead-default.jpg';
 
 function headerHtml(meta) {
-  return meta.letterheadDataUrl
-    ? '<img src="' + meta.letterheadDataUrl + '" style="width:100%; display:block; margin-bottom:14px;" />'
-    : '<div style="border-bottom:4px solid #f2914f; padding-bottom:10px; margin-bottom:18px;">' +
-      '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-      '<div style="display:flex; align-items:center; gap:10px;">' +
-      LOGO_MARK_SVG +
-      '<div>' +
-      '<div style="font-weight:800; font-size:18px; color:#1c1b19; line-height:1.05;">Salmon<br>Enterprise</div>' +
-      '<div style="font-size:9.5px; font-weight:700; color:#dc2626; margin-top:2px;">บริษัทแซลม่อนเอ็นเตอร์ไพรส์ จำกัด</div>' +
-      '<div style="font-size:8px; color:#dc2626;">SALMON ENTERPRISES Co.,Ltd.</div>' +
-      '</div>' +
-      '</div>' +
-      '<div style="text-align:right;">' +
-      '<div style="font-weight:700; font-size:15px; color:#1c1b19;">บริษัท แซลม่อน เอ็นเตอร์ไพรส์ จำกัด (สำนักงานใหญ่)</div>' +
-      '<div style="font-size:10.5px; color:#6b7280;">Salmon Enterprise Company Limited (Head Office)</div>' +
-      '</div>' +
-      '</div>' +
-      '</div>';
+  var src = meta.letterheadDataUrl || DEFAULT_LETTERHEAD_URL;
+  return '<img src="' + src + '" style="width:100%; display:block; margin-bottom:14px;" />';
 }
 
 // ---------- ย่อหน้า/ตาราง จาก docx blocks (รักษาตัวหนา/สีที่มีอยู่จริงในเทมเพลต — 2026-09-04) ----------
@@ -223,13 +204,36 @@ function paginateBodyBlocks(blocks, meta, headerH) {
   var refHeadingIdx = blocks.findIndex(function (b) {
     return b.type === 'paragraph' && b.text.indexOf('บุคคลที่ร้านสามารถติดต่อได้เพื่อทวงถามหนี้') !== -1;
   });
-  var items = blocks.map(function (b) { return { html: blockHtml(b), pageBreakBefore: !!b.pageBreakBefore }; });
+
+  // จับกลุ่ม "หัวข้อตารางแสดงภาระหนี้ + บรรทัดข้อมูลกำกับ (วันที่ทำสัญญา/ชื่อลูกค้า/ราคา/จำนวนงวด ฯลฯ) + ตัวตาราง
+  // เอง" ให้เป็นก้อนเดียวกันเสมอ ไม่ปล่อยไหลอิสระทีละ block (2026-09-06 เจอบั๊กจริง: ปล่อยไหลอิสระแล้วหัวข้อ+
+  // บรรทัดข้อมูลติดอยู่ท้ายหน้าเดิม แต่ตัวตารางล้นไปหน้าใหม่ อ่านแล้วเหมือนหลุดคนละส่วนกัน) ถ้าก้อนรวมนี้ไม่พอที่
+  // ในหน้าปัจจุบันจริงๆ ค่อยตัดทั้งก้อนไปหน้าใหม่ทั้งก้อน (ไม่ตัดครึ่งกลางก้อน)
+  var tableIdx = blocks.findIndex(function (b) { return b.type === 'table'; });
+  var tableHeadingIdx = blocks.findIndex(function (b) { return b.type === 'paragraph' && b.text.indexOf('ตารางแสดงภาระหนี้') === 0; });
+  var groupStart = (tableHeadingIdx !== -1 && tableIdx !== -1 && tableHeadingIdx < tableIdx) ? tableHeadingIdx : -1;
+
+  var items = [];
+  for (var bi = 0; bi < blocks.length; bi++) {
+    if (groupStart !== -1 && bi === groupStart) {
+      var groupHtml = blocks.slice(tableHeadingIdx, tableIdx + 1).map(blockHtml).join('');
+      items.push({ html: groupHtml, pageBreakBefore: false });
+      bi = tableIdx; // for loop จะ ++ ต่ออีกทีให้เอง ข้ามบล็อกที่รวมเข้ากลุ่มไปแล้วทั้งหมด
+      continue;
+    }
+    items.push({ html: blockHtml(blocks[bi]), pageBreakBefore: !!blocks[bi].pageBreakBefore });
+  }
+
+  // ตำแหน่งแทรกบล็อกลายเซ็นใน items (ไม่ใช่ blocks เดิม) — items[0..groupStart-1] ตรงกับ blocks 1:1 เสมอ
+  // (การรวมกลุ่มข้างบนเกิดขึ้นที่ index groupStart เป็นต้นไปเท่านั้น) ดังนั้น index ใน blocks ก่อนหน้า groupStart
+  // ยังใช้ตรงกับ items ได้เลยไม่ต้องแปลง
   var sigItem = { html: signatureBlockHtml(meta), pageBreakBefore: false };
   if (refHeadingIdx !== -1) {
     items.splice(refHeadingIdx + 2, 0, sigItem);
+  } else if (groupStart !== -1) {
+    items.splice(groupStart, 0, sigItem); // fallback (หาหัวข้อบุคคลอ้างอิงไม่เจอ) แทรกก่อนกลุ่มตารางผ่อนแทน
   } else {
-    var tableIdx = blocks.findIndex(function (b) { return b.type === 'table'; });
-    if (tableIdx !== -1) items.splice(tableIdx, 0, sigItem); else items.push(sigItem);
+    items.push(sigItem);
   }
 
   var heights = measureHeights(items.map(function (i) { return i.html; }));
