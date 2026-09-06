@@ -226,6 +226,7 @@ async function fetchCustomerSoListLight(customerId, token) {
       overDueDateCount: so.overDueDateCount,
       createdAt: so.createdAt,
       productPrice: so.productPrice,
+      _debugRawSo: so, // TEMP (2026-09-06) — เช็คว่า field วิธีการผ่อนจริงๆ ชื่ออะไรใน saleOrders[] ของ /crm/customer — ลบทิ้งหลังเช็คเสร็จ
     };
   });
 }
