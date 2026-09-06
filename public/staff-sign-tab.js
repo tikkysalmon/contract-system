@@ -400,16 +400,16 @@ function initStaffSignTab(containerId, currentUser) {
   // มีแต่รายการที่ส่งฟอร์มแล้ว จึงไม่มีทาง key เป็น awaiting_customer แต่ยังกัน fallback ไว้เผื่อ
   var STATUS_BADGE_STYLE = {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
-    customer_signed: 'background:#e0f2fe;color:#075985;',
     needs_correction: 'background:#fee2e2;color:#b91c1c;',
     customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
     complete: 'background:#dcfce7;color:#15803d;',
   };
   function statusBadgeHtml(item) {
-    var status = item.contractStatus || { key: 'customer_signed', label: 'ลูกค้าเซ็นสัญญาแล้ว' };
+    var status = item.contractStatus || { key: 'customer_ok', label: 'สัญญาลูกค้าเรียบร้อย' };
     var style = STATUS_BADGE_STYLE[status.key] || 'background:#f3f4f6;color:#374151;';
-    var extra = status.key === 'customer_ok' || status.key === 'complete'
-      ? ' (เซ็นโดย ' + (item.staffSignedBy || '-') + ')' : '';
+    // "(เซ็นโดย X)" โชว์เฉพาะตอนพนักงานเซ็นจริงแล้วเท่านั้น (staffSignedAt) ไม่ใช่ดูจาก status key เฉยๆ
+    // เพราะตอนนี้ "สัญญาลูกค้าเรียบร้อย" ขึ้นอัตโนมัติได้โดยที่พนักงานยังไม่ได้เซ็น (2026-09-06 user แก้ไข flow)
+    var extra = item.staffSignedAt ? ' (เซ็นโดย ' + (item.staffSignedBy || '-') + ')' : '';
     return '<span class="badge badge-info" style="' + style + '">' + status.label + extra + '</span>';
   }
 
@@ -535,7 +535,6 @@ function initCsStatusView(containerId) {
 
   var STATUS_BADGE_STYLE = {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
-    customer_signed: 'background:#e0f2fe;color:#075985;',
     needs_correction: 'background:#fee2e2;color:#b91c1c;',
     customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
     complete: 'background:#dcfce7;color:#15803d;',
