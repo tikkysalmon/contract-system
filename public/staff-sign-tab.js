@@ -172,7 +172,7 @@ function initStaffSignTab(containerId, currentUser) {
           contractDate: flatSession.contractDate,
           hasGuardian: hg.hasGuardian,
           hasGuarantor: hg.hasGuarantor,
-          staffSignature: item.staffSignedAt ? { url: item.files.staffSignature, name: item.staffSignedBy } : null,
+          staffSignature: item.staffSignedAt ? { url: item.files.staffSignature } : null,
         });
       })
       .then(function (blob) {

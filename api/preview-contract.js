@@ -172,16 +172,18 @@ module.exports = async function handler(req, res) {
     // ลายเซ็น contract-html-renderer.js ฝั่ง client เป็นคนสร้างเองทั้งหมดจากข้อมูลลูกค้าจริง ไม่ต้องพึ่ง docx
     const installmentCount = Number((body.session && body.session.installmentCount) || 0);
     const tableIdx = rawBlocks.findIndex((b) => b.type === 'table');
-    const headingIdx = rawBlocks.findIndex((b) => b.type === 'paragraph' && b.text.indexOf('ตารางแสดงภาระหนี้') === 0);
     const photoPlaceholderIdx = rawBlocks.findIndex((b) => b.type === 'paragraph' && b.text.indexOf('แนบไฟล์รูปถ่าย') !== -1);
     let blocks = photoPlaceholderIdx !== -1 ? rawBlocks.slice(0, photoPlaceholderIdx) : rawBlocks;
     if (tableIdx !== -1) {
       blocks[tableIdx] = Object.assign({}, blocks[tableIdx], {
         rows: installmentCount > 0 ? blocks[tableIdx].rows.slice(0, installmentCount) : blocks[tableIdx].rows,
       });
-      if (headingIdx !== -1 && headingIdx < blocks.length) {
-        blocks[headingIdx] = Object.assign({}, blocks[headingIdx], { pageBreakBefore: true });
-      }
+      // เดิมบังคับขึ้นหน้าใหม่ก่อนหัวข้อตารางเสมอ (2026-09-04) — เจอบั๊กจริง 2026-09-06: เมื่อย้ายบล็อกลายเซ็น
+      // มาต่อจากข้อมูลบุคคลอ้างอิงแล้ว (ตรงตำแหน่งเดิมในต้นฉบับ) หน้าก่อนตารางมักเหลือพื้นที่ว่างเยอะเพราะถูก
+      // บังคับตัดหน้าทั้งที่ยังใส่เนื้อหาต่อได้ (ไม่พอดีกับขนาดกระดาษ A4 ตามที่ user ท้วง) — เอาการบังคับตัดหน้า
+      // ออก ปล่อยให้ตารางไหลไปตามพื้นที่ที่เหลือจริงแทน (ถ้าไม่พอจริงๆ ระบบจัดหน้า A4 อัตโนมัติอยู่แล้วจะตัด
+      // หน้าใหม่ให้เองตามธรรมชาติ — ยืนยันด้วยการเทสต์ repro จริงแล้วว่าตารางยังคงขึ้นหน้าใหม่เป็นปกติเมื่อพื้นที่
+      // ไม่พอ แต่ไม่เหลือพื้นที่ว่างเปล่าอีกต่อไปเมื่อพื้นที่พอ)
     }
 
     res.status(200).json({

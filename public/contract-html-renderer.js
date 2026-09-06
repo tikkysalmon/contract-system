@@ -32,12 +32,32 @@ var MARGIN_BOTTOM = 70; // ~18.5mm ล่าง
 var CONTENT_W = PAGE_W - MARGIN_X * 2;
 var BODY_FONT = "'Sarabun','Noto Sans Thai','Leelawadee UI',sans-serif";
 
+// โลโก้ mark วาดเองด้วย SVG (2026-09-06 user ส่งภาพหัวจดหมายอ้างอิงมา ยังไม่มีไฟล์โลโก้จริงในระบบให้ฝัง
+// ตรงๆ — ถ้ามีไฟล์โลโก้จริงในอนาคต แนะนำอัปโหลดผ่านเมนู "อัพโหลดข้อมูล > ตั้งค่าหัวจดหมาย" แทน จะได้ผลลัพธ์
+// ตรงกับแบรนด์เป๊ะกว่านี้ — โค้ดนี้เป็นแค่ fallback ตอนยังไม่ได้อัปโหลดหัวจดหมาย)
+var LOGO_MARK_SVG = '<svg width="40" height="40" viewBox="0 0 40 40" style="flex-shrink:0;">' +
+  '<circle cx="20" cy="20" r="20" fill="#f2914f"/>' +
+  '<path d="M4 24c6-10 12 10 18 0s12-10 18 0" stroke="#fff" stroke-width="3.4" fill="none" stroke-linecap="round"/>' +
+  '</svg>';
+
 function headerHtml(meta) {
   return meta.letterheadDataUrl
     ? '<img src="' + meta.letterheadDataUrl + '" style="width:100%; display:block; margin-bottom:14px;" />'
-    : '<div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #f2914f; padding-bottom:8px; margin-bottom:18px;">' +
+    : '<div style="border-bottom:4px solid #f2914f; padding-bottom:10px; margin-bottom:18px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+      '<div style="display:flex; align-items:center; gap:10px;">' +
+      LOGO_MARK_SVG +
+      '<div>' +
+      '<div style="font-weight:800; font-size:18px; color:#1c1b19; line-height:1.05;">Salmon<br>Enterprise</div>' +
+      '<div style="font-size:9.5px; font-weight:700; color:#dc2626; margin-top:2px;">บริษัทแซลม่อนเอ็นเตอร์ไพรส์ จำกัด</div>' +
+      '<div style="font-size:8px; color:#dc2626;">SALMON ENTERPRISES Co.,Ltd.</div>' +
+      '</div>' +
+      '</div>' +
+      '<div style="text-align:right;">' +
       '<div style="font-weight:700; font-size:15px; color:#1c1b19;">บริษัท แซลม่อน เอ็นเตอร์ไพรส์ จำกัด (สำนักงานใหญ่)</div>' +
-      '<div style="text-align:right; font-size:10.5px; color:#6b7280;">Salmon Enterprise Company Limited (Head Office)</div>' +
+      '<div style="font-size:10.5px; color:#6b7280;">Salmon Enterprise Company Limited (Head Office)</div>' +
+      '</div>' +
+      '</div>' +
       '</div>';
 }
 
@@ -103,9 +123,10 @@ function signatureBlockHtml(meta) {
   var c = meta.customer || {};
   var files = c.files || {};
   var staffSig = meta.staffSignature || {};
+  // ชื่อกำกับฝั่งพนักงานใช้ป้ายแผนกคงที่เสมอ (2026-09-06 user ยืนยัน — ไม่ต้องขึ้นชื่อจริง/username ของคนเซ็น)
   var html = '<div style="display:flex; justify-content:space-between; margin-top:22px;">' +
     signatureLineHtml('ผู้เช่าซื้อ', ((c.title || '') + (c.firstLastName || '')) || '-', files.signature) +
-    signatureLineHtml('ผู้แทนผู้ให้เช่าซื้อ', staffSig.name || 'พนักงานฝ่ายบัญชีหนี้สิน บจก. แซลม่อน เอ็นเตอร์ไพรส์', staffSig.url) +
+    signatureLineHtml('ผู้แทนผู้ให้เช่าซื้อ', 'พนักงานฝ่ายบัญชีหนี้สิน บจก. แซลม่อน เอ็นเตอร์ไพรส์', staffSig.url) +
     '</div>';
   if (meta.hasGuardian && c.guardian && c.guardian.firstLastName) {
     html += '<div style="display:flex; justify-content:center; margin-top:16px;">' +
@@ -122,11 +143,13 @@ function signatureBlockHtml(meta) {
 
 // ---------- หน้ารูปแนบ (2026-09-04 user ขอ "แนบรูปทั้งหมด") — รูปบัตรประชาชนทุกใบ (ลูกค้า/ผู้ปกครอง/ผู้ค้ำ)
 // มีตรา "สำเนาถูกต้อง" + ช่องเซ็นว่างกำกับ เหมือนไฟล์ตัวอย่างจริงที่ user ส่งมา ส่วนรูปคู่บัตรไม่มีตรานี้ ----------
-function certBlockHtml(personLabel, name, contractDateText) {
+function certBlockHtml(personLabel, name, contractDateText, signatureUrl) {
   return '<div style="text-align:center; margin-top:18px;">' +
     '<div style="font-weight:700; font-size:14px; margin-bottom:4px;">สำเนาถูกต้อง</div>' +
     '<div style="color:#dc2626; font-size:12px; text-decoration:underline; margin-bottom:16px;">เอกสารฉบับนี้ใช้สำหรับผ่อนสินค้ากับบจก.แซลม่อน เอ็นเตอร์ไพรส์เท่านั้น</div>' +
-    '<div style="height:34px;"></div>' +
+    (signatureUrl
+      ? '<img src="' + signatureUrl + '" style="height:44px;max-width:220px;object-fit:contain;display:block;margin:0 auto;" />'
+      : '<div style="height:34px;"></div>') +
     '<div style="font-size:12.5px;">ลายเซ็น .............................................. ' + escHtml(personLabel) + '</div>' +
     '<div style="font-size:12.5px;">(' + escHtml(name) + ')</div>' +
     '<div style="font-size:12.5px;">' + escHtml(contractDateText) + '</div>' +
@@ -138,25 +161,27 @@ function photoPageHtml(meta, dataUrl, opts) {
     '<div style="text-align:center; margin-top:16px;">' +
     '<img src="' + dataUrl + '" style="max-width:75%; max-height:440px; object-fit:contain; border:1px solid #ddd;" />' +
     '</div>' +
-    (opts.withCert ? certBlockHtml(opts.personLabel, opts.personName, meta.contractDateText) : '');
+    (opts.withCert ? certBlockHtml(opts.personLabel, opts.personName, meta.contractDateText, opts.signatureUrl) : '');
 }
 
-// รูปที่ต้องแนบ เรียงตามลำดับ: บัตร ปชช. ลูกค้า(มีตรา) -> คู่บัตร ลูกค้า(ไม่มีตรา) -> บัตร ปชช. ผู้ปกครอง/
-// ผู้ค้ำถ้ามี(มีตรา) — ข้ามรูปที่ยังไม่มี (เช่น CS ดูตัวอย่างก่อนลูกค้ากรอกฟอร์ม ยังไม่มีไฟล์เลยสักใบ)
+// รูปที่ต้องแนบ เรียงตามลำดับ: บัตร ปชช. ลูกค้า(มีตรา+ลายเซ็นจุดที่ 2 ของลูกค้า) -> คู่บัตร ลูกค้า(ไม่มีตรา) ->
+// บัตร ปชช. ผู้ปกครอง/ผู้ค้ำถ้ามี(มีตรา) — ข้ามรูปที่ยังไม่มี (เช่น CS ดูตัวอย่างก่อนลูกค้ากรอกฟอร์ม ยังไม่มีไฟล์
+// เลยสักใบ) — ลายเซ็นใต้รูปสำเนาบัตรนี้เป็นจุดที่ 2 ของลูกค้า/ผู้ปกครอง/ผู้ค้ำแต่ละคน (จุดที่ 1 อยู่ท้าย
+// ข้อมูลบุคคลอ้างอิง ดู signatureBlockHtml + paginateBodyBlocks — 2026-09-06 user ยืนยัน "ลายเซ็นลูกค้าต้องมี 2 จุด")
 function buildPhotoPagesHtml(meta) {
   var c = meta.customer || {};
   var files = c.files || {};
   var pages = [];
   var customerName = ((c.title || '') + (c.firstLastName || '')) || '-';
-  if (files.idCard) pages.push(photoPageHtml(meta, files.idCard, { withCert: true, personLabel: 'ผู้เช่าซื้อ', personName: customerName }));
+  if (files.idCard) pages.push(photoPageHtml(meta, files.idCard, { withCert: true, personLabel: 'ผู้เช่าซื้อ', personName: customerName, signatureUrl: files.signature }));
   if (files.selfieWithId) pages.push(photoPageHtml(meta, files.selfieWithId, { withCert: false }));
   if (meta.hasGuardian && files.guardianId) {
     var guardianName = c.guardian ? ((c.guardian.title || '') + (c.guardian.firstLastName || '')) : '-';
-    pages.push(photoPageHtml(meta, files.guardianId, { withCert: true, personLabel: 'ผู้ให้ความยินยอม (ผู้ปกครอง)', personName: guardianName }));
+    pages.push(photoPageHtml(meta, files.guardianId, { withCert: true, personLabel: 'ผู้ให้ความยินยอม (ผู้ปกครอง)', personName: guardianName, signatureUrl: files.guardianSignature }));
   }
   if (meta.hasGuarantor && files.guarantorId) {
     var guarantorName = c.guarantor ? ((c.guarantor.title || '') + (c.guarantor.firstLastName || '')) : '-';
-    pages.push(photoPageHtml(meta, files.guarantorId, { withCert: true, personLabel: 'ผู้ค้ำประกัน', personName: guarantorName }));
+    pages.push(photoPageHtml(meta, files.guarantorId, { withCert: true, personLabel: 'ผู้ค้ำประกัน', personName: guarantorName, signatureUrl: files.guarantorSignature }));
   }
   return pages;
 }
@@ -190,11 +215,22 @@ function measureHeaderHeight(meta) {
 function paginateBodyBlocks(blocks, meta, headerH) {
   var maxContentH = PAGE_H - MARGIN_TOP - MARGIN_BOTTOM - headerH;
 
-  // แทรกบล็อกลายเซ็นก่อนตาราง (หรือท้ายสุดถ้าไม่มีตาราง) — วางไว้ท้ายเนื้อหาสัญญาปกติ ก่อนหน้าตารางผ่อน
-  var tableIdx = blocks.findIndex(function (b) { return b.type === 'table'; });
+  // แทรกบล็อกลายเซ็นต่อจากข้อมูลบุคคลอ้างอิง (2026-09-06 user ยืนยัน — ตรงตำแหน่งเดิมในต้นฉบับ .docx จริง ที่
+  // เดิมเป็น textbox ลอยของ "ลายเซ็นผู้เช่าซื้อ"/"ลายเซ็นผู้แทนผู้ให้เช่าซื้อ" ต่อจากบรรทัด "ชื่อ/เบอร์/ความ
+  // เกี่ยวข้อง" ของบุคคลอ้างอิงพอดี — docx-blocks.js ตัด textbox ลอยพวกนี้ทิ้งไปแล้ว (ตำแหน่งเพี้ยนตอนแยก block)
+  // จึงต้องหาตำแหน่งจากหัวข้อ "บุคคลที่ร้านสามารถติดต่อได้เพื่อทวงถามหนี้" + บรรทัดข้อมูลถัดมาอีก 1 บรรทัดแทน)
+  // ถ้าหาหัวข้อนี้ไม่เจอ (เทมเพลตเปลี่ยนไป) fallback กลับไปแทรกก่อนตารางผ่อนเหมือนเดิม
+  var refHeadingIdx = blocks.findIndex(function (b) {
+    return b.type === 'paragraph' && b.text.indexOf('บุคคลที่ร้านสามารถติดต่อได้เพื่อทวงถามหนี้') !== -1;
+  });
   var items = blocks.map(function (b) { return { html: blockHtml(b), pageBreakBefore: !!b.pageBreakBefore }; });
   var sigItem = { html: signatureBlockHtml(meta), pageBreakBefore: false };
-  if (tableIdx !== -1) items.splice(tableIdx, 0, sigItem); else items.push(sigItem);
+  if (refHeadingIdx !== -1) {
+    items.splice(refHeadingIdx + 2, 0, sigItem);
+  } else {
+    var tableIdx = blocks.findIndex(function (b) { return b.type === 'table'; });
+    if (tableIdx !== -1) items.splice(tableIdx, 0, sigItem); else items.push(sigItem);
+  }
 
   var heights = measureHeights(items.map(function (i) { return i.html; }));
 
