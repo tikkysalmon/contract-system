@@ -8,6 +8,7 @@
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { computeContractStatus, computeShippingStatus } = require('./_lib/contract-status');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -24,7 +25,7 @@ module.exports = async function handler(req, res) {
     // จำกัด 200 แถวล่าสุด กันโหลดหนักถ้ามีลิงก์สะสมเยอะมาก (ยังไม่ทำ pagination/ค้นหาฝั่ง server รอบนี้)
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/contract_sessions' +
-        '?select=token,created_at,crm_snapshot,contract_submissions(submitted_at)' +
+        '?select=token,created_at,crm_snapshot,contract_submissions(submitted_at,rejected_at,staff_signed_at,imei,serial_number)' +
         '&order=created_at.desc&limit=200',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
@@ -35,6 +36,7 @@ module.exports = async function handler(req, res) {
       const snap = row.crm_snapshot || {};
       const items = snap.items || [];
       const submissions = row.contract_submissions || [];
+      const sub = submissions[0] || null;
       return {
         token: row.token,
         createdAt: row.created_at,
@@ -42,7 +44,16 @@ module.exports = async function handler(req, res) {
         products: items.map(function (it) { return it.product; }),
         soNumbers: items.map(function (it) { return it.soNumber; }),
         submitted: submissions.length > 0,
-        submittedAt: submissions.length ? submissions[0].submitted_at : null,
+        submittedAt: sub ? sub.submitted_at : null,
+        // สถานะสรุปสำหรับ CS (2026-09-06) — CS เห็นแค่สถานะ ไม่เห็น/แก้ข้อมูลเต็มของลูกค้า (ดู _lib/contract-status.js)
+        contractStatus: computeContractStatus({
+          submitted: submissions.length > 0,
+          rejectedAt: sub && sub.rejected_at,
+          staffSignedAt: sub && sub.staff_signed_at,
+          imei: sub && sub.imei,
+          serialNumber: sub && sub.serial_number,
+        }),
+        shippingStatus: computeShippingStatus(),
       };
     });
 

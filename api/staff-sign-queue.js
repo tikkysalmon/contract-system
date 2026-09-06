@@ -13,6 +13,7 @@
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { computeContractStatus, computeShippingStatus } = require('./_lib/contract-status');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store'); // 2026-09-04 กัน Vercel edge cache เสิร์ฟข้อมูลเก่า (บั๊กจริงที่เจอ: GET /api/staff-signature หลังอัปเดตแล้วยังได้ค่าเก่า)
@@ -30,7 +31,7 @@ module.exports = async function handler(req, res) {
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/contract_submissions' +
         '?select=id,submitted_at,customer_data,file_paths,staff_signature_path,staff_signed_at,staff_signed_by,' +
-        'rejected_at,rejected_by,rejected_fields,rejected_note,contract_sessions(token,crm_snapshot)' +
+        'rejected_at,rejected_by,rejected_fields,rejected_note,imei,serial_number,contract_sessions(token,crm_snapshot)' +
         '&order=submitted_at.desc',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
@@ -73,6 +74,18 @@ module.exports = async function handler(req, res) {
         rejectedBy: row.rejected_by,
         rejectedFields: row.rejected_fields || [],
         rejectedNote: row.rejected_note,
+        // เลข IMEI/Serial Number (2026-09-06) — ทีมแพ็คกิ้งจะเป็นคนกรอกจริง (เมนูนี้ยังไม่ได้สร้าง) เตรียม
+        // ฟิลด์ไว้ก่อนให้สถานะ "สัญญาเสร็จสมบูรณ์" อ้างอิงได้
+        imei: row.imei || null,
+        serialNumber: row.serial_number || null,
+        contractStatus: computeContractStatus({
+          submitted: true,
+          rejectedAt: row.rejected_at,
+          staffSignedAt: row.staff_signed_at,
+          imei: row.imei,
+          serialNumber: row.serial_number,
+        }),
+        shippingStatus: computeShippingStatus(),
       };
     });
 

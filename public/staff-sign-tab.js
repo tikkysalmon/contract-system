@@ -7,6 +7,16 @@
 function initStaffSignTab(containerId, currentUser) {
   'use strict';
 
+  // แยกสิทธิ์ตามแผนก (2026-09-06 user ยืนยัน) — "บัญชี" (ทีมเร่งรัดหนี้สิน) เห็น/แก้ไขข้อมูลเต็มเหมือนเดิม
+  // ส่วนแผนกอื่น (เช่น CS) เห็นแค่ "สถานะการทำสัญญา/สถานะการจัดส่ง" อ่านอย่างเดียว ไม่เห็นข้อมูลส่วนตัวลูกค้า/
+  // เอกสารแนบ และกดเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญาไม่ได้ — ผู้จัดการเห็นเต็มเหมือนบัญชีเสมอ
+  var FULL_ACCESS_DEPARTMENTS = ['บัญชี', 'ผู้จัดการ'];
+  var hasFullAccess = FULL_ACCESS_DEPARTMENTS.indexOf(currentUser.department) !== -1;
+  if (!hasFullAccess) {
+    initCsStatusView(containerId);
+    return;
+  }
+
   var sigPad = null; // { canvas, ctx, drawing, hasStroke }
 
   var state = {
@@ -386,14 +396,21 @@ function initStaffSignTab(containerId, currentUser) {
     return html;
   }
 
+  // ป้ายสถานะตรงตาม "สถานะการทำสัญญา" 5 แบบที่ user กำหนด (2026-09-06 ดู _lib/contract-status.js) — คิวนี้
+  // มีแต่รายการที่ส่งฟอร์มแล้ว จึงไม่มีทาง key เป็น awaiting_customer แต่ยังกัน fallback ไว้เผื่อ
+  var STATUS_BADGE_STYLE = {
+    awaiting_customer: 'background:#fff3e0;color:#b06a00;',
+    customer_signed: 'background:#e0f2fe;color:#075985;',
+    needs_correction: 'background:#fee2e2;color:#b91c1c;',
+    customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
+    complete: 'background:#dcfce7;color:#15803d;',
+  };
   function statusBadgeHtml(item) {
-    if (item.rejectedAt) {
-      return '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอลูกค้าแก้ไข</span>';
-    }
-    if (item.staffSignedAt) {
-      return '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">เซ็นแล้ว โดย ' + (item.staffSignedBy || '-') + '</span>';
-    }
-    return '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">รอเซ็น</span>';
+    var status = item.contractStatus || { key: 'customer_signed', label: 'ลูกค้าเซ็นสัญญาแล้ว' };
+    var style = STATUS_BADGE_STYLE[status.key] || 'background:#f3f4f6;color:#374151;';
+    var extra = status.key === 'customer_ok' || status.key === 'complete'
+      ? ' (เซ็นโดย ' + (item.staffSignedBy || '-') + ')' : '';
+    return '<span class="badge badge-info" style="' + style + '">' + status.label + extra + '</span>';
   }
 
   function render() {
@@ -506,4 +523,91 @@ function initStaffSignTab(containerId, currentUser) {
 
   loadQueue();
   loadSavedSignature(); // ยิงพร้อมกับ loadQueue ไม่ต้องรอกัน (คนละ endpoint ไม่เกี่ยวข้องกัน)
+}
+
+// ---------- มุมมองสำหรับ CS (2026-09-06) — อ่านอย่างเดียว เห็นแค่ "สถานะการทำสัญญา/สถานะการจัดส่ง" ต่อลูกค้า
+// ไม่เห็นข้อมูลส่วนตัว/เอกสารแนบ และไม่มีปุ่มเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญา (สิทธิ์เต็มเฉพาะแผนกบัญชี/ผู้จัดการ
+// ดู hasFullAccess ใน initStaffSignTab) ใช้ /api/cs-session-list เดิม (ครอบคลุมทั้ง session ที่ยังไม่ส่งฟอร์ม
+// กลับมา = สถานะ 1.1 ด้วย ต่างจาก /api/staff-sign-queue ที่มีแต่รายการที่ส่งฟอร์มแล้วเท่านั้น) ----------
+function initCsStatusView(containerId) {
+  'use strict';
+  var state = { loading: true, error: null, sessions: [], filter: '' };
+
+  var STATUS_BADGE_STYLE = {
+    awaiting_customer: 'background:#fff3e0;color:#b06a00;',
+    customer_signed: 'background:#e0f2fe;color:#075985;',
+    needs_correction: 'background:#fee2e2;color:#b91c1c;',
+    customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
+    complete: 'background:#dcfce7;color:#15803d;',
+  };
+  function statusBadge(status) {
+    var s = status || { key: '', label: '-' };
+    var style = STATUS_BADGE_STYLE[s.key] || 'background:#f3f4f6;color:#374151;';
+    return '<span class="badge badge-info" style="' + style + '">' + s.label + '</span>';
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return '-';
+    var d = new Date(iso);
+    if (isNaN(d)) return '-';
+    return (isoToDDMMYYYY(iso.slice(0, 10)) || '-') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  async function load() {
+    state.loading = true;
+    state.error = null;
+    render();
+    try {
+      var res = await fetch('/api/cs-session-list');
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
+      state.sessions = body.sessions || [];
+    } catch (err) {
+      state.error = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message;
+    }
+    state.loading = false;
+    render();
+  }
+
+  function filtered() {
+    var q = state.filter.trim().toLowerCase();
+    if (!q) return state.sessions;
+    return state.sessions.filter(function (s) { return (s.customerName || '').toLowerCase().indexOf(q) !== -1; });
+  }
+
+  function rowsHtml(rows) {
+    return rows.map(function (s) {
+      return '<tr>' +
+        '<td style="text-align:left;">' + s.customerName + '</td>' +
+        '<td style="text-align:left;">' + s.products.join(', ') + '<br><span style="color:var(--muted);font-size:12px;">' + s.soNumbers.join(', ') + '</span></td>' +
+        '<td>' + fmtDateTime(s.createdAt) + '</td>' +
+        '<td>' + statusBadge(s.contractStatus) + '</td>' +
+        '<td>' + statusBadge(s.shippingStatus) + '</td>' +
+        '</tr>';
+    }).join('') + (rows.length === 0 ? '<tr><td colspan="5" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>' : '');
+  }
+
+  // ช่องกรองอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตามแพทเทิร์น
+  // เดียวกับ contracts-tab.js's sessionListFilterInput
+  function render() {
+    var app = document.getElementById(containerId);
+    if (state.loading) { app.innerHTML = '<div class="card">กำลังโหลดข้อมูล...</div>'; return; }
+    if (state.error) { app.innerHTML = '<div class="card"><p style="color:var(--danger);">' + state.error + '</p></div>'; return; }
+
+    var html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.sessions.length + ' รายการ)</h2>' +
+      '<p class="hint">สถานะการทำสัญญา/สถานะการจัดส่งของลูกค้าแต่ละราย — ดูรายละเอียดเต็ม/แก้ไขข้อมูลได้ที่ทีมเร่งรัดหนี้สินเท่านั้น</p>' +
+      '<input type="text" id="csStatusFilterInput" placeholder="พิมพ์ชื่อลูกค้าเพื่อกรอง" value="' + state.filter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
+      '<div style="overflow-x:auto;"><table class="installment-table">' +
+      '<thead><tr><th style="text-align:left;">ลูกค้า</th><th style="text-align:left;">สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>สถานะการทำสัญญา</th><th>สถานะการจัดส่ง</th></tr></thead>' +
+      '<tbody id="csStatusTbody">' + rowsHtml(filtered()) + '</tbody></table></div>' +
+      '</div>';
+
+    app.innerHTML = html;
+    document.getElementById('csStatusFilterInput').addEventListener('input', function (e) {
+      state.filter = e.target.value;
+      document.getElementById('csStatusTbody').innerHTML = rowsHtml(filtered());
+    });
+  }
+
+  load();
 }
