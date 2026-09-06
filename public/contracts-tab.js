@@ -270,6 +270,7 @@ function initContractsTab(containerId) {
       var cfg = state.itemInputs[r.soNumber];
       return {
         soNumber: r.soNumber,
+        customerId: r.customerId, // รหัสลูกค้าจาก CRM (2026-09-06) — ใช้ค้นหา/แสดงในเมนู "สำหรับสต๊อค"
         contractNo: buildContractNo(contractDate, r.soNumber), // SALMONyyyymmdd-xxxxx ต่อ SO (2026-09-03 user ขอ)
         product: r.product,
         color: r.color,

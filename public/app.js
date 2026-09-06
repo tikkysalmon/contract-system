@@ -170,6 +170,12 @@
       initContractsTab('contractsTabRoot');
       return;
     }
+    if (state.activeTab === 'stock') {
+      // แทนที่ระบบเดิมที่ดึงจาก Lark Base (2026-09-06 user ส่ง ระบบจัดการออเดอร์.tsx มาอ้างอิง UI/PDF เดิม)
+      container.innerHTML = '<div id="stockTabRoot"></div>';
+      initStockTab('stockTabRoot', state.user);
+      return;
+    }
     if (state.activeTab === 'upload') {
       // ตั้งค่าหัวจดหมาย ย้ายมาอยู่ที่นี่ (เดิมอยู่บนสุดของแท็บ "ข้อมูลลูกค้าทำสัญญา") — user ขอ 2026-09-03
       container.innerHTML = '<div id="letterheadSettingsRoot"></div>';
