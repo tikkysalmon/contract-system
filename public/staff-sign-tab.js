@@ -94,6 +94,28 @@ function initStaffSignTab(containerId, currentUser) {
     render();
   }
 
+  // ปุ่ม "ยืนยัน" — ทีมเร่งรัดหนี้สินตรวจสอบข้อมูลสัญญาแล้วว่าถูกต้อง ไม่ต้องแก้ไข (2026-09-06 คนละ action
+  // กับ "เซ็นเอกสาร") ทำตรงในแถวเลยไม่ต้องเปิด panel แยก (ต่างจากเซ็น/ปฏิเสธที่ต้องกรอกข้อมูลเพิ่ม)
+  async function confirmReview(submissionId, btn) {
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'กำลังยืนยัน...';
+    try {
+      var res = await fetch('/api/staff-confirm-submission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: submissionId, staffName: currentUser.username }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'ยืนยันไม่สำเร็จ');
+      await loadQueue(); // โหลดคิวใหม่ ให้สถานะเปลี่ยนเป็น "สัญญาลูกค้าเรียบร้อย" ทันที
+    } catch (err) {
+      window.alert('ยืนยันไม่สำเร็จ: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
   function openRejectPanel(submissionId) {
     state.rejectingId = submissionId;
     state.rejectChecked = {};
@@ -400,6 +422,7 @@ function initStaffSignTab(containerId, currentUser) {
   // มีแต่รายการที่ส่งฟอร์มแล้ว จึงไม่มีทาง key เป็น awaiting_customer แต่ยังกัน fallback ไว้เผื่อ
   var STATUS_BADGE_STYLE = {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
+    pending_review: 'background:#e0f2fe;color:#075985;',
     needs_correction: 'background:#fee2e2;color:#b91c1c;',
     customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
     awaiting_staff_sign: 'background:#ede9fe;color:#6d28d9;',
@@ -466,7 +489,7 @@ function initStaffSignTab(containerId, currentUser) {
       html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่มีลูกค้าส่งฟอร์มกลับมา — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
     } else {
       html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.queue.length + ' รายการ)</h2>' +
-        '<p class="hint">รายชื่อลูกค้าที่กรอกฟอร์ม/เซ็นชื่อส่งกลับมาแล้ว กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็ม รายการที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
+        '<p class="hint">รายชื่อลูกค้าที่กรอกฟอร์ม/เซ็นชื่อส่งกลับมาแล้ว กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็ม รายการที่ยัง "รอตรวจสอบ" จะมีปุ่ม "ยืนยัน" ให้กดเมื่อตรวจข้อมูลแล้วว่าถูกต้อง ส่วนที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
         state.queue.map(function (q) {
           var expanded = state.expandedId === q.submissionId;
           return '<div style="padding:12px 0;border-top:1px solid var(--border);">' +
@@ -477,6 +500,7 @@ function initStaffSignTab(containerId, currentUser) {
             '<span style="color:var(--muted);font-size:12px;">ส่งฟอร์มเมื่อ ' + fmtDateTime(q.submittedAt) + '</span>' +
             '</div>' +
             '<button class="btn btn-ghost btnToggleExpand" data-id="' + q.submissionId + '">' + (expanded ? 'ซ่อนข้อมูล' : 'ดูข้อมูลลูกค้า') + '</button>' +
+            (!q.reviewedAt && !q.rejectedAt ? '<button class="btn btn-primary btnConfirmReview" data-id="' + q.submissionId + '">ยืนยัน</button>' : '') +
             (!q.staffSignedAt && !q.rejectedAt ? '<button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '">เซ็นเอกสาร</button>' : '') +
             '</div>' +
             (expanded ? customerDetailHtml(q) : '') +
@@ -501,6 +525,9 @@ function initStaffSignTab(containerId, currentUser) {
     } else if (!state.loading && !state.error) {
       Array.prototype.forEach.call(document.querySelectorAll('.btnOpenSign'), function (btn) {
         btn.addEventListener('click', function () { openSignPanel(btn.getAttribute('data-id')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.btnConfirmReview'), function (btn) {
+        btn.addEventListener('click', function () { confirmReview(btn.getAttribute('data-id'), btn); });
       });
       Array.prototype.forEach.call(document.querySelectorAll('.btnToggleExpand'), function (btn) {
         btn.addEventListener('click', function () { toggleExpand(btn.getAttribute('data-id')); });
@@ -536,6 +563,7 @@ function initCsStatusView(containerId) {
 
   var STATUS_BADGE_STYLE = {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
+    pending_review: 'background:#e0f2fe;color:#075985;',
     needs_correction: 'background:#fee2e2;color:#b91c1c;',
     customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
     awaiting_staff_sign: 'background:#ede9fe;color:#6d28d9;',

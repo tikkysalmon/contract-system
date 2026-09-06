@@ -126,6 +126,8 @@ module.exports = async function handler(req, res) {
           staff_signature_path: null,
           staff_signed_by: null,
           staff_signed_at: null,
+          reviewed_at: null, // ข้อมูลแก้ไขใหม่แล้ว การยืนยันตรวจสอบเดิม (ถ้ามี) เป็นโมฆะ ต้องยืนยันใหม่
+          reviewed_by: null,
         }),
       });
       if (!updateRes.ok) {

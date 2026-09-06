@@ -31,7 +31,8 @@ module.exports = async function handler(req, res) {
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/contract_submissions' +
         '?select=id,submitted_at,customer_data,file_paths,staff_signature_path,staff_signed_at,staff_signed_by,' +
-        'rejected_at,rejected_by,rejected_fields,rejected_note,imei,serial_number,contract_sessions(token,crm_snapshot)' +
+        'rejected_at,rejected_by,rejected_fields,rejected_note,imei,serial_number,reviewed_at,reviewed_by,' +
+        'contract_sessions(token,crm_snapshot)' +
         '&order=submitted_at.desc',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
@@ -78,9 +79,13 @@ module.exports = async function handler(req, res) {
         // ฟิลด์ไว้ก่อนให้สถานะ "สัญญาเสร็จสมบูรณ์" อ้างอิงได้
         imei: row.imei || null,
         serialNumber: row.serial_number || null,
+        // "ยืนยัน" ตรวจสอบข้อมูลแล้ว (2026-09-06) — คนละ action กับ "เซ็นเอกสาร"
+        reviewedAt: row.reviewed_at,
+        reviewedBy: row.reviewed_by,
         contractStatus: computeContractStatus({
           submitted: true,
           rejectedAt: row.rejected_at,
+          reviewedAt: row.reviewed_at,
           staffSignedAt: row.staff_signed_at,
           imei: row.imei,
           serialNumber: row.serial_number,

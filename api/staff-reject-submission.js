@@ -63,6 +63,8 @@ module.exports = async function handler(req, res) {
           staff_signature_path: null,
           staff_signed_by: null,
           staff_signed_at: null,
+          reviewed_at: null, // ปฏิเสธแล้ว การยืนยันตรวจสอบเดิม (ถ้ามี) เป็นโมฆะ ต้องยืนยันใหม่หลังลูกค้าแก้ไข
+          reviewed_by: null,
         }),
       }
     );
