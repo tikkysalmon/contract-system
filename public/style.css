@@ -150,6 +150,14 @@ header.top {
 }
 .filter-chip-hint { color: var(--muted); font-size: 13px; }
 
+/* dropdown ทรงแคปซูลเดี่ยว (ไม่ได้อยู่ใน .so-search-pill) — ใช้กับตัวกรองที่มีหลายตัวเรียงกันเป็นแถว เช่น
+   หน้า "สำหรับสต๊อค" (2026-09-07) ให้หน้าตาเข้าชุดกับ .filter-chip/.so-search-type แต่ยืนเดี่ยวได้ */
+.filter-select {
+  border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; font-size: 13px;
+  font-family: inherit; color: var(--ink); background: #fff; cursor: pointer;
+}
+.filter-checkbox-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink); }
+
 .notice {
   background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;
   border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px;

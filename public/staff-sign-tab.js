@@ -584,8 +584,16 @@ function initStaffSignTab(containerId, currentUser) {
     } else {
       html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.queue.length + ' รายการ)</h2>' +
         '<p class="hint">กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็มของรายการที่ลูกค้าส่งฟอร์มกลับมาแล้ว รายการที่ยัง "รอตรวจสอบ" จะมีปุ่ม "ยืนยัน" ให้กดเมื่อตรวจข้อมูลแล้วว่าถูกต้อง ส่วนที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
-        '<input type="text" id="contractsFilterInput" placeholder="ค้นหาชื่อลูกค้า / รหัสลูกค้า / เลขที่คำสั่งซื้อ SO" value="' + state.filter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
-        '<div style="overflow-x:auto;"><table class="installment-table">' +
+        listToolbarHtml({
+          sortId: 'contractsSortOrder',
+          sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
+          sortValue: 'latest',
+          searchIconId: 'contractsFilterIcon',
+          searchInputId: 'contractsFilterInput',
+          searchValue: state.filter,
+          searchPlaceholder: 'ค้นหาชื่อลูกค้า / รหัสลูกค้า / เลขที่คำสั่งซื้อ SO',
+        }) +
+        '<div style="overflow-x:auto;margin-top:12px;"><table class="installment-table">' +
         '<thead><tr>' +
         '<th style="text-align:left;">เลขที่คำสั่งซื้อ SO</th>' +
         '<th style="text-align:left;">ชื่อลูกค้า</th>' +
@@ -729,8 +737,16 @@ function initCsStatusView(containerId) {
 
     var html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.sessions.length + ' รายการ)</h2>' +
       '<p class="hint">สถานะการทำสัญญา/สถานะการจัดส่งของลูกค้าแต่ละราย — ดูรายละเอียดเต็ม/แก้ไขข้อมูลได้ที่ทีมเร่งรัดหนี้สินเท่านั้น</p>' +
-      '<input type="text" id="csStatusFilterInput" placeholder="ค้นหาชื่อลูกค้า / รหัสลูกค้า / เลขที่คำสั่งซื้อ SO" value="' + state.filter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
-      '<div style="overflow-x:auto;"><table class="installment-table">' +
+      listToolbarHtml({
+        sortId: 'csStatusSortOrder',
+        sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
+        sortValue: 'latest',
+        searchIconId: 'csStatusFilterIcon',
+        searchInputId: 'csStatusFilterInput',
+        searchValue: state.filter,
+        searchPlaceholder: 'ค้นหาชื่อลูกค้า / รหัสลูกค้า / เลขที่คำสั่งซื้อ SO',
+      }) +
+      '<div style="overflow-x:auto;margin-top:12px;"><table class="installment-table">' +
       '<thead><tr>' +
       '<th style="text-align:left;">เลขที่คำสั่งซื้อ SO</th>' +
       '<th style="text-align:left;">ชื่อลูกค้า</th>' +

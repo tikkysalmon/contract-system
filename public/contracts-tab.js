@@ -13,12 +13,6 @@ function initContractsTab(containerId, currentUser) {
 
   var LETTERHEAD_KEY = 'contractLetterheadDataUrl';
 
-  // ไอคอนแว่นขยาย โทนสีเทาเข้ม (var(--icon-gray)) แทนที่ปุ่ม "ค้นหา" เดิม ให้ตรงกับดีไซน์กล่องค้นหาแบบแคปซูล
-  // ที่ user ส่งภาพตัวอย่างมา (2026-09-03)
-  var SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-    'stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle>' +
-    '<line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
-
   var state = {
     searchMode: 'so',       // 'so' | 'name' (2026-09-04 เพิ่มโหมดค้นหาด้วยชื่อลูกค้า)
     soNumber: '',
@@ -347,8 +341,10 @@ function initContractsTab(containerId, currentUser) {
 
   function filteredSessionList() {
     return state.sessionList.filter(function (s) {
-      if (!state.sessionListFilter.trim()) return true;
-      return (s.customerName || '').toLowerCase().indexOf(state.sessionListFilter.trim().toLowerCase()) !== -1;
+      var f = state.sessionListFilter.trim().toLowerCase();
+      if (!f) return true;
+      return (s.customerName || '').toLowerCase().indexOf(f) !== -1 ||
+        s.soNumbers.some(function (so) { return (so || '').toLowerCase().indexOf(f) !== -1; });
     });
   }
 
@@ -398,8 +394,16 @@ function initContractsTab(containerId, currentUser) {
       return h;
     }
     // ช่องกรองนี้อัปเดตแค่ <tbody id="sessionListTbody"> เอง (ไม่เรียก render() เต็มก้อน) กัน input หลุด focus
-    // ทุกครั้งที่พิมพ์ — ตามแพทเทิร์นเดียวกับช่อง soInput ด้านล่างที่ก็ไม่ re-render ทั้งหน้าเช่นกัน
-    h += '<input type="text" id="sessionListFilterInput" placeholder="พิมพ์ชื่อลูกค้าเพื่อกรอง" value="' + state.sessionListFilter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
+    // ทุกครั้งที่พิมพ์ — ตามแพทเทิร์นเดียวกับช่อง soInput ด้านบนที่ก็ไม่ re-render ทั้งหน้าเช่นกัน
+    h += listToolbarHtml({
+      sortId: 'sessionListSort',
+      sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
+      sortValue: 'latest',
+      searchIconId: 'sessionListSearchIcon',
+      searchInputId: 'sessionListFilterInput',
+      searchValue: state.sessionListFilter,
+      searchPlaceholder: 'พิมพ์ชื่อลูกค้า/เลขที่คำสั่งซื้อ SO เพื่อกรอง',
+    }) +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
       '<thead><tr><th>ลูกค้า</th><th>สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>สถานะ</th><th>การดำเนินการ</th></tr></thead>' +
       '<tbody id="sessionListTbody">' + sessionListRowsHtml(filteredSessionList()) + '</tbody>' +
@@ -415,21 +419,19 @@ function initContractsTab(containerId, currentUser) {
     // ค้นหาคำสั่งขายอยู่บนสุดของหน้า (2026-09-06 user ขอ) — ก่อนหน้านี้ "ลิงก์แบบฟอร์มที่สร้างไว้" อยู่บนสุด
     // แต่ CS ใช้ช่องค้นหาเป็นงานแรกทุกครั้งที่เปิดหน้านี้ จึงย้ายมาไว้บนสุดแทน
     html += '<div class="card"><h2>ค้นหาคำสั่งขาย</h2>' +
-      '<div class="so-search-pill">' +
-      '<select id="soSortOrder" class="so-search-type">' +
-      '<option value="latest">เรียงลำดับ: ล่าสุด</option>' +
-      '</select>' +
-      '<select id="soSearchType" class="so-search-type">' +
-      '<option value="so"' + (state.searchMode === 'so' ? ' selected' : '') + '>เลขที่สั่งซื้อ SO</option>' +
-      '<option value="name"' + (state.searchMode === 'name' ? ' selected' : '') + '>ชื่อลูกค้า</option>' +
-      '</select>' +
-      '<div class="so-search-input-wrap">' +
-      '<span class="so-search-icon" id="btnSearch">' + SEARCH_ICON + '</span>' +
-      '<input type="text" id="soInput" value="' + state.soNumber.replace(/"/g, '&quot;') + '" placeholder="' +
-      (state.loading ? 'กำลังค้นหา...' : (state.searchMode === 'name' ? 'พิมพ์ชื่อลูกค้า' : 'พิมพ์เพื่อค้นหา')) + '"' + (state.loading ? ' disabled' : '') + ' />' +
-      '</div>' +
-      '</div>' +
-      '<div class="so-search-filter-row"><span class="filter-chip">▽ ตัวกรอง</span><span class="filter-chip-hint">ยังไม่ได้เลือกตัวกรอง</span></div>' +
+      listToolbarHtml({
+        sortId: 'soSortOrder',
+        sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
+        sortValue: 'latest',
+        typeId: 'soSearchType',
+        typeOptions: [{ value: 'so', label: 'เลขที่สั่งซื้อ SO' }, { value: 'name', label: 'ชื่อลูกค้า' }],
+        typeValue: state.searchMode,
+        searchIconId: 'btnSearch',
+        searchInputId: 'soInput',
+        searchValue: state.soNumber,
+        searchPlaceholder: state.loading ? 'กำลังค้นหา...' : (state.searchMode === 'name' ? 'พิมพ์ชื่อลูกค้า' : 'พิมพ์เพื่อค้นหา'),
+        searchDisabled: state.loading,
+      }) +
       (state.error ? '<p style="color:var(--danger);margin-top:10px;">' + state.error + '</p>' : '') +
       '</div>';
 

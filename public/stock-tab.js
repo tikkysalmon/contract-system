@@ -219,27 +219,33 @@ function initStockTab(containerId, currentUser) {
     var app = document.getElementById(containerId);
     var html = '';
 
-    html += '<div class="card"><h2>ตัวกรอง</h2>' +
-      '<div class="row2">' +
-      '<div class="field"><label>ประเภทลูกค้า</label><select id="stkFilterType">' +
-      '<option value="all"' + (state.filterCustomerType === 'all' ? ' selected' : '') + '>ทั้งหมด</option>' +
+    html += '<div class="card"><h2>รายการออเดอร์</h2>' +
+      listToolbarHtml({
+        sortId: 'stkSortOrder',
+        sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
+        sortValue: 'latest',
+        searchIconId: 'stkFilterIcon',
+        searchInputId: 'stkFilterQuery',
+        searchValue: state.filterQuery,
+        searchPlaceholder: 'ค้นหาชื่อลูกค้า / เลข SO / รหัสลูกค้า',
+      }) +
+      '<div class="so-search-filter-row" style="flex-wrap:wrap;">' +
+      '<select id="stkFilterType" class="filter-select">' +
+      '<option value="all"' + (state.filterCustomerType === 'all' ? ' selected' : '') + '>ประเภทลูกค้า: ทั้งหมด</option>' +
       '<option value="credit"' + (state.filterCustomerType === 'credit' ? ' selected' : '') + '>เครดิตผ่าน/วางดาวน์</option>' +
       '<option value="cash"' + (state.filterCustomerType === 'cash' ? ' selected' : '') + '>ซื้อสด/ปิดยอด</option>' +
-      '</select></div>' +
-      '<div class="field"><label>ค้นหา (ชื่อ/เลข SO/รหัสลูกค้า)</label><input type="text" id="stkFilterQuery" value="' + state.filterQuery.replace(/"/g, '&quot;') + '" placeholder="พิมพ์เพื่อค้นหา" /></div>' +
-      '</div>' +
-      '<div class="row2">' +
-      '<div class="field"><label>รอบการเบิก</label><select id="stkFilterRound">' +
-      '<option value="all"' + (state.filterRound === 'all' ? ' selected' : '') + '>ทุกรอบ</option>' +
+      '</select>' +
+      '<select id="stkFilterRound" class="filter-select">' +
+      '<option value="all"' + (state.filterRound === 'all' ? ' selected' : '') + '>รอบการเบิก: ทุกรอบ</option>' +
       ROUND_OPTIONS.map(function (r) { return '<option value="' + r + '"' + (state.filterRound === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') +
-      '</select></div>' +
-      '<div class="field"><label>สถานะการพิมพ์</label><select id="stkFilterPrintStatus">' +
-      '<option value="all"' + (state.filterPrintStatus === 'all' ? ' selected' : '') + '>ทั้งหมด</option>' +
+      '</select>' +
+      '<select id="stkFilterPrintStatus" class="filter-select">' +
+      '<option value="all"' + (state.filterPrintStatus === 'all' ? ' selected' : '') + '>สถานะการพิมพ์: ทั้งหมด</option>' +
       '<option value="printed"' + (state.filterPrintStatus === 'printed' ? ' selected' : '') + '>พิมพ์ใบเบิกแล้ว</option>' +
       '<option value="unprinted"' + (state.filterPrintStatus === 'unprinted' ? ' selected' : '') + '>รอพิมพ์</option>' +
-      '</select></div>' +
+      '</select>' +
+      '<label class="filter-checkbox-chip"><input type="checkbox" id="stkShowCancelled"' + (state.showCancelled ? ' checked' : '') + ' /> แสดงรายการที่ยกเลิกแล้วด้วย</label>' +
       '</div>' +
-      '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;"><input type="checkbox" id="stkShowCancelled"' + (state.showCancelled ? ' checked' : '') + ' /> แสดงรายการที่ยกเลิกแล้วด้วย</label>' +
       '</div>';
 
     if (!state.cashSourceReady) {
