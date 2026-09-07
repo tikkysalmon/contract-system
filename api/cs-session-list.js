@@ -25,7 +25,7 @@ module.exports = async function handler(req, res) {
     // จำกัด 200 แถวล่าสุด กันโหลดหนักถ้ามีลิงก์สะสมเยอะมาก (ยังไม่ทำ pagination/ค้นหาฝั่ง server รอบนี้)
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/contract_sessions' +
-        '?select=token,created_at,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number)' +
+        '?select=token,created_at,created_by_name,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number)' +
         '&order=created_at.desc&limit=200',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
@@ -40,9 +40,12 @@ module.exports = async function handler(req, res) {
       return {
         token: row.token,
         createdAt: row.created_at,
+        createdByName: row.created_by_name || null, // ชื่อพนักงาน (CS) ที่กดสร้างลิงก์ (2026-09-07)
         customerName: (snap.customer && snap.customer.firstLastName) || '-',
         products: items.map(function (it) { return it.product; }),
         soNumbers: items.map(function (it) { return it.soNumber; }),
+        // items[] เต็ม (soNumber/contractNo/planType/customerId) ให้แสดงเป็นแถวย่อยต่อ SO (2026-09-07 ดู staff-sign-tab.js's initCsStatusView)
+        items: items,
         submitted: submissions.length > 0,
         submittedAt: sub ? sub.submitted_at : null,
         // สถานะสรุปสำหรับ CS (2026-09-06) — CS เห็นแค่สถานะ ไม่เห็น/แก้ข้อมูลเต็มของลูกค้า (ดู _lib/contract-status.js)

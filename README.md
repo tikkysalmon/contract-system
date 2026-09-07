@@ -549,3 +549,51 @@ auto-sync ระหว่าง 2 โฟลเดอร์)
    แบบ AI ที่ซับซ้อนกว่า OCR ธรรมดามาก (OCR + face-match + reasoning) — ยืนยันแล้วว่าไม่ได้ใช้ Lark MCP เจาะจง
    ค่ายไหน ระบบใหม่ควรเรียก Claude API ตรงจาก backend เอง (ประเมินราคาไว้แล้ว ~0.3-0.6 บาท/ครั้ง) ยังไม่ได้
    เริ่มออกแบบ/ขอ ANTHROPIC_API_KEY
+
+## เสร็จเพิ่ม (2026-09-06) — เมนู "สำหรับแพ็คกิ้ง" เติม IMEI/Serial ลงสัญญาอัตโนมัติ
+- **`supabase-packing.sql` (ใหม่)** — ตาราง `packing_records` (`so_number` เป็น primary key, `imei`,
+  `serial_number`, `packed_by`, `packed_at`, `updated_at`) — ยังไม่ได้รันใน Supabase จริง ต้องรันเองก่อนใช้งาน
+  (ดูขั้นตอนด้านล่าง)
+- **`api/packing-submit.js` + `api/packing-lookup.js` (ใหม่)** — upsert/อ่านข้อมูลแพ็คกิ้งต่อ SO (1 SO ต่อ
+  1 เครื่องตามที่ user ยืนยัน 2026-09-06) แก้ไขทับของเดิมได้ ไม่เก็บ log ประวัติ — ใช้ env vars เดิม
+  (`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`) ไม่ต้องเพิ่มค่าใหม่ใน Vercel
+- **`public/packing-tab.js` (ใหม่)** — หน้า "สำหรับแพ็คกิ้ง" ที่เดิมเป็นแค่ 🚧 placeholder ตอนนี้ใช้งานได้
+  จริงแล้ว: พิมพ์เลข SO → เห็นข้อมูลสินค้า/ลูกค้าจาก CRM ยืนยันก่อน (เรียก `crm-lookup.js` ซ้ำ) → กรอก/แก้ไข
+  IMEI+Serial → กด "บันทึก" — **วิธีค้นหาออเดอร์ยังเป็นแค่พิมพ์เลข SO เองไปก่อน** (user บอกวิธีค้นหาจริงจะอยู่
+  ใน process ที่ยังไม่กำหนด — ตาราง/API ผูกกับ `so_number` เฉยๆ ไม่ขึ้นกับ UI ค้นหานี้ เปลี่ยนทีหลังได้)
+- **`templates/inject_packing_tags.js` (ใหม่, รันแล้ว)** — แก้ `master-installment.docx` +
+  `master-downpayment.docx` แทนที่เส้นประ (`....................`) หลัง "IMEI)"/"Serial Number)" ด้วย tag
+  จริง `{หมายเลขเครื่องIMEI}`/`{หมายเลขประจำเครื่องSerial}` (แก้แค่เนื้อใน `<w:t>` ของ run เส้นประเดิม ไม่แตะ
+  formatting อื่น) — ตรวจสอบผลแล้วด้วย `templates/verify_masters.js` ที่เพิ่ม assertion คู่นี้เข้าไป (PASS
+  ทั้งหมด ครบทั้ง 3 combo ทั่วไป/ผู้ค้ำ/ผู้ปกครอง ทั้ง 2 แผน) มีไฟล์ `.docx.bak` สำรองต้นฉบับก่อนแก้ไว้ในโฟลเดอร์
+  `templates/` ลบทิ้งได้เมื่อมั่นใจแล้ว (เปิดดูใน Word จริงยังไม่ได้ทดสอบ แค่ตรวจด้วย docxtemplater+text-diff)
+- **`api/preview-contract.js`** — เพิ่ม `fetchPackingRecord(soNumber)` ดึงข้อมูลจาก `packing_records` มาเติม
+  ลง templateData ก่อน render (ถ้ายังไม่แพ็ค/ดึงไม่สำเร็จ ปล่อยว่างไว้เหมือนเดิม ไม่ทำให้สร้างสัญญาทั้งฉบับพัง)
+  ทดสอบแล้วทั้ง 2 เคส (มี/ไม่มีข้อมูลแพ็คกิ้ง) ด้วย mock fetch
+- **ยังไม่ได้ทำ ก่อนใช้งานจริง**:
+  1. รัน `supabase-packing.sql` ใน Supabase SQL Editor ของโปรเจกต์จริง (ตารางยังไม่มีในระบบจริง)
+  2. copy ไฟล์ที่เปลี่ยน/เพิ่มทั้งหมดข้างบนไปที่ `C:\Users\user\contract-system` แล้ว commit/push ตาม workflow
+     เดิมของโปรเจกต์ (ดูคำเตือนบนสุดของไฟล์นี้) — ยังไม่ได้ copy ไปให้
+
+## เสร็จเพิ่ม (2026-09-07) — เมนู "ข้อมูลลูกค้าทำสัญญา" เปลี่ยนเป็นตาราง 1 แถวต่อ SO + ตัวกรอง
+- **ปรับหน้าจอตามสเปกที่ user ให้มา** ทั้งมุมมองเต็ม (บัญชี/ผู้จัดการ, `initStaffSignTab`) และมุมมองอ่านอย่างเดียว
+  (CS, `initCsStatusView`) เป็นตาราง 1 แถวต่อ 1 SO 8 คอลัมน์: เลขที่คำสั่งซื้อ SO, ชื่อลูกค้า, วิธีการผ่อน,
+  เลขที่สัญญา, สถานะการสร้างลิงก์ (มี timestamp), พนักงานสร้างลิงก์, สถานะการทำสัญญา, สถานะการจัดส่ง — พร้อม
+  ช่องค้นหา 1 ช่องกรองได้ทั้งชื่อลูกค้า/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO (`itemMatchesFilter`)
+- **`api/staff-sign-queue.js` เปลี่ยน base query เป็น `contract_sessions`** (เดิม base เป็น `contract_submissions`
+  ซึ่งมีแต่รายการที่ลูกค้าส่งฟอร์มกลับมาแล้ว) left-embed `contract_submissions` แทน — ทำให้เห็นลิงก์ที่เพิ่งสร้าง
+  แต่ลูกค้ายังไม่ส่งฟอร์มกลับมาด้วย (`submissionId: null`, ซ่อนปุ่มดูข้อมูลลูกค้า/ยืนยัน/เซ็นเอกสารไว้)
+- **`supabase-created-by.sql` (ใหม่, ยังไม่ได้รันในระบบจริง)** — เพิ่มคอลัมน์ `contract_sessions.created_by_name`
+  เก็บ username ของพนักงาน (CS) ที่กด "สร้างลิงก์ให้ลูกค้า" (มาจาก mock login ใน `app.js` ตรงๆ ไม่ผูก FK
+  `staff_users` เพราะยังไม่มีตารางนี้ใช้งานจริง) — เซสชันเก่าก่อนรันไฟล์นี้จะไม่มีชื่อพนักงานย้อนหลัง (ขึ้น "-")
+- **`api/create-session.js`**: รับ `createdBy` จาก request body แล้วบันทึกลง `created_by_name`
+- **`public/contracts-tab.js`**: `initContractsTab(containerId, currentUser)` รับ currentUser เพิ่ม (ไม่บังคับ —
+  `cs-review.js` หน้าเดี่ยวไม่มีล็อกอินยังเรียกแบบเดิมได้) ส่ง `createdBy: currentUser.username` ตอนกด
+  "สร้างลิงก์ให้ลูกค้า" — `public/app.js` แก้ให้ส่ง `state.user` เข้าไปด้วย
+- **ทดสอบ**: เขียน fake-DOM harness (ไม่มี Playwright/เบราว์เซอร์ในเครื่องนี้) โหลด `staff-sign-tab.js` จริงผ่าน
+  Node `vm` module ยิง mock ข้อมูล `/api/staff-sign-queue`/`/api/cs-session-list` (รวมเคส session ที่มีหลาย SO
+  และเคสยังไม่ส่งฟอร์มกลับมา) ยืนยันว่าตารางขึ้นครบทุกคอลัมน์ ปุ่มถูก/ผิดตามสิทธิ์ และช่องค้นหากรองแถวถูกต้องจริง
+  — **ยังไม่ได้เปิดทดสอบด้วยตาจริงในเบราว์เซอร์ 1 รอบก่อนใช้งานจริง**
+- **ยังไม่ได้ทำ ก่อนใช้งานจริง**: รัน `supabase-created-by.sql` ใน Supabase SQL Editor ของโปรเจกต์จริง **ก่อน**
+  deploy โค้ดชุดนี้ (ถ้า deploy โค้ดก่อนรัน SQL, `/api/staff-sign-queue` และ `/api/cs-session-list` จะพังทันที
+  เพราะ query ขอคอลัมน์ `created_by_name` ที่ยังไม่มีในตาราง)

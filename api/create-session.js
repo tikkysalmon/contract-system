@@ -43,6 +43,9 @@ module.exports = async function handler(req, res) {
       return;
     }
     const main = items[0]; // ใช้เติมคอลัมน์ typed แบบ best-effort เท่านั้น (ดูหมายเหตุด้านบน)
+    // ชื่อพนักงาน (CS) ที่กดสร้างลิงก์ (2026-09-07 user ขอให้เมนู "ข้อมูลลูกค้าทำสัญญา" แสดงคอลัมน์นี้) — มาจาก
+    // mock login username ใน app.js ตรงๆ ไม่ใช่ FK staff_users จริง (ดู supabase-created-by.sql)
+    const createdBy = (req.body && req.body.createdBy) || null;
 
     const token = randomToken();
     const row = {
@@ -57,6 +60,7 @@ module.exports = async function handler(req, res) {
       product: main.product,
       color: main.color || null,
       status: 'sent',
+      created_by_name: createdBy,
     };
 
     const r = await fetch(SUPABASE_URL + '/rest/v1/contract_sessions', {

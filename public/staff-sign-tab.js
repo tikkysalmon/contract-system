@@ -23,7 +23,8 @@ function initStaffSignTab(containerId, currentUser) {
     loading: true,
     error: null,
     queue: [],
-    expandedId: null, // submissionId ที่กำลังกาง "ดูข้อมูลลูกค้า" อยู่ (null = ยุบทั้งหมด)
+    filter: '', // ค้นหาชื่อลูกค้า/รหัสลูกค้า/เลขที่คำสั่งซื้อ (2026-09-07 user ขอ)
+    expandedId: null, // rowKey (submissionId || sessionToken) ที่กำลังกาง "ดูข้อมูลลูกค้า" อยู่ (null = ยุบทั้งหมด)
     signingId: null, // submissionId ที่กำลังเปิดเซ็นอยู่ (null = ยังไม่เปิด)
     submitting: false,
     submitError: null,
@@ -77,8 +78,8 @@ function initStaffSignTab(containerId, currentUser) {
     render();
   }
 
-  function toggleExpand(submissionId) {
-    state.expandedId = state.expandedId === submissionId ? null : submissionId;
+  function toggleExpand(rowKey) {
+    state.expandedId = state.expandedId === rowKey ? null : rowKey;
     render();
   }
 
@@ -439,6 +440,97 @@ function initStaffSignTab(containerId, currentUser) {
     return '<span class="badge badge-info" style="' + style + '">' + status.label + extra + '</span>';
   }
 
+  function planLabelOf(planType) {
+    return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
+  }
+
+  // สถานะ "การสร้างลิงก์ส่งแบบฟอร์มให้ลูกค้า" พร้อม timestamp ตอนสร้าง (2026-09-07 user ขอ) — ต่างจาก
+  // "สถานะการทำสัญญา" (statusBadgeHtml) ตรงที่อันนี้บอกแค่ว่าลูกค้าส่งฟอร์มกลับมาหรือยัง ไม่ใช่ตรวจสอบ/เซ็นแล้ว
+  function linkStatusHtml(q) {
+    var badge = q.submittedAt
+      ? '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">ลูกค้าส่งข้อมูลแล้ว</span>'
+      : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">ยังไม่ส่งข้อมูลกลับ</span>';
+    return badge + '<br><span style="color:var(--muted);font-size:12px;">สร้างลิงก์เมื่อ ' + fmtDateTime(q.createdAt) + '</span>';
+  }
+
+  function rowKeyOf(q) { return q.submissionId || q.sessionToken; }
+
+  function itemMatchesFilter(q, item) {
+    var f = state.filter.trim().toLowerCase();
+    if (!f) return true;
+    return (q.customerName || '').toLowerCase().indexOf(f) !== -1 ||
+      (item.customerId || '').toLowerCase().indexOf(f) !== -1 ||
+      (item.soNumber || '').toLowerCase().indexOf(f) !== -1;
+  }
+
+  function actionsCellHtml(q, expanded) {
+    if (!q.submissionId) return '<span style="color:var(--muted);font-size:12.5px;">รอลูกค้าส่งข้อมูล</span>';
+    var h = '<button class="btn btn-ghost btnToggleExpand" data-id="' + rowKeyOf(q) + '" style="white-space:nowrap;">' + (expanded ? 'ซ่อนข้อมูล' : 'ดูข้อมูลลูกค้า') + '</button>';
+    if (!q.reviewedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btnConfirmReview" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">ยืนยัน</button>';
+    if (!q.staffSignedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">เซ็นเอกสาร</button>';
+    return h;
+  }
+
+  // ตารางหลักของเมนู "ข้อมูลลูกค้าทำสัญญา" (2026-09-07 เปลี่ยนจากการ์ดรายคน เป็นตาราง 1 แถวต่อ 1 SO ตามสเปกที่
+  // user ให้มา: SO / ชื่อลูกค้า / วิธีการผ่อน / เลขที่สัญญา / สถานะสร้างลิงก์ / พนักงานสร้างลิงก์ / สถานะสัญญา /
+  // สถานะจัดส่ง) — session ที่มีหลาย SO (ข้อจำกัด CRM ดู contracts-tab.js) จะมีหลายแถวซ้ำข้อมูลระดับ session
+  // (ลูกค้า/สถานะ/พนักงาน) แต่แยกคอลัมน์ SO/วิธีผ่อน/เลขที่สัญญาต่อแถว — แถวขยายรายละเอียดลูกค้าแทรกหลังแถว
+  // สุดท้ายของกลุ่มนั้นแถวเดียว (ไม่ซ้ำ) กัน "ดูข้อมูลลูกค้า" กางซ้ำหลายรอบเวลามีหลาย SO
+  function tableRowsHtml() {
+    var html = '';
+    state.queue.forEach(function (q) {
+      var items = (q.items && q.items.length) ? q.items : [{ soNumber: '-', planType: null, contractNo: null, customerId: null }];
+      var visibleItems = items.filter(function (it) { return itemMatchesFilter(q, it); });
+      if (!visibleItems.length) return;
+      var expanded = state.expandedId === rowKeyOf(q);
+      visibleItems.forEach(function (it) {
+        html += '<tr>' +
+          '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
+          '<td style="text-align:left;">' + q.customerName + '</td>' +
+          '<td>' + planLabelOf(it.planType) + '</td>' +
+          '<td>' + (it.contractNo || '-') + '</td>' +
+          '<td>' + linkStatusHtml(q) + '</td>' +
+          '<td>' + (q.createdByName || '-') + '</td>' +
+          '<td>' + statusBadgeHtml(q) + '</td>' +
+          '<td>' + q.shippingStatus.label + '</td>' +
+          '<td>' + actionsCellHtml(q, expanded) + '</td>' +
+          '</tr>';
+      });
+      if (expanded && q.submissionId) {
+        html += '<tr><td colspan="9" style="padding:0;">' + customerDetailHtml(q) + '</td></tr>';
+      }
+    });
+    if (!html) html = '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    return html;
+  }
+
+  // ผูก event ของปุ่ม/ลิงก์ที่อยู่ในตาราง (เรียกทั้งตอน render() เต็มก้อน และตอนอัปเดตแค่ tbody จากช่องค้นหา)
+  function wireTableButtons() {
+    Array.prototype.forEach.call(document.querySelectorAll('.btnOpenSign'), function (btn) {
+      btn.addEventListener('click', function () { openSignPanel(btn.getAttribute('data-id')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnConfirmReview'), function (btn) {
+      btn.addEventListener('click', function () { confirmReview(btn.getAttribute('data-id'), btn); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnToggleExpand'), function (btn) {
+      btn.addEventListener('click', function () { toggleExpand(btn.getAttribute('data-id')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnDownloadContract'), function (btn) {
+      btn.addEventListener('click', function () { downloadContractFor(btn.getAttribute('data-submission-id'), btn.getAttribute('data-so')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnOpenReject'), function (btn) {
+      btn.addEventListener('click', function () { openRejectPanel(btn.getAttribute('data-id')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnCopyRejectLink'), function (btn) {
+      btn.addEventListener('click', function () {
+        copyLinkToken(btn.getAttribute('data-token'));
+        var original = btn.textContent;
+        btn.textContent = '✅ คัดลอกแล้ว';
+        setTimeout(function () { btn.textContent = original; }, 1500);
+      });
+    });
+  }
+
   function render() {
     var app = document.getElementById(containerId);
     var html = '';
@@ -488,26 +580,25 @@ function initStaffSignTab(containerId, currentUser) {
         '</div>' +
         '</div>';
     } else if (state.queue.length === 0) {
-      html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่มีลูกค้าส่งฟอร์มกลับมา — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
+      html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่เคยสร้างลิงก์เลย — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
     } else {
       html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.queue.length + ' รายการ)</h2>' +
-        '<p class="hint">รายชื่อลูกค้าที่กรอกฟอร์ม/เซ็นชื่อส่งกลับมาแล้ว กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็ม รายการที่ยัง "รอตรวจสอบ" จะมีปุ่ม "ยืนยัน" ให้กดเมื่อตรวจข้อมูลแล้วว่าถูกต้อง ส่วนที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
-        state.queue.map(function (q) {
-          var expanded = state.expandedId === q.submissionId;
-          return '<div style="padding:12px 0;border-top:1px solid var(--border);">' +
-            '<div style="display:flex;align-items:center;gap:10px;">' +
-            '<div style="flex:1;">' +
-            '<b>' + q.customerName + '</b> ' + statusBadgeHtml(q) + '<br>' +
-            '<span style="color:var(--muted);font-size:13px;">' + q.products.join(', ') + ' (' + q.soNumbers.join(', ') + ')</span><br>' +
-            '<span style="color:var(--muted);font-size:12px;">ส่งฟอร์มเมื่อ ' + fmtDateTime(q.submittedAt) + '</span>' +
-            '</div>' +
-            '<button class="btn btn-ghost btnToggleExpand" data-id="' + q.submissionId + '">' + (expanded ? 'ซ่อนข้อมูล' : 'ดูข้อมูลลูกค้า') + '</button>' +
-            (!q.reviewedAt && !q.rejectedAt ? '<button class="btn btn-primary btnConfirmReview" data-id="' + q.submissionId + '">ยืนยัน</button>' : '') +
-            (!q.staffSignedAt && !q.rejectedAt ? '<button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '">เซ็นเอกสาร</button>' : '') +
-            '</div>' +
-            (expanded ? customerDetailHtml(q) : '') +
-            '</div>';
-        }).join('') +
+        '<p class="hint">กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็มของรายการที่ลูกค้าส่งฟอร์มกลับมาแล้ว รายการที่ยัง "รอตรวจสอบ" จะมีปุ่ม "ยืนยัน" ให้กดเมื่อตรวจข้อมูลแล้วว่าถูกต้อง ส่วนที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
+        '<input type="text" id="contractsFilterInput" placeholder="ค้นหาชื่อลูกค้า / รหัสลูกค้า / เลขที่คำสั่งซื้อ SO" value="' + state.filter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
+        '<div style="overflow-x:auto;"><table class="installment-table">' +
+        '<thead><tr>' +
+        '<th style="text-align:left;">เลขที่คำสั่งซื้อ SO</th>' +
+        '<th style="text-align:left;">ชื่อลูกค้า</th>' +
+        '<th>วิธีการผ่อน</th>' +
+        '<th>เลขที่สัญญา</th>' +
+        '<th>สถานะการสร้างลิงก์</th>' +
+        '<th>พนักงานสร้างลิงก์</th>' +
+        '<th>สถานะการทำสัญญา</th>' +
+        '<th>สถานะการจัดส่ง</th>' +
+        '<th>การดำเนินการ</th>' +
+        '</tr></thead>' +
+        '<tbody id="contractsTbody">' + tableRowsHtml() + '</tbody>' +
+        '</table></div>' +
         '</div>';
     }
 
@@ -524,29 +615,14 @@ function initStaffSignTab(containerId, currentUser) {
       document.getElementById('rejectNoteInput').addEventListener('input', function (e) { state.rejectNote = e.target.value; });
       document.getElementById('btnConfirmReject').addEventListener('click', submitReject);
       document.getElementById('btnCancelReject').addEventListener('click', closeRejectPanel);
-    } else if (!state.loading && !state.error) {
-      Array.prototype.forEach.call(document.querySelectorAll('.btnOpenSign'), function (btn) {
-        btn.addEventListener('click', function () { openSignPanel(btn.getAttribute('data-id')); });
-      });
-      Array.prototype.forEach.call(document.querySelectorAll('.btnConfirmReview'), function (btn) {
-        btn.addEventListener('click', function () { confirmReview(btn.getAttribute('data-id'), btn); });
-      });
-      Array.prototype.forEach.call(document.querySelectorAll('.btnToggleExpand'), function (btn) {
-        btn.addEventListener('click', function () { toggleExpand(btn.getAttribute('data-id')); });
-      });
-      Array.prototype.forEach.call(document.querySelectorAll('.btnDownloadContract'), function (btn) {
-        btn.addEventListener('click', function () { downloadContractFor(btn.getAttribute('data-submission-id'), btn.getAttribute('data-so')); });
-      });
-      Array.prototype.forEach.call(document.querySelectorAll('.btnOpenReject'), function (btn) {
-        btn.addEventListener('click', function () { openRejectPanel(btn.getAttribute('data-id')); });
-      });
-      Array.prototype.forEach.call(document.querySelectorAll('.btnCopyRejectLink'), function (btn) {
-        btn.addEventListener('click', function () {
-          copyLinkToken(btn.getAttribute('data-token'));
-          var original = btn.textContent;
-          btn.textContent = '✅ คัดลอกแล้ว';
-          setTimeout(function () { btn.textContent = original; }, 1500);
-        });
+    } else if (!state.loading && !state.error && state.queue.length > 0) {
+      wireTableButtons();
+      // ช่องค้นหาอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตาม
+      // แพทเทิร์นเดียวกับ contracts-tab.js's sessionListFilterInput
+      document.getElementById('contractsFilterInput').addEventListener('input', function (e) {
+        state.filter = e.target.value;
+        document.getElementById('contractsTbody').innerHTML = tableRowsHtml();
+        wireTableButtons();
       });
     }
   }
@@ -555,10 +631,11 @@ function initStaffSignTab(containerId, currentUser) {
   loadSavedSignature(); // ยิงพร้อมกับ loadQueue ไม่ต้องรอกัน (คนละ endpoint ไม่เกี่ยวข้องกัน)
 }
 
-// ---------- มุมมองสำหรับ CS (2026-09-06) — อ่านอย่างเดียว เห็นแค่ "สถานะการทำสัญญา/สถานะการจัดส่ง" ต่อลูกค้า
-// ไม่เห็นข้อมูลส่วนตัว/เอกสารแนบ และไม่มีปุ่มเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญา (สิทธิ์เต็มเฉพาะแผนกบัญชี/ผู้จัดการ
-// ดู hasFullAccess ใน initStaffSignTab) ใช้ /api/cs-session-list เดิม (ครอบคลุมทั้ง session ที่ยังไม่ส่งฟอร์ม
-// กลับมา = สถานะ 1.1 ด้วย ต่างจาก /api/staff-sign-queue ที่มีแต่รายการที่ส่งฟอร์มแล้วเท่านั้น) ----------
+// ---------- มุมมองสำหรับ CS (2026-09-06, ปรับเป็นตาราง 1 แถวต่อ SO 2026-09-07) — อ่านอย่างเดียว เห็นแค่
+// SO/วิธีผ่อน/เลขที่สัญญา/สถานะสร้างลิงก์/พนักงานสร้างลิงก์/สถานะการทำสัญญา/สถานะการจัดส่ง ไม่เห็นข้อมูล
+// ส่วนตัว/เอกสารแนบ และไม่มีปุ่มเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญา (สิทธิ์เต็มเฉพาะแผนกบัญชี/ผู้จัดการ ดู hasFullAccess
+// ใน initStaffSignTab) ใช้ /api/cs-session-list (base contract_sessions ครอบคลุมทั้ง session ที่ยังไม่ส่งฟอร์ม
+// กลับมา = สถานะ 1.1 ด้วย) ----------
 function initCsStatusView(containerId) {
   'use strict';
   var state = { loading: true, error: null, sessions: [], filter: '' };
@@ -600,22 +677,47 @@ function initCsStatusView(containerId) {
     render();
   }
 
-  function filtered() {
-    var q = state.filter.trim().toLowerCase();
-    if (!q) return state.sessions;
-    return state.sessions.filter(function (s) { return (s.customerName || '').toLowerCase().indexOf(q) !== -1; });
+  function planLabelOf(planType) {
+    return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
   }
 
-  function rowsHtml(rows) {
-    return rows.map(function (s) {
-      return '<tr>' +
-        '<td style="text-align:left;">' + s.customerName + '</td>' +
-        '<td style="text-align:left;">' + s.products.join(', ') + '<br><span style="color:var(--muted);font-size:12px;">' + s.soNumbers.join(', ') + '</span></td>' +
-        '<td>' + fmtDateTime(s.createdAt) + '</td>' +
-        '<td>' + statusBadge(s.contractStatus) + '</td>' +
-        '<td>' + statusBadge(s.shippingStatus) + '</td>' +
-        '</tr>';
-    }).join('') + (rows.length === 0 ? '<tr><td colspan="5" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>' : '');
+  function linkStatusHtml(s) {
+    var badge = s.submitted
+      ? '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">ลูกค้าส่งข้อมูลแล้ว</span>'
+      : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">ยังไม่ส่งข้อมูลกลับ</span>';
+    return badge + '<br><span style="color:var(--muted);font-size:12px;">สร้างลิงก์เมื่อ ' + fmtDateTime(s.createdAt) + '</span>';
+  }
+
+  // ตัวกรอง 1 ช่อง ค้นได้ทั้งชื่อลูกค้า/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO (2026-09-07 user ขอ)
+  function itemMatchesFilter(s, item) {
+    var f = state.filter.trim().toLowerCase();
+    if (!f) return true;
+    return (s.customerName || '').toLowerCase().indexOf(f) !== -1 ||
+      (item.customerId || '').toLowerCase().indexOf(f) !== -1 ||
+      (item.soNumber || '').toLowerCase().indexOf(f) !== -1;
+  }
+
+  // 1 แถวต่อ 1 SO ตามสเปกเดียวกับ initStaffSignTab's tableRowsHtml — มุมมองนี้อ่านอย่างเดียว ไม่มีคอลัมน์
+  // การดำเนินการ/แถวขยายข้อมูลส่วนตัว (สิทธิ์เต็มเฉพาะทีมเร่งรัดหนี้สิน/ผู้จัดการ ดู hasFullAccess ด้านบน)
+  function rowsHtml() {
+    var html = '';
+    state.sessions.forEach(function (s) {
+      var items = (s.items && s.items.length) ? s.items : [{ soNumber: '-', planType: null, contractNo: null, customerId: null }];
+      var visibleItems = items.filter(function (it) { return itemMatchesFilter(s, it); });
+      visibleItems.forEach(function (it) {
+        html += '<tr>' +
+          '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
+          '<td style="text-align:left;">' + s.customerName + '</td>' +
+          '<td>' + planLabelOf(it.planType) + '</td>' +
+          '<td>' + (it.contractNo || '-') + '</td>' +
+          '<td>' + linkStatusHtml(s) + '</td>' +
+          '<td>' + (s.createdByName || '-') + '</td>' +
+          '<td>' + statusBadge(s.contractStatus) + '</td>' +
+          '<td>' + statusBadge(s.shippingStatus) + '</td>' +
+          '</tr>';
+      });
+    });
+    return html || '<tr><td colspan="8" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
   }
 
   // ช่องกรองอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตามแพทเทิร์น
@@ -627,16 +729,25 @@ function initCsStatusView(containerId) {
 
     var html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.sessions.length + ' รายการ)</h2>' +
       '<p class="hint">สถานะการทำสัญญา/สถานะการจัดส่งของลูกค้าแต่ละราย — ดูรายละเอียดเต็ม/แก้ไขข้อมูลได้ที่ทีมเร่งรัดหนี้สินเท่านั้น</p>' +
-      '<input type="text" id="csStatusFilterInput" placeholder="พิมพ์ชื่อลูกค้าเพื่อกรอง" value="' + state.filter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
+      '<input type="text" id="csStatusFilterInput" placeholder="ค้นหาชื่อลูกค้า / รหัสลูกค้า / เลขที่คำสั่งซื้อ SO" value="' + state.filter.replace(/"/g, '&quot;') + '" style="width:100%;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;" />' +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th style="text-align:left;">ลูกค้า</th><th style="text-align:left;">สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>สถานะการทำสัญญา</th><th>สถานะการจัดส่ง</th></tr></thead>' +
-      '<tbody id="csStatusTbody">' + rowsHtml(filtered()) + '</tbody></table></div>' +
+      '<thead><tr>' +
+      '<th style="text-align:left;">เลขที่คำสั่งซื้อ SO</th>' +
+      '<th style="text-align:left;">ชื่อลูกค้า</th>' +
+      '<th>วิธีการผ่อน</th>' +
+      '<th>เลขที่สัญญา</th>' +
+      '<th>สถานะการสร้างลิงก์</th>' +
+      '<th>พนักงานสร้างลิงก์</th>' +
+      '<th>สถานะการทำสัญญา</th>' +
+      '<th>สถานะการจัดส่ง</th>' +
+      '</tr></thead>' +
+      '<tbody id="csStatusTbody">' + rowsHtml() + '</tbody></table></div>' +
       '</div>';
 
     app.innerHTML = html;
     document.getElementById('csStatusFilterInput').addEventListener('input', function (e) {
       state.filter = e.target.value;
-      document.getElementById('csStatusTbody').innerHTML = rowsHtml(filtered());
+      document.getElementById('csStatusTbody').innerHTML = rowsHtml();
     });
   }
 

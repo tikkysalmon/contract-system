@@ -167,7 +167,7 @@
       // ย้ายมาจาก key 'contracts' มาไว้ที่นี่ (2026-09-03 ตามที่ user ขอ) — นี่คือเครื่องมือหลักที่ CS ใช้ทำงาน
       // ทุกวัน (ค้นหา SO → ตรวจสอบ → สร้างลิงก์) จึงย้ายมาอยู่ใต้เมนู "สำหรับ CS" แทน
       container.innerHTML = '<div id="contractsTabRoot"></div>';
-      initContractsTab('contractsTabRoot');
+      initContractsTab('contractsTabRoot', state.user);
       return;
     }
     if (state.activeTab === 'stock') {

@@ -1,7 +1,9 @@
 // "ข้อมูลลูกค้าทำสัญญา" — โมดูลกลาง ให้ทั้ง cs-review.html (หน้าเดี่ยว) และ app.html (แท็บในระบบ sidebar
 // ใหม่) เรียกใช้ร่วมกัน แยกออกมาจาก cs-review.js เดิม (2026-09-03) เพื่อไม่ต้องเขียนซ้ำ 2 ที่
-// ใช้: initContractsTab('containerElementId')
-function initContractsTab(containerId) {
+// ใช้: initContractsTab('containerElementId', currentUser) — currentUser: { username, department } (2026-09-07
+// เพิ่มมาเพื่อบันทึกชื่อพนักงานที่กดสร้างลิงก์ ให้เมนู "ข้อมูลลูกค้าทำสัญญา" แสดงได้ — ไม่บังคับใส่ เพราะ
+// cs-review.js (หน้าเดี่ยวไม่มีล็อกอิน) ยังเรียกโดยไม่ส่ง currentUser มาเหมือนเดิม)
+function initContractsTab(containerId, currentUser) {
   'use strict';
 
   // TODO: ระบบล็อกอินพนักงานจริง (แผนก/สิทธิ์) อยู่ที่ app.js — เป็นแค่ mock ยังไม่เช็ค credential จริง
@@ -299,7 +301,7 @@ function initContractsTab(containerId) {
       var res = await fetch('/api/create-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: session }),
+        body: JSON.stringify({ session: session, createdBy: (currentUser && currentUser.username) || null }),
       });
       var body = await res.json();
       if (!res.ok || !body.token) throw new Error(body.error || 'สร้างลิงก์ไม่สำเร็จ');

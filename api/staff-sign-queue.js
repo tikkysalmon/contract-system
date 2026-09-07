@@ -1,8 +1,10 @@
-// Vercel serverless function — ข้อมูลลูกค้าที่ส่งฟอร์มทำสัญญาแล้วทั้งหมด (เมนู "ข้อมูลลูกค้าทำสัญญา")
-// เดิม (2026-09-04 รอบแรก) กรองเฉพาะ staff_signed_at is null (คิวรอเซ็น) — ตอนนี้ (2026-09-04 รอบนี้ ตามที่
-// user ขอ "หากมีส่งกลับมาแล้วให้แสดงข้อมูลไว้ที่เมนูข้อมูลลูกค้าทำสัญญา") คืนข้อมูลลูกค้าที่ส่งฟอร์มแล้วทุกราย
-// ไม่กรองสถานะเซ็นอีกต่อไป — พนักงานเลื่อนดูข้อมูลเต็มของทุกคนได้ ส่วนคนที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร"
-// เพิ่มขึ้นมาให้กดจากฝั่ง client (ดู staff-sign-tab.js)
+// Vercel serverless function — ข้อมูลทุกรายการในเมนู "ข้อมูลลูกค้าทำสัญญา" (ทั้งที่ลูกค้าส่งฟอร์มกลับมาแล้ว
+// และที่ยังไม่ส่ง) เดิม (2026-09-04 รอบแรก) กรองเฉพาะ staff_signed_at is null (คิวรอเซ็น) ต่อมา (2026-09-04
+// รอบสอง) เปลี่ยนเป็น base ที่ contract_submissions (มีแต่รายการที่ส่งฟอร์มแล้ว) — ตอนนี้ (2026-09-07 user ขอ
+// คอลัมน์ "สถานะการสร้างลิงก์ส่งแบบฟอร์มให้ลูกค้า (มี Timestamp)" ซึ่งต้องรู้ตั้งแต่ตอนสร้างลิงก์ ก่อนลูกค้า
+// จะส่งฟอร์มกลับมาด้วยซ้ำ) เปลี่ยน base มาเป็น contract_sessions แล้ว left-embed contract_submissions แทน —
+// แถวที่ยังไม่มีใครส่งฟอร์มกลับมาจะมี submissionId เป็น null (ฝั่ง client ซ่อนปุ่ม ดูข้อมูลลูกค้า/ยืนยัน/เซ็น
+// เอกสาร ไว้เพราะยังไม่มีข้อมูลให้ตรวจ)
 //
 // ไฟล์รูป/ลายเซ็นไม่ส่ง base64 ตรงๆ (bucket "contract-files" เป็น private ต้อง proxy ผ่าน server เท่านั้น —
 // ทดสอบแล้ว GET ตรงจาก Storage โดยไม่ auth คืน 400 "Bucket not found") ส่งเป็น URL ของ /api/submission-file
@@ -10,6 +12,7 @@
 //
 // ต้องตั้งค่าใน Vercel project settings: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (เหมือน endpoint อื่นๆ)
 // ต้องรัน supabase-staff-signature.sql ก่อน (เพิ่มคอลัมน์ staff_signature_path/staff_signed_by/staff_signed_at)
+// ต้องรัน supabase-created-by.sql ก่อน (เพิ่มคอลัมน์ created_by_name — ชื่อพนักงานที่กดสร้างลิงก์)
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -26,14 +29,15 @@ module.exports = async function handler(req, res) {
     return;
   }
   try {
-    // embed contract_sessions ผ่าน FK (session_id) ดึง crm_snapshot มาแสดงชื่อลูกค้า/รายการสินค้า — ไม่กรอง
-    // staff_signed_at อีกต่อไป (แสดงทุกคนที่ส่งฟอร์มแล้ว) เรียงล่าสุดขึ้นก่อน (ไล่ดูของใหม่ได้ง่ายกว่า)
+    // base = contract_sessions (ทุกลิงก์ที่เคยสร้าง ไม่ว่าลูกค้าจะส่งฟอร์มกลับมาแล้วหรือยัง) left-embed
+    // contract_submissions ผ่าน FK (session_id) — ต่างจากเดิมที่ base เป็น contract_submissions (มีแต่รายการ
+    // ที่ส่งฟอร์มแล้ว) จำกัด 500 แถวล่าสุด กันโหลดหนักถ้ามีลิงก์สะสมเยอะมาก
     const r = await fetch(
-      SUPABASE_URL + '/rest/v1/contract_submissions' +
-        '?select=id,submitted_at,customer_data,file_paths,staff_signature_path,staff_signed_at,staff_signed_by,' +
-        'rejected_at,rejected_by,rejected_fields,rejected_note,imei,serial_number,reviewed_at,reviewed_by,' +
-        'contract_sessions(token,crm_snapshot)' +
-        '&order=submitted_at.desc',
+      SUPABASE_URL + '/rest/v1/contract_sessions' +
+        '?select=id,token,created_at,created_by_name,crm_snapshot,' +
+        'contract_submissions(id,submitted_at,customer_data,file_paths,staff_signature_path,staff_signed_at,staff_signed_by,' +
+        'rejected_at,rejected_by,rejected_fields,rejected_note,imei,serial_number,reviewed_at,reviewed_by)' +
+        '&order=created_at.desc&limit=500',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
     if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
@@ -42,53 +46,56 @@ module.exports = async function handler(req, res) {
     const FILE_FIELDS = ['idCard', 'selfieWithId', 'guardianId', 'guarantorId', 'signature', 'guardianSignature', 'guarantorSignature', 'staffSignature'];
 
     const queue = rows.map(function (row) {
-      const session = row.contract_sessions || {};
-      const snapshot = session.crm_snapshot || {};
+      const snapshot = row.crm_snapshot || {};
       const items = snapshot.items || [];
-      const customer = row.customer_data || {};
-      const filePaths = row.file_paths || {};
+      // ปกติมีได้แค่ 1 submission ต่อ session (ลูกค้ากรอกฟอร์มครั้งเดียว) — sub เป็น null ถ้ายังไม่ส่งกลับมา
+      const submissions = row.contract_submissions || [];
+      const sub = submissions[0] || null;
+      const customer = (sub && sub.customer_data) || {};
+      const filePaths = (sub && sub.file_paths) || {};
 
       const files = {};
       FILE_FIELDS.forEach(function (field) {
-        const hasFile = field === 'staffSignature' ? !!row.staff_signature_path : !!filePaths[field];
-        files[field] = hasFile ? ('/api/submission-file?submissionId=' + row.id + '&field=' + field) : null;
+        const hasFile = sub && (field === 'staffSignature' ? !!sub.staff_signature_path : !!filePaths[field]);
+        files[field] = hasFile ? ('/api/submission-file?submissionId=' + sub.id + '&field=' + field) : null;
       });
 
       return {
-        submissionId: row.id,
-        submittedAt: row.submitted_at,
-        token: session.token || null,
+        submissionId: sub ? sub.id : null,
+        sessionToken: row.token,
+        createdAt: row.created_at, // เวลาที่ CS กดสร้างลิงก์ (2026-09-07 คอลัมน์ "สถานะการสร้างลิงก์...")
+        createdByName: row.created_by_name || null, // ชื่อพนักงาน (CS) ที่กดสร้างลิงก์ (2026-09-07)
+        submittedAt: sub ? sub.submitted_at : null,
         customerName: (snapshot.customer && snapshot.customer.firstLastName) || customer.firstLastName || '-',
         products: items.map(function (it) { return it.product; }),
         soNumbers: items.map(function (it) { return it.soNumber; }),
-        customer: customer, // ข้อมูลเต็มที่ลูกค้ากรอก (ส่วนตัว/ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง/ผู้ค้ำ) — ไม่มี base64 รูปปน (อยู่ใน Storage แยกแล้ว ดูผ่าน files)
-        files: files,
-        staffSignedAt: row.staff_signed_at,
-        staffSignedBy: row.staff_signed_by,
-        // สำหรับปุ่ม "ดาวน์โหลดสัญญา" (2026-09-06) — เรนเดอร์ PDF ฉบับจริงต่อ SO เดียวกับที่ CS ใช้ดูตัวอย่าง
-        // ก่อนลูกค้ากรอกฟอร์ม (ดู contracts-tab.js's previewContractFor) แต่ใช้ข้อมูล/รูปจริงที่ลูกค้าส่งมาแล้ว
+        // items[] มี soNumber/contractNo/planType/customerId ต่อ SO ให้แสดงเป็นแถวย่อย (2026-09-07)
         items: items,
+        customer: customer, // ข้อมูลเต็มที่ลูกค้ากรอก (ส่วนตัว/ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง/ผู้ค้ำ) — ไม่มี base64 รูปปน (อยู่ใน Storage แยกแล้ว ดูผ่าน files) — ว่างเปล่าถ้ายังไม่ส่งฟอร์ม
+        files: files,
+        staffSignedAt: sub && sub.staff_signed_at,
+        staffSignedBy: sub && sub.staff_signed_by,
         contractDate: snapshot.contractDate || null,
         letterheadDataUrl: snapshot.letterheadDataUrl || null,
         // สถานะ "พนักงานปฏิเสธ ส่งกลับให้ลูกค้าแก้ไข" (2026-09-06)
-        rejectedAt: row.rejected_at,
-        rejectedBy: row.rejected_by,
-        rejectedFields: row.rejected_fields || [],
-        rejectedNote: row.rejected_note,
+        rejectedAt: sub && sub.rejected_at,
+        rejectedBy: sub && sub.rejected_by,
+        rejectedFields: (sub && sub.rejected_fields) || [],
+        rejectedNote: sub && sub.rejected_note,
         // เลข IMEI/Serial Number (2026-09-06) — ทีมแพ็คกิ้งจะเป็นคนกรอกจริง (เมนูนี้ยังไม่ได้สร้าง) เตรียม
         // ฟิลด์ไว้ก่อนให้สถานะ "สัญญาเสร็จสมบูรณ์" อ้างอิงได้
-        imei: row.imei || null,
-        serialNumber: row.serial_number || null,
+        imei: (sub && sub.imei) || null,
+        serialNumber: (sub && sub.serial_number) || null,
         // "ยืนยัน" ตรวจสอบข้อมูลแล้ว (2026-09-06) — คนละ action กับ "เซ็นเอกสาร"
-        reviewedAt: row.reviewed_at,
-        reviewedBy: row.reviewed_by,
+        reviewedAt: sub && sub.reviewed_at,
+        reviewedBy: sub && sub.reviewed_by,
         contractStatus: computeContractStatus({
-          submitted: true,
-          rejectedAt: row.rejected_at,
-          reviewedAt: row.reviewed_at,
-          staffSignedAt: row.staff_signed_at,
-          imei: row.imei,
-          serialNumber: row.serial_number,
+          submitted: !!sub,
+          rejectedAt: sub && sub.rejected_at,
+          reviewedAt: sub && sub.reviewed_at,
+          staffSignedAt: sub && sub.staff_signed_at,
+          imei: sub && sub.imei,
+          serialNumber: sub && sub.serial_number,
         }),
         shippingStatus: computeShippingStatus(),
       };
