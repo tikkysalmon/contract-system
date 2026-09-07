@@ -256,7 +256,11 @@ header.top {
 .sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
 .sidebar-footer .who { font-size: 12px; color: var(--muted); padding: 0 14px 8px; }
 .main-content { flex: 1; min-width: 0; padding: 28px 36px 60px; }
-.main-content .wrap { max-width: 960px; margin: 0; padding: 0; }
+/* เดิม max-width: 960px ทำให้ตารางที่มีหลายคอลัมน์ (เช่น "ข้อมูลลูกค้าทำสัญญา" 8-9 คอลัมน์) ถูกบีบจนหัวตาราง
+   ตัดคำ/ขึ้นบรรทัดใหม่ ทั้งที่จอกว้างยังมีที่ว่างเหลือเยอะ (2026-09-07 user ขอ "ขยายหน้าเว็บเห็นข้อมูลต่างๆได้")
+   — เอา cap ออก ให้เนื้อหาเต็มความกว้างของ .main-content แทน (ยังมี padding 36px ซ้าย-ขวาของ .main-content
+   กันเนื้อหาชิดขอบจอเกินไปบนจอกว้างมากอยู่แล้ว) */
+.main-content .wrap { max-width: none; margin: 0; padding: 0; }
 .placeholder-panel {
   border: 2px dashed var(--border); border-radius: var(--radius); padding: 60px 20px;
   text-align: center; color: var(--muted); background: #fff;
