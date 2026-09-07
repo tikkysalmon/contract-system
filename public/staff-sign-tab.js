@@ -36,6 +36,17 @@ function initStaffSignTab(containerId, currentUser) {
     rejectNote: '',
     rejecting: false,
     rejectError: null,
+    // เปลี่ยนเลข SO / สินค้า (2026-09-07) — ใช้ตอนพนักงานยกเลิก SO เดิมในระบบ CRM แล้วเปิด SO ใหม่แทน (เช่น
+    // ลูกค้าเปลี่ยนสินค้า) เก็บข้อมูลลูกค้าเดิมไว้ทั้งหมด แค่ให้ลูกค้าตรวจ+เซ็นสัญญาใหม่ (ดู staff-actions.js's
+    // doChangeSo) — โครงเดียวกับ contracts-tab.js ตอนค้นหา SO/กรอกยืนยันก่อนสร้างลิงก์
+    changingSoFor: null, // { submissionId, oldSoNumber, oldProduct, customerName } — null = ปิดอยู่
+    changeSoNumberInput: '',
+    changeSoLoading: false,
+    changeSoError: null,
+    changeSoResult: null, // ข้อมูล SO ใหม่จาก CRM (buildSoData shape)
+    changeSoInstallmentCount: null,
+    changeSoFirstDueDate: null,
+    changeSoSubmitting: false,
   };
   var REJECT_GROUPS = [
     { key: 'personal', label: 'ข้อมูลส่วนตัว' },
@@ -61,6 +72,8 @@ function initStaffSignTab(containerId, currentUser) {
     if (isNaN(d)) return '-';
     return (isoToDDMMYYYY(iso.slice(0, 10)) || '-') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
+
+  function fmtMoney(n) { return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
   async function loadQueue() {
     state.loading = true;
@@ -162,6 +175,94 @@ function initStaffSignTab(containerId, currentUser) {
       state.rejectError = 'ปฏิเสธไม่สำเร็จ: ' + err.message;
     }
     state.rejecting = false;
+    render();
+  }
+
+  // ---------- เปลี่ยนเลข SO / สินค้า (2026-09-07) ----------
+  function openChangeSoPanel(submissionId, oldSoNumber, oldProduct, customerName) {
+    state.changingSoFor = { submissionId: submissionId, oldSoNumber: oldSoNumber, oldProduct: oldProduct, customerName: customerName };
+    state.changeSoNumberInput = '';
+    state.changeSoError = null;
+    state.changeSoResult = null;
+    render();
+  }
+
+  function closeChangeSoPanel() {
+    state.changingSoFor = null;
+    render();
+  }
+
+  async function searchChangeSoTarget() {
+    var so = state.changeSoNumberInput.trim();
+    if (!so) { state.changeSoError = 'กรุณากรอกเลขที่คำสั่งขาย (SO) ใหม่'; render(); return; }
+    state.changeSoLoading = true;
+    state.changeSoError = null;
+    state.changeSoResult = null;
+    render();
+    try {
+      var res = await fetch('/api/crm-lookup?so=' + encodeURIComponent(so));
+      var body = await res.json();
+      if (!res.ok || body.error) {
+        state.changeSoError = body.error || 'ไม่พบคำสั่งขายนี้';
+      } else {
+        state.changeSoResult = body.data;
+        state.changeSoInstallmentCount = body.data.installmentCountFromCrm || 12;
+        var d = new Date(); d.setMonth(d.getMonth() + 1);
+        state.changeSoFirstDueDate = body.data.nextDueDateFromCrm || d.toISOString().slice(0, 10);
+      }
+    } catch (err) {
+      state.changeSoError = 'เรียก API ไม่สำเร็จ: ' + err.message;
+    }
+    state.changeSoLoading = false;
+    render();
+  }
+
+  async function confirmChangeSo() {
+    var target = state.changingSoFor;
+    var r = state.changeSoResult;
+    if (!target || !r) return;
+    state.changeSoSubmitting = true;
+    render();
+    try {
+      var contractDate = new Date().toISOString().slice(0, 10);
+      var newItem = {
+        soNumber: r.soNumber,
+        customerId: r.customerId,
+        contractNo: buildContractNo(contractDate, r.soNumber),
+        product: r.product,
+        color: r.color,
+        planType: r.planType,
+        productPrice: r.productPrice,
+        totalDiscount: r.totalDiscount,
+        netPrice: r.netPrice,
+        downPayment: r.downPayment,
+        installmentsPaidSoFar: r.installmentsPaidSoFar,
+        installmentsPaidCount: r.installmentsPaidCount,
+        remainingBalance: r.remainingBalance,
+        installmentCount: state.changeSoInstallmentCount,
+        firstDueDate: state.changeSoFirstDueDate,
+      };
+      var res = await fetch('/api/staff-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'changeSo',
+          submissionId: target.submissionId,
+          staffName: currentUser.username,
+          oldSoNumber: target.oldSoNumber,
+          newItem: newItem,
+        }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'เปลี่ยน SO ไม่สำเร็จ');
+      state.changingSoFor = null;
+      window.alert('เปลี่ยน SO สำเร็จ — ลิงก์เดิมพร้อมให้ลูกค้าเข้าไปตรวจสอบ/เซ็นใหม่แล้ว (ไม่ต้องกรอกข้อมูลใหม่)');
+      await loadQueue();
+      return;
+    } catch (err) {
+      window.alert('เปลี่ยน SO ไม่สำเร็จ: ' + err.message);
+    }
+    state.changeSoSubmitting = false;
     render();
   }
 
@@ -356,6 +457,7 @@ function initStaffSignTab(containerId, currentUser) {
   var CORRECTION_GROUP_LABELS = {
     personal: 'ข้อมูลส่วนตัว', address: 'ที่อยู่และบุคคลอ้างอิง',
     guardian: 'ข้อมูลผู้ปกครอง', guarantor: 'ข้อมูลผู้ค้ำประกัน', uploads: 'รูปเอกสารที่แนบ',
+    order: 'รายการสินค้า/เลขที่คำสั่งซื้อ (SO)', // 2026-09-07 — เห็นได้เฉพาะตอนพนักงานกด "เปลี่ยน SO" (doChangeSo)
   };
 
   function correctionStatusHtml(item) {
@@ -376,7 +478,10 @@ function initStaffSignTab(containerId, currentUser) {
     return '<div style="margin-top:10px;">' +
       item.items.map(function (it) {
         return '<button type="button" class="btn btn-ghost btnDownloadContract" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
-          'id="btnDownloadContract__' + item.submissionId + '__' + it.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดาวน์โหลดสัญญา: ' + it.product + '</button>';
+          'id="btnDownloadContract__' + item.submissionId + '__' + it.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดาวน์โหลดสัญญา: ' + it.product + '</button>' +
+          '<button type="button" class="btn btn-ghost btnChangeSo" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
+          'data-product="' + (it.product || '').replace(/"/g, '&quot;') + '" data-customer="' + (item.customerName || '').replace(/"/g, '&quot;') + '" ' +
+          'style="margin:4px 8px 4px 0;">🔄 เปลี่ยน SO: ' + it.soNumber + '</button>';
       }).join('') +
       '<div class="err" id="downloadContractErr__' + item.submissionId + '"></div>' +
       '</div>';
@@ -521,6 +626,11 @@ function initStaffSignTab(containerId, currentUser) {
     Array.prototype.forEach.call(document.querySelectorAll('.btnOpenReject'), function (btn) {
       btn.addEventListener('click', function () { openRejectPanel(btn.getAttribute('data-id')); });
     });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnChangeSo'), function (btn) {
+      btn.addEventListener('click', function () {
+        openChangeSoPanel(btn.getAttribute('data-submission-id'), btn.getAttribute('data-so'), btn.getAttribute('data-product'), btn.getAttribute('data-customer'));
+      });
+    });
     Array.prototype.forEach.call(document.querySelectorAll('.btnCopyRejectLink'), function (btn) {
       btn.addEventListener('click', function () {
         copyLinkToken(btn.getAttribute('data-token'));
@@ -579,6 +689,43 @@ function initStaffSignTab(containerId, currentUser) {
         '<button class="btn btn-ghost" id="btnCancelReject">ยกเลิก</button>' +
         '</div>' +
         '</div>';
+    } else if (state.changingSoFor) {
+      var cs = state.changingSoFor;
+      html = '<div class="card">' +
+        '<h2>เปลี่ยนเลข SO / สินค้า — เดิม: ' + cs.oldSoNumber + ' (' + cs.oldProduct + ')</h2>' +
+        '<p class="hint">ใช้ตอนพนักงานยกเลิก SO เดิมในระบบ CRM แล้วเปิด SO ใหม่แทน (เช่น ลูกค้าเปลี่ยนสินค้า) — ข้อมูลลูกค้า (ชื่อ/ที่อยู่/เอกสารแนบ) ที่กรอกไว้แล้วใช้ต่อทั้งหมด ไม่ต้องให้กรอกใหม่ แต่ลูกค้าต้องเข้าไปตรวจสอบ/เซ็นเอกสารสัญญาใหม่เสมอ (ลายเซ็นเดิมผูกกับสินค้า/ราคาชุดเก่า ถือเป็นโมฆะไปแล้ว) ใช้ลิงก์เดิม ไม่ต้องส่งลิงก์ใหม่</p>' +
+        '<div class="so-search-pill">' +
+        '<div class="so-search-input-wrap"><input type="text" id="changeSoInput" value="' + state.changeSoNumberInput.replace(/"/g, '&quot;') + '" placeholder="พิมพ์เลขที่คำสั่งขาย (SO) ใหม่"' + (state.changeSoLoading ? ' disabled' : '') + ' /></div>' +
+        '<button type="button" class="so-search-type" id="btnSearchChangeSo" style="cursor:pointer;">' + (state.changeSoLoading ? 'กำลังค้นหา...' : 'ค้นหา') + '</button>' +
+        '</div>' +
+        (state.changeSoError ? '<p style="color:var(--danger);margin-top:10px;">' + state.changeSoError + '</p>' : '') +
+        '<div style="margin-top:14px;"><button class="btn btn-ghost" id="btnCancelChangeSo">ยกเลิก</button></div>' +
+        '</div>';
+
+      if (state.changeSoResult) {
+        var csr = state.changeSoResult;
+        var csPlanLabel = csr.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
+        var csNameMismatch = cs.customerName && csr.customer && csr.customer.firstLastName && csr.customer.firstLastName !== cs.customerName;
+        html += '<div class="card"><h2>ข้อมูล SO ใหม่จาก CRM</h2>' +
+          (csNameMismatch
+            ? '<p style="color:var(--danger);font-weight:700;">⚠️ ชื่อลูกค้าของ SO นี้ ("' + csr.customer.firstLastName + '") ไม่ตรงกับลูกค้าเดิมของสัญญานี้ ("' + cs.customerName + '") กรุณาตรวจสอบเลข SO ให้ถูกต้องก่อนกดยืนยัน</p>'
+            : '') +
+          '<table class="installment-table">' +
+          '<tr><td style="text-align:left">สินค้า</td><td>' + csr.product + (csr.color ? ' (' + csr.color + ')' : '') + '</td></tr>' +
+          '<tr><td style="text-align:left">วิธีการผ่อน</td><td>' + csPlanLabel + '</td></tr>' +
+          '<tr><td style="text-align:left">ราคาสุทธิ</td><td>' + fmtMoney(csr.netPrice) + ' บาท</td></tr>' +
+          '<tr><td style="text-align:left">ยอดคงเหลือสุทธิ</td><td>' + fmtMoney(csr.remainingBalance) + ' บาท</td></tr>' +
+          '<tr><td style="text-align:left">ลูกค้า (จาก CRM)</td><td>' + (csr.customer && csr.customer.firstLastName || '-') + '</td></tr>' +
+          '</table>' +
+          '<div class="row2" style="margin-top:14px;">' +
+          '<div class="field"><label>จำนวนงวดที่ผ่อน</label><input type="text" id="changeSoInstallmentCountInput" value="' + state.changeSoInstallmentCount + '" /></div>' +
+          '<div class="field"><label>วันเริ่มผ่อนงวดแรก</label>' +
+          '<div class="date-field-wrap" id="changeSoFirstDueDateWrap"><div class="date-display">' + (isoToDDMMYYYY(state.changeSoFirstDueDate) || 'เลือกวันที่') + '</div></div></div>' +
+          '</div>' +
+          '<button class="btn btn-primary" id="btnConfirmChangeSo" style="margin-top:14px;"' + (state.changeSoSubmitting ? ' disabled' : '') + '>' +
+          (state.changeSoSubmitting ? 'กำลังบันทึก...' : 'ยืนยันเปลี่ยน SO') + '</button>' +
+          '</div>';
+      }
     } else if (state.queue.length === 0) {
       html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่เคยสร้างลิงก์เลย — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
     } else {
@@ -623,6 +770,21 @@ function initStaffSignTab(containerId, currentUser) {
       document.getElementById('rejectNoteInput').addEventListener('input', function (e) { state.rejectNote = e.target.value; });
       document.getElementById('btnConfirmReject').addEventListener('click', submitReject);
       document.getElementById('btnCancelReject').addEventListener('click', closeRejectPanel);
+    } else if (state.changingSoFor) {
+      document.getElementById('changeSoInput').addEventListener('input', function (e) { state.changeSoNumberInput = e.target.value; });
+      document.getElementById('changeSoInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') searchChangeSoTarget(); });
+      document.getElementById('btnSearchChangeSo').addEventListener('click', searchChangeSoTarget);
+      document.getElementById('btnCancelChangeSo').addEventListener('click', closeChangeSoPanel);
+      if (state.changeSoResult) {
+        document.getElementById('changeSoInstallmentCountInput').addEventListener('input', function (e) {
+          state.changeSoInstallmentCount = Number(e.target.value) || 0;
+        });
+        attachThaiDatePicker(document.getElementById('changeSoFirstDueDateWrap'), {
+          value: state.changeSoFirstDueDate,
+          onChange: function (iso) { state.changeSoFirstDueDate = iso; },
+        });
+        document.getElementById('btnConfirmChangeSo').addEventListener('click', confirmChangeSo);
+      }
     } else if (!state.loading && !state.error && state.queue.length > 0) {
       wireTableButtons();
       // ช่องค้นหาอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตาม

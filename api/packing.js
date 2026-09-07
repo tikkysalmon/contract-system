@@ -13,6 +13,11 @@
 //   2026-09-07: เดิมเขียนแค่ packing_records ตัวเดียว ทำให้สถานะสัญญา/ตัวกรองที่อื่นในระบบไม่เห็นผลเลย)
 // POST { action: 'importTracking', rows: [{ soNumber, trackingNo, courier }] }
 //   — บันทึกเลข tracking ที่ parse ได้จากไฟล์ export ของ MyOrder ฝั่ง browser (SheetJS) กลับเข้า packing_records
+// POST { action: 'sendTrackingSms', phone, message }
+//   — 2026-09-07 ส่ง SMS แจ้งเลข tracking หาลูกค้า ผ่าน ThaiBulkSMS (แพทเทิร์นเดียวกับ
+//   01_ระบบติดตามหนี้/debt-tracker's api/send-sms.js — Basic Auth ด้วย API key/secret, force:'standard' ตายตัว
+//   กันเผลอใช้ credit pool อื่น) client (packing-tab.js) เป็นคนประกอบข้อความเอง ส่งมาแค่เบอร์+ข้อความสำเร็จรูป
+//   ต้องตั้งค่าใน Vercel project settings เพิ่ม: THAIBULKSMS_API_KEY, THAIBULKSMS_API_SECRET, THAIBULKSMS_SENDER
 //
 // ต้องรัน supabase-packing.sql ก่อน (สร้างตาราง packing_records — ยังไม่เคยรันในระบบจริง ณ 2026-09-07)
 // ต้องรัน supabase-packing-tracking.sql ก่อน (เพิ่มคอลัมน์ tracking_no/courier/tracking_imported_at)
@@ -20,6 +25,9 @@
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const THAIBULKSMS_API_KEY = process.env.THAIBULKSMS_API_KEY;
+const THAIBULKSMS_API_SECRET = process.env.THAIBULKSMS_API_SECRET;
+const THAIBULKSMS_SENDER = process.env.THAIBULKSMS_SENDER;
 
 async function handleSingleLookup(req, res, authHeaders, soNumber) {
   const r = await fetch(
@@ -194,6 +202,30 @@ async function handleImportTracking(req, res, authHeaders) {
   res.status(200).json({ ok: true, imported: upserts.length });
 }
 
+// ส่ง SMS แจ้งเลข tracking หาลูกค้า (2026-09-07) — client ประกอบข้อความสำเร็จรูปมาให้แล้ว (ดู
+// packing-tab.js's buildTrackingSmsMessage) endpoint นี้แค่ยิงต่อไปที่ ThaiBulkSMS
+async function handleSendTrackingSms(req, res) {
+  const phone = String(req.body && req.body.phone || '').trim();
+  const message = String(req.body && req.body.message || '').trim();
+  if (!phone) { res.status(400).json({ error: 'ไม่มีเบอร์โทรลูกค้า' }); return; }
+  if (!message) { res.status(400).json({ error: 'ไม่มีข้อความ SMS' }); return; }
+  if (!THAIBULKSMS_API_KEY || !THAIBULKSMS_API_SECRET || !THAIBULKSMS_SENDER) {
+    res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า THAIBULKSMS_API_KEY/THAIBULKSMS_API_SECRET/THAIBULKSMS_SENDER บน server' });
+    return;
+  }
+  const authHeader = 'Basic ' + Buffer.from(THAIBULKSMS_API_KEY + ':' + THAIBULKSMS_API_SECRET).toString('base64');
+  const params = new URLSearchParams({ msisdn: phone, message: message, sender: THAIBULKSMS_SENDER, force: 'standard' });
+  const r = await fetch('https://api-v2.thaibulksms.com/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', Authorization: authHeader },
+    body: params.toString(),
+  });
+  const data = await r.json();
+  if (data.error) { res.status(400).json({ error: (data.error.description || data.error.name || 'ส่ง SMS ไม่สำเร็จ') }); return; }
+  if (data.bad_phone_number_list && data.bad_phone_number_list.length) { res.status(400).json({ error: 'เบอร์โทรไม่ถูกต้อง: ' + phone }); return; }
+  res.status(200).json({ ok: true });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -212,6 +244,7 @@ module.exports = async function handler(req, res) {
       const action = String(req.body && req.body.action || '');
       if (action === 'submit') { await handleSubmit(req, res, authHeaders); return; }
       if (action === 'importTracking') { await handleImportTracking(req, res, authHeaders); return; }
+      if (action === 'sendTrackingSms') { await handleSendTrackingSms(req, res); return; }
       res.status(400).json({ error: 'ไม่รู้จัก action นี้' });
       return;
     }

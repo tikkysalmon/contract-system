@@ -37,6 +37,8 @@ function initPackingTab(containerId, user) {
     importingTracking: false,
     importTrackingError: null,
     importTrackingResult: null, // { imported, unmatched: [soNumber ที่หาไม่เจอในไฟล์] }
+    sendingSmsFor: null, // soNumber ที่กำลังส่ง SMS อยู่ (null = ไม่มี) — 2026-09-07
+    sendSmsError: null,
   };
 
   function resetAfterSearch() {
@@ -230,6 +232,36 @@ function initPackingTab(containerId, user) {
     render();
   }
 
+  // ส่ง SMS แจ้งเลข tracking หาลูกค้า (2026-09-07) — ผ่าน ThaiBulkSMS (แพทเทิร์นเดียวกับระบบส่ง SMS ติดตามหนี้
+  // ของ debt-tracker) ต้องตั้งค่า THAIBULKSMS_API_KEY/API_SECRET/SENDER ใน Vercel project settings ก่อน
+  function buildTrackingSmsMessage(it) {
+    return 'เรียนคุณ' + (it.customerName || 'ลูกค้า') + ' พัสดุของท่าน (' + it.product + ') ถูกจัดส่งแล้ว เลขพัสดุ: ' +
+      it.trackingNo + (it.courier ? ' (' + it.courier + ')' : '') + ' ขอบคุณที่ใช้บริการ Salmon Phone';
+  }
+
+  async function sendTrackingSmsFor(soNumber) {
+    var it = state.packedList.filter(function (x) { return x.soNumber === soNumber; })[0];
+    if (!it || !it.trackingNo) return;
+    if (!it.recipientPhone) { state.sendSmsError = 'ไม่มีเบอร์โทรลูกค้าของ SO ' + soNumber; render(); return; }
+    state.sendingSmsFor = soNumber;
+    state.sendSmsError = null;
+    render();
+    try {
+      var res = await fetch('/api/packing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sendTrackingSms', phone: it.recipientPhone, message: buildTrackingSmsMessage(it) }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'ส่ง SMS ไม่สำเร็จ');
+      window.alert('ส่ง SMS แจ้งเลข tracking ให้ ' + it.customerName + ' สำเร็จแล้ว');
+    } catch (err) {
+      state.sendSmsError = 'ส่ง SMS ไม่สำเร็จ (SO ' + soNumber + '): ' + err.message;
+    }
+    state.sendingSmsFor = null;
+    render();
+  }
+
   function packedListSectionHtml() {
     var h = '<div class="card"><h2>รายการที่แพ็คแล้ว' + (state.packedList.length ? ' (' + state.packedList.length + ' รายการ)' : '') + '</h2>' +
       '<p class="hint">เลือกรายการที่ต้องการ (หรือไม่เลือกเพื่อเอาทุกรายการที่กรองอยู่) แล้วกด "Export ไฟล์นำเข้า MyOrder" เพื่อได้ไฟล์ Excel สำหรับอัปโหลดเข้า MyOrder — พอส่งของแล้ว MyOrder export เลข tracking ออกมา กด "นำเข้าเลข Tracking" เพื่อดึงกลับเข้าระบบนี้</p>';
@@ -258,12 +290,16 @@ function initPackingTab(containerId, user) {
 
     var rows = filteredPackedList();
     h += '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th></th><th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th style="text-align:left;">ที่อยู่จัดส่ง</th><th>Tracking</th><th>วันที่แพ็ค</th></tr></thead>' +
+      '<thead><tr><th></th><th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th style="text-align:left;">ที่อยู่จัดส่ง</th><th>Tracking</th><th>วันที่แพ็ค</th><th>การดำเนินการ</th></tr></thead>' +
       '<tbody>' + rows.map(function (it) {
         var checked = !!state.selected[it.soNumber];
         var trackingCell = it.trackingNo
           ? it.trackingNo + (it.courier ? ' (' + it.courier + ')' : '')
           : '<span style="color:var(--muted);">ยังไม่มี</span>';
+        var smsCell = it.trackingNo
+          ? '<button type="button" class="btn btn-ghost btnSendTrackingSms" data-so="' + it.soNumber + '"' + (state.sendingSmsFor === it.soNumber ? ' disabled' : '') + '>' +
+            (state.sendingSmsFor === it.soNumber ? 'กำลังส่ง...' : '📱 ส่ง SMS') + '</button>'
+          : '';
         return '<tr>' +
           '<td><input type="checkbox" class="packRowCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
           '<td style="text-align:left;">' + it.soNumber + '</td>' +
@@ -272,9 +308,11 @@ function initPackingTab(containerId, user) {
           '<td style="text-align:left;">' + formatAddressShort(it.shippingAddress) + '</td>' +
           '<td>' + trackingCell + '</td>' +
           '<td>' + fmtDateTime(it.packedAt) + '</td>' +
+          '<td>' + smsCell + '</td>' +
           '</tr>';
-      }).join('') + (rows.length === 0 ? '<tr><td colspan="7" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>' : '') +
+      }).join('') + (rows.length === 0 ? '<tr><td colspan="8" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>' : '') +
       '</tbody></table></div>' +
+      (state.sendSmsError ? '<p style="color:var(--danger);margin-top:10px;">' + state.sendSmsError + '</p>' : '') +
       '</div>';
     return h;
   }
@@ -339,6 +377,9 @@ function initPackingTab(containerId, user) {
         if (cb.checked) state.selected[cb.getAttribute('data-so')] = true; else delete state.selected[cb.getAttribute('data-so')];
         render();
       });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.btnSendTrackingSms'), function (btn) {
+      btn.addEventListener('click', function () { sendTrackingSmsFor(btn.getAttribute('data-so')); });
     });
     var btnExportMyOrder = document.getElementById('packBtnExportMyOrder');
     if (btnExportMyOrder) btnExportMyOrder.addEventListener('click', exportMyOrderForSelection);
