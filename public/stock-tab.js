@@ -201,6 +201,14 @@ function initStockTab(containerId, currentUser) {
     render();
   }
 
+  // Export ไฟล์ Excel นำเข้า MyOrder (2026-09-07) — ใช้รายการเดียวกับปุ่มพิมพ์ใบเบิก (เลือกไว้ = เฉพาะที่เลือก
+  // ไม่เลือก = ทุกรายการที่กรองอยู่) ดู myorder-export.js สำหรับ mapping คอลัมน์/ค่าเริ่มต้น
+  function exportMyOrderForSelection() {
+    var orders = selectedOrders().length ? selectedOrders() : filtered();
+    if (!orders.length) { window.alert('ไม่มีรายการให้ export'); return; }
+    exportMyOrderExcel(orders);
+  }
+
   function filtered() { return state.orders; } // กรองฝั่ง server ผ่าน query params ไปแล้วตอน load()
 
   function sourceBadge(o) {
@@ -266,8 +274,10 @@ function initStockTab(containerId, currentUser) {
         '</select>' +
         '<button class="btn btn-secondary" id="stkBtnAssignRound"' + (state.assigning ? ' disabled' : '') + '>' + (state.assigning ? 'กำลังบันทึก...' : 'กำหนดรอบการเบิกให้ที่เลือก') + '</button>' +
         '<button class="btn btn-primary" id="stkBtnPrint"' + (state.printing ? ' disabled' : '') + '>' + (state.printing ? 'กำลังสร้าง PDF...' : '📄 พิมพ์ใบเบิกประจำวัน (PDF)') + '</button>' +
+        '<button class="btn btn-secondary" id="stkBtnExportMyOrder">📤 Export ไฟล์นำเข้า MyOrder (Excel)</button>' +
         '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่') + '</span>' +
         '</div>' +
+        '<p class="hint" style="margin-top:-8px;">ไฟล์ Excel ที่ได้ตรงตามเทมเพลตของ MyOrder — ก่อนอัปโหลดเข้า MyOrder ต้องตรวจ/แก้คอลัมน์ "ชื่อสินค้า (สำหรับขนส่ง)" และ "สีสินค้า" ให้เป็นภาษาไทยเองก่อนเสมอ (ตามสคบ.) เพราะข้อมูลจาก CRM เป็นภาษาอังกฤษ</p>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
         '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th></tr></thead>' +
         '<tbody>' + orders.map(function (o) {
@@ -322,6 +332,8 @@ function initStockTab(containerId, currentUser) {
       if (btnAssign) btnAssign.addEventListener('click', assignRoundToSelected);
       var btnPrint = document.getElementById('stkBtnPrint');
       if (btnPrint) btnPrint.addEventListener('click', printRequisition);
+      var btnExportMyOrder = document.getElementById('stkBtnExportMyOrder');
+      if (btnExportMyOrder) btnExportMyOrder.addEventListener('click', exportMyOrderForSelection);
     }
 
     if (state.cancelingSo) {

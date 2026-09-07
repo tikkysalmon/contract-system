@@ -40,9 +40,15 @@ async function fetchCreditOrders(authHeaders) {
     const snapshot = session.crm_snapshot || {};
     const items = snapshot.items || [];
     const customer = row.customer_data || snapshot.customer || {};
+    // ที่อยู่จัดส่ง (2026-09-07 เพิ่มเพื่อ export ไฟล์ Excel นำเข้า MyOrder — ดู myorder-export.js) — ใช้
+    // shippingAddress ถ้าลูกค้าระบุไว้ไม่เหมือนที่อยู่ปัจจุบัน ไม่งั้น fallback ไปที่อยู่ปัจจุบัน (address)
+    var addr = (customer.shippingAddress && !customer.shippingAddress.sameAsCurrent)
+      ? customer.shippingAddress
+      : (customer.address || {});
     items.forEach(function (item) {
       orders.push({
         soNumber: item.soNumber,
+        contractNo: item.contractNo || null,
         source: 'credit',
         sourceLabel: 'เครดิตผ่าน/วางดาวน์',
         customerId: item.customerId || null,
@@ -51,6 +57,13 @@ async function fetchCreditOrders(authHeaders) {
         color: item.color || null,
         recipientName: null, // ยังไม่มีฟิลด์ผู้รับสินค้าแยกต่างหากในฟอร์มลูกค้าปัจจุบัน
         recipientPhone: customer.phone || null,
+        shippingAddress: {
+          detail: addr.detail || null,
+          subdistrictName: addr.subdistrictName || null,
+          districtName: addr.districtName || null,
+          provinceName: addr.provinceName || null,
+          zip: addr.zip || null,
+        },
       });
     });
   });
