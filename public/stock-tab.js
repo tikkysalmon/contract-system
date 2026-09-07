@@ -24,6 +24,13 @@ function initStockTab(containerId, currentUser) {
     printing: false,
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
+    // "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07) — มุมมองที่ 2 ของหน้านี้ ดึงตรงจาก CRM+Odoo (ดู
+    // _lib/stock-reservation.js) คนละแหล่งข้อมูลกับตาราง "รายการออเดอร์" ด้านบน (ที่ดึงจาก Supabase ของ
+    // ระบบนี้เอง เฉพาะที่ผ่านขั้นตอนทำสัญญาแล้ว) — สลับดูได้ 2 มุมมองในหน้าเดียว
+    activeView: 'orders', // 'orders' | 'readiness'
+    readinessLoading: false,
+    readinessError: null,
+    readinessData: null, // { orders, shortages, totalCrmOrders, relevantOrders }
   };
 
   function fmtDateTime(iso) {
@@ -215,9 +222,92 @@ function initStockTab(containerId, currentUser) {
       : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">รอพิมพ์</span>';
   }
 
+  // ---------- "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07, ข้อ 2/3/4 — ดึงตรงจาก CRM+Odoo) ----------
+  async function loadReadiness() {
+    state.readinessLoading = true;
+    state.readinessError = null;
+    render();
+    try {
+      var res = await fetch('/api/stock-orders?view=readiness');
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
+      state.readinessData = body;
+    } catch (err) {
+      state.readinessError = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message + ' (ต้องตั้งค่า CRM_USERNAME/CRM_PASSWORD และ ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_PASSWORD บน server ก่อน)';
+    }
+    state.readinessLoading = false;
+    render();
+  }
+
+  function switchView(view) {
+    state.activeView = view;
+    if (view === 'readiness' && !state.readinessData && !state.readinessLoading) loadReadiness();
+    render();
+  }
+
+  function readinessStockBadge(o) {
+    return o.stockReady
+      ? '<span class="badge badge-info" style="background:#dcfce7;color:#15803d;">พร้อมส่ง</span>'
+      : '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอสต๊อก (คิวที่ ' + o.queuePosition + ')</span>';
+  }
+
+  function readinessSectionHtml() {
+    var h = '';
+    if (state.readinessLoading) { return '<div class="card">กำลังโหลดข้อมูลจาก CRM + Odoo... (อาจใช้เวลาสักครู่)</div>'; }
+    if (state.readinessError) { return '<div class="card"><p style="color:var(--danger);">' + state.readinessError + '</p></div>'; }
+    if (!state.readinessData) { return '<div class="card"><p class="hint">ยังไม่ได้โหลดข้อมูล</p></div>'; }
+    var data = state.readinessData;
+
+    h += '<div class="notice">⚠️ ฟีเจอร์นี้ใหม่ เพิ่งเชื่อมกับ CRM/Odoo — ถ้าเห็นสถานะที่ดูผิดปกติ (เช่น รายการที่ควรพร้อมส่งแต่ขึ้นรอสต๊อก) แจ้งได้เลย มีจุดที่ยังไม่ยืนยัน 100% กับข้อมูลจริง (การจับคู่ชื่อสินค้า/enum สถานะบางตัว)</div>';
+
+    if (data.shortages.length) {
+      h += '<div class="card"><h2>🛒 สินค้าที่ขาด ต้องสั่งเพิ่ม (' + data.shortages.length + ' รายการ)</h2>' +
+        '<table class="installment-table"><thead><tr><th style="text-align:left;">สินค้า</th><th>จำนวนที่ขาด (ออเดอร์)</th></tr></thead><tbody>' +
+        data.shortages.map(function (s) {
+          return '<tr><td style="text-align:left;">' + s.productName + '</td><td>' + s.shortCount + '</td></tr>';
+        }).join('') +
+        '</tbody></table>' +
+        '<p class="hint" style="margin-top:10px;">ยังไม่มีเมนู "สำหรับจัดซื้อ" แยกต่างหาก (รอข้อมูลเพิ่มเติม) — ใช้ตารางนี้แจ้งจัดซื้อไปก่อนตอนนี้</p>' +
+        '</div>';
+    } else {
+      h += '<div class="card"><p class="hint">✅ ไม่มีสินค้าขาดสต๊อกในรายการที่ตรวจสอบตอนนี้</p></div>';
+    }
+
+    h += '<div class="card"><h2>รายการที่ตรวจสอบ (' + data.orders.length + ' จาก ' + data.totalCrmOrders + ' คำสั่งขายทั้งหมดใน CRM)</h2>' +
+      '<p class="hint">กรองเฉพาะที่อนุมัติเครดิตแล้ว/ไม่ถูกยกเลิก/ไม่ขาดผ่อน แล้วจัดคิวจองสต๊อกตามลำดับ: ซื้อสด/ผ่อนครบรับของ → วางดาวน์ → เครดิตผ่าน (เรียงตามวันที่สั่งซื้อภายในลำดับเดียวกัน)</p>' +
+      '<div style="overflow-x:auto;"><table class="installment-table">' +
+      '<thead><tr><th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">สินค้า</th><th>วิธีการผ่อน</th><th>วันที่สั่งซื้อ</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะ</th></tr></thead>' +
+      '<tbody>' + data.orders.map(function (o) {
+        return '<tr>' +
+          '<td style="text-align:left;">' + o.saleOrderId + '</td>' +
+          '<td style="text-align:left;">' + (o.productName || '-') + '</td>' +
+          '<td>' + (o.installmentTypeLabel || o.installmentType) + '</td>' +
+          '<td>' + fmtDateTime(o.orderDate) + '</td>' +
+          '<td>' + o.odooAvailableQty + '</td>' +
+          '<td>' + readinessStockBadge(o) + '</td>' +
+          '</tr>';
+      }).join('') + (data.orders.length === 0 ? '<tr><td colspan="6" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+      '</tbody></table></div>' +
+      '</div>';
+    return h;
+  }
+
   function render() {
     var app = document.getElementById(containerId);
     var html = '';
+
+    html += '<div style="display:flex;gap:8px;margin-bottom:4px;">' +
+      '<button type="button" class="btn ' + (state.activeView === 'orders' ? 'btn-primary' : 'btn-secondary') + '" id="stkViewOrders">รายการออเดอร์</button>' +
+      '<button type="button" class="btn ' + (state.activeView === 'readiness' ? 'btn-primary' : 'btn-secondary') + '" id="stkViewReadiness">ตรวจสอบสินค้าพร้อมส่ง</button>' +
+      '</div>';
+
+    if (state.activeView === 'readiness') {
+      html += readinessSectionHtml();
+      app.innerHTML = html;
+      document.getElementById('stkViewOrders').addEventListener('click', function () { switchView('orders'); });
+      document.getElementById('stkViewReadiness').addEventListener('click', function () { switchView('readiness'); });
+      return;
+    }
 
     html += '<div class="card"><h2>รายการออเดอร์</h2>' +
       listToolbarHtml({
@@ -299,6 +389,8 @@ function initStockTab(containerId, currentUser) {
 
     app.innerHTML = html;
 
+    document.getElementById('stkViewOrders').addEventListener('click', function () { switchView('orders'); });
+    document.getElementById('stkViewReadiness').addEventListener('click', function () { switchView('readiness'); });
     document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; load(); });
     document.getElementById('stkFilterQuery').addEventListener('input', function (e) { state.filterQuery = e.target.value; });
     document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
