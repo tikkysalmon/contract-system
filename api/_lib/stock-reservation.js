@@ -1,12 +1,21 @@
 // "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07) — ดึงคำสั่งขายที่ต้องใช้สต๊อกจาก CRM ตรงๆ (คนละแหล่ง
 // กับ api/stock-orders.js's fetchCreditOrders ที่ดึงเฉพาะ order ที่ผ่านขั้นตอนทำสัญญาในระบบนี้แล้ว — ตัวนี้
-// ดึงจาก CRM ทั้งหมดโดยไม่สนว่าลูกค้ากรอกฟอร์ม/เซ็นสัญญาในระบบนี้หรือยัง) เทียบกับสต๊อกคงเหลือจริงใน Odoo
+// ดึงจาก CRM ทั้งหมดโดยไม่สนว่าลูกค้ากรอกฟอร์ม/เซ็นสัญญาในระบบนี้หรือยัง) เทียบกับสต๊อกคงเหลือจาก Odoo
 // แล้วจัดคิวจองสินค้าตามลำดับความสำคัญที่ user กำหนด:
 //   1. ซื้อสด (FULL_PAYMENT) + ผ่อนครบรับของ  2. วางดาวน์ (DOWN_PAYMENT)  3. เครดิตผ่าน (PARTIAL_PAY_THEN_RECEIVE)
 // ภายในลำดับเดียวกัน เรียงตามวันที่สั่งซื้อ (orderDate) ก่อน-หลัง (FIFO)
 //
-// ⚠️ สร้างจากการแคป Network tab ของ user (2026-09-07) ไม่ได้มีเอกสาร API อย่างเป็นทางการ — จุดที่ยังไม่ยืนยัน
-// กับข้อมูลจริง (ตรวจสอบก่อนเชื่อผลลัพธ์ 100%):
+// **อ่านสต๊อกจากตาราง Supabase `odoo_stock_cache` ไม่ได้ยิง Odoo ตรงจากเว็บเลย** (2026-09-07 เปลี่ยนจาก
+// ออกแบบแรกที่ยิง Odoo XML-RPC ตรงจาก Vercel — ทดสอบจริงแล้วเชื่อมต่อค้าง 90 วิไม่ตอบ ยืนยันว่า Vercel เข้าถึง
+// เซิร์ฟเวอร์ Odoo ไม่ได้ ติด firewall/network ฝั่ง Odoo แต่จาก IP อื่นที่เข้าถึงได้อยู่แล้วเชื่อมสำเร็จปกติ) —
+// แก้โดยให้สคริปต์ที่รันจากพีซี user เอง (เข้าถึง Odoo ได้อยู่แล้วจริง) ดึงมาเขียนทับตาราง `odoo_stock_cache`
+// ทุก 15 นาทีผ่าน Windows Task Scheduler แทน (ดู scripts/sync-odoo-stock.js + supabase-odoo-stock-cache.sql)
+// เว็บแค่อ่านตารางนี้ ไม่ต้องพึ่งเครือข่ายไป Odoo เลย เร็วกว่าเดิมด้วย แต่ข้อมูลจะ "สด" แค่เท่าที่พีซี user
+// เปิด/ต่อเน็ตอยู่ล่าสุด — ดู `stockLastSyncedAt` ในผลลัพธ์ ให้ UI เตือนถ้าข้อมูลเก่าเกินไป (ดู
+// public/stock-tab.js)
+//
+// ⚠️ ส่วนที่ดึงจาก CRM สร้างจากการแคป Network tab ของ user (2026-09-07) ไม่ได้มีเอกสาร API อย่างเป็นทางการ —
+// จุดที่ยังไม่ยืนยันกับข้อมูลจริง (ตรวจสอบก่อนเชื่อผลลัพธ์ 100%):
 //   - GET /crm/sale-order (list) รองรับ pagination หรือไม่/พารามิเตอร์ชื่ออะไร — โค้ดกันไว้แบบ defensive (ดู
 //     fetchAllSaleOrders) ลองส่ง page/pageSize ตามแพทเทิร์นที่เห็นจาก endpoint อื่นในระบบเดียวกัน
 //   - list ไม่มี field productName ให้ตรงๆ (เห็นแค่ตอนดึงรายละเอียดทีละ SO) จึงต้องดึงรายละเอียดเพิ่มทีละใบ
@@ -108,20 +117,23 @@ async function enrichWithProductName(orders, token) {
   return out;
 }
 
-async function fetchStockByProduct(odooClient) {
-  const groups = await odooClient.readGroup(
-    'stock.quant',
-    [['location_id.usage', '=', 'internal'], ['quantity', '>', 0]],
-    ['product_id', 'quantity:sum'],
-    ['product_id']
-  );
+// อ่านจากตาราง Supabase odoo_stock_cache (เขียนโดย scripts/sync-odoo-stock.js ที่รันจากพีซี user เอง — ดู
+// หมายเหตุบนไฟล์) แทนการยิง Odoo ตรง — คืน { stockByProduct, lastSyncedAt } ให้ getStockReadiness ใช้เตือน UI
+// ถ้าข้อมูลเก่าเกินไป (พีซี user ปิด/ไม่ได้ต่อเน็ตนานแล้ว)
+async function fetchStockByProduct(supabaseUrl, authHeaders) {
+  const res = await fetch(supabaseUrl + '/rest/v1/odoo_stock_cache?select=product_name,quantity,updated_at', { headers: authHeaders });
+  if (!res.ok) {
+    throw new Error('อ่านแคชสต๊อก Odoo จาก Supabase ไม่สำเร็จ (HTTP ' + res.status + ') — ตรวจว่ารัน supabase-odoo-stock-cache.sql แล้วหรือยัง และ scripts/sync-odoo-stock.js เคยรันสำเร็จอย่างน้อย 1 ครั้งหรือยัง');
+  }
+  const rows = await res.json();
   const stockByProduct = {};
-  groups.forEach(function (g) {
-    if (!g.product_id) return;
-    const key = normalizeProductName(g.product_id[1]);
-    stockByProduct[key] = (stockByProduct[key] || 0) + Number(g.quantity || 0);
+  let lastSyncedAt = null;
+  rows.forEach(function (r) {
+    const key = normalizeProductName(r.product_name);
+    stockByProduct[key] = (stockByProduct[key] || 0) + Number(r.quantity || 0);
+    if (!lastSyncedAt || new Date(r.updated_at) > new Date(lastSyncedAt)) lastSyncedAt = r.updated_at;
   });
-  return stockByProduct;
+  return { stockByProduct: stockByProduct, lastSyncedAt: lastSyncedAt };
 }
 
 // จัดคิวจองสต๊อกแบบ greedy ต่อสินค้า 1 ชิ้น — คืน array ใหม่พร้อม field stockReady/queuePosition/odooAvailableQty
@@ -150,7 +162,7 @@ function allocateStock(orders, stockByProduct) {
   return result;
 }
 
-async function getStockReadiness(odooClient) {
+async function getStockReadiness(supabaseUrl, authHeaders) {
   const token = await crmLoginForStock();
   const rawOrders = await fetchAllSaleOrders(token);
   const relevant = filterRelevantOrders(rawOrders);
@@ -161,8 +173,8 @@ async function getStockReadiness(odooClient) {
       installmentTypeLabel: INSTALLMENT_TYPE_LABELS[o.installmentType] || o.installmentType,
     });
   });
-  const stockByProduct = await fetchStockByProduct(odooClient);
-  const allocated = allocateStock(withKey, stockByProduct);
+  const stock = await fetchStockByProduct(supabaseUrl, authHeaders);
+  const allocated = allocateStock(withKey, stock.stockByProduct);
 
   const shortageByProduct = {};
   allocated.forEach(function (o) {
@@ -177,6 +189,7 @@ async function getStockReadiness(odooClient) {
     shortages: Object.keys(shortageByProduct).map(function (k) { return shortageByProduct[k]; }),
     totalCrmOrders: rawOrders.length,
     relevantOrders: relevant.length,
+    stockLastSyncedAt: stock.lastSyncedAt, // null = ยังไม่เคย sync เลย (scripts/sync-odoo-stock.js ยังไม่เคยรันสำเร็จ)
   };
 }
 

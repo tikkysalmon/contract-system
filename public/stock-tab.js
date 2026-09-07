@@ -260,6 +260,16 @@ function initStockTab(containerId, currentUser) {
 
     h += '<div class="notice">⚠️ ฟีเจอร์นี้ใหม่ เพิ่งเชื่อมกับ CRM/Odoo — ถ้าเห็นสถานะที่ดูผิดปกติ (เช่น รายการที่ควรพร้อมส่งแต่ขึ้นรอสต๊อก) แจ้งได้เลย มีจุดที่ยังไม่ยืนยัน 100% กับข้อมูลจริง (การจับคู่ชื่อสินค้า/enum สถานะบางตัว)</div>';
 
+    // ยอดสต๊อกมาจากตาราง Supabase ที่สคริปต์บนพีซี user sync มาให้ทุก 15 นาที (ไม่ได้ยิง Odoo ตรงจากเว็บ — ดู
+    // _lib/stock-reservation.js) เตือนถ้าข้อมูลเก่าเกินไป (พีซีปิด/ไม่ได้ต่อเน็ตนาน) กันเข้าใจผิดว่าสต๊อกสดจริง
+    var syncAgeMs = data.stockLastSyncedAt ? (Date.now() - new Date(data.stockLastSyncedAt).getTime()) : null;
+    var syncStale = syncAgeMs === null || syncAgeMs > 60 * 60 * 1000; // เกิน 1 ชม. = น่าจะพีซี sync ไม่ได้อยู่
+    h += '<div class="notice"' + (syncStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
+      (data.stockLastSyncedAt
+        ? (syncStale ? '⚠️ ' : '✅ ') + 'ข้อมูลสต๊อกล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(data.stockLastSyncedAt) + (syncStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
+        : '⚠️ ยังไม่เคย sync สต๊อกจาก Odoo เข้ามาเลย — รัน scripts/sync-odoo-stock.js ที่พีซีก่อน (ดู README)') +
+      '</div>';
+
     if (data.shortages.length) {
       h += '<div class="card"><h2>🛒 สินค้าที่ขาด ต้องสั่งเพิ่ม (' + data.shortages.length + ' รายการ)</h2>' +
         '<table class="installment-table"><thead><tr><th style="text-align:left;">สินค้า</th><th>จำนวนที่ขาด (ออเดอร์)</th></tr></thead><tbody>' +

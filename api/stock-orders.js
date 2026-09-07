@@ -18,7 +18,6 @@
 // ต้องตั้งค่าใน Vercel project settings: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 const { getStockReadiness } = require('./_lib/stock-reservation');
-const { getOdooClientFromEnv } = require('./_lib/odoo-xmlrpc');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -194,26 +193,26 @@ async function handleUpdate(req, res, authHeaders) {
   res.status(400).json({ error: 'ไม่รู้จัก action นี้' });
 }
 
-// "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07, ข้อ 2/3/4) — GET ?view=readiness ดึงตรงจาก CRM+Odoo
-// ไม่ผ่าน Supabase ของระบบนี้เลย (คนละแหล่งข้อมูลกับ handleList ด้านบน) ดู _lib/stock-reservation.js
-async function handleReadiness(req, res) {
-  const odooClient = getOdooClientFromEnv();
-  const result = await getStockReadiness(odooClient);
+// "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07, ข้อ 2/3/4) — GET ?view=readiness ดึงคำสั่งขายจาก CRM
+// ตรงๆ + อ่านสต๊อกจากตาราง Supabase odoo_stock_cache (เขียนโดย scripts/sync-odoo-stock.js ที่รันจากพีซี user
+// เอง — เว็บนี้ยิง Odoo ตรงไม่ได้ ติด firewall ยืนยันแล้ว ดูหมายเหตุยาวใน _lib/stock-reservation.js)
+async function handleReadiness(req, res, authHeaders) {
+  const result = await getStockReadiness(SUPABASE_URL, authHeaders);
   res.status(200).json(result);
 }
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   try {
-    if (req.method === 'GET' && String((req.query && req.query.view) || '') === 'readiness') {
-      await handleReadiness(req, res);
-      return;
-    }
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server' });
       return;
     }
     const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
+    if (req.method === 'GET' && String((req.query && req.query.view) || '') === 'readiness') {
+      await handleReadiness(req, res, authHeaders);
+      return;
+    }
     if (req.method === 'GET') { await handleList(req, res, authHeaders); return; }
     if (req.method === 'POST') { await handleUpdate(req, res, authHeaders); return; }
     res.status(405).json({ error: 'Method not allowed' });

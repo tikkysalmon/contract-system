@@ -779,3 +779,52 @@ auto-sync ระหว่าง 2 โฟลเดอร์)
   project settings ก่อน (ค่าจริงอยู่ในไฟล์ `17_Agent_ตรวจสอบ_Odoo/.env` ในเครื่อง — ไม่ commit ค่าจริงลงไฟล์นี้)
   `CRM_USERNAME`/`CRM_PASSWORD` ตั้งไว้อยู่แล้วจากรอบก่อน ไม่ต้องตั้งซ้ำ — ข้อ 5 (เมนู "สำหรับจัดซื้อ" + เทียบ
   ราคา) ยังรอข้อมูลเว็บเทียบราคาจาก user เหมือนเดิม
+
+## เสร็จเพิ่ม (2026-09-07 รอบ 7) — Vercel ต่อ Odoo ตรงไม่ได้ (firewall) → เปลี่ยนมาใช้ Supabase cache + sync จากพีซี
+- **พบปัญหาจริงหลัง deploy รอบ 6**: ตั้งค่า `ODOO_*` ใน Vercel แล้ว redeploy แล้วยิง
+  `GET /api/stock-orders?view=readiness` จริงบน production ค้าง 90+ วินาทีไม่มี response เลย (ขณะที่
+  `/api/crm-lookup` ที่ไม่แตะ Odoo ทำงานปกติ) — วินิจฉัยว่าเซิร์ฟเวอร์ Odoo (`161.82.191.168:8069`, HTTP ธรรมดา
+  ไม่มี TLS) น่าจะมี firewall กัน IP ฝั่ง cloud ของ Vercel ไว้ แต่ยอมรับจากเครือข่ายบ้าน/ออฟฟิศของ user เอง (ที่
+  `17_Agent_ตรวจสอบ_Odoo`/`19_Odoo_Audit_WebApp` ต่อสำเร็จมาตลอดเพราะรันจากเครื่อง user ไม่ใช่จาก cloud)
+- **ถาม user หาทางแก้**: เสนอทางเลือกทั้งหมด (เปิด firewall ฝั่ง Odoo ให้ Vercel/ตั้ง proxy กลาง/รันผ่านพีซี user
+  เอง) — user ยืนยันไม่มีสิทธิ์ SSH เข้าเซิร์ฟเวอร์ Odoo เอง (แก้ firewall เองไม่ได้) และหลังชั่งน้ำหนักตัวเลือก
+  cloud-based ทั้งหมด (Vercel Cron/GitHub Actions ก็จะติด firewall เดียวกันเพราะเป็น IP cloud เหมือนกัน) **สรุป:
+  "ถ้างั้นกลับมาใช้อัพเดทผ่านเครื่องพีซี"** — ใช้พีซี user รันสคริปต์ sync ทุก 15 นาทีผ่าน Windows Task
+  Scheduler แทน (ความถี่ 15 นาทีที่ user เลือกเอง — ยอมรับ trade-off ว่าข้อมูลสต๊อกไม่ real-time เป๊ะ)
+- **สถาปัตยกรรมใหม่**: พีซี user (`node scripts/sync-odoo-stock.js`) → อ่าน `stock.quant` จาก Odoo ตรง (เหมือน
+  เดิม แต่รันจากพีซีที่ไม่ติด firewall) → เขียนทับตาราง Supabase ใหม่ `odoo_stock_cache`
+  (`product_name`/`quantity`/`updated_at`, full-replace ทุกรอบ: DELETE ทั้งตารางก่อนแล้ว POST ชุดใหม่ กันแถวเก่า
+  ค้าง) → เว็บ (Vercel) อ่านสต๊อกจาก Supabase cache นี้แทนการยิง Odoo ตรง — `api/_lib/stock-reservation.js`'s
+  `fetchStockByProduct()` เปลี่ยนจากเรียก `odooClient.readGroup()` เป็น query REST ธรรมดาไป Supabase, ไม่มี
+  Vercel serverless function ไหนต่อ Odoo ตรงอีกต่อไป (`api/_lib/odoo-xmlrpc.js` ยังอยู่ในโปรเจกต์แต่ตอนนี้ถูก
+  require เฉพาะจาก `scripts/sync-odoo-stock.js` ที่รันบนพีซีเท่านั้น) — `getStockReadiness()` คืนฟิลด์ใหม่
+  `stockLastSyncedAt` (timestamp ล่าสุดที่ sync สำเร็จ, `null` ถ้ายังไม่เคย sync เลย)
+- **`supabase-odoo-stock-cache.sql` (ใหม่, ยังไม่ได้รันในระบบจริง)** — สร้างตาราง `odoo_stock_cache`
+  (`product_name text primary key, quantity numeric, updated_at timestamptz`)
+- **`scripts/sync-odoo-stock.js` (ใหม่, ไม่ deploy ขึ้น Vercel — รันจากพีซีเท่านั้น)**: โหลด `scripts/.env` เอง
+  (parser ง่ายๆ ไม่พึ่ง dependency ภายนอก ตรงแพทเทิร์นเดิมของโปรเจกต์) แล้ว readGroup สต๊อกจาก Odoo → DELETE +
+  POST เข้า `odoo_stock_cache` เต็มชุด มี `scripts/.env.example` เป็นเทมเพลตคู่กัน (ค่า `ODOO_URL` ใส่ไว้ให้แล้ว
+  เพราะไม่ใช่ความลับ ส่วน username/password/Supabase creds ต้องกรอกเอง) — `scripts/.env` ตัวจริง (มี credential
+  จริง) อยู่ในเครื่อง user เท่านั้น **ห้าม commit ขึ้น git เด็ดขาด**
+- **`public/stock-tab.js`**: เพิ่มแถบแจ้งความสดของข้อมูลสต๊อกในมุมมอง "ตรวจสอบสินค้าพร้อมส่ง" ใช้
+  `data.stockLastSyncedAt` — ถ้า `null` (ยังไม่เคย sync สำเร็จเลย) หรือเก่าเกิน 1 ชม. (พีซีน่าจะปิด/ไม่ได้ต่อเน็ต
+  อยู่) ขึ้นแถบสีแดง "⚠️" เตือนให้เช็คพีซี, ถ้า sync มาไม่เกิน 1 ชม. ขึ้นแถบสีเขียว "✅ ข้อมูลสต๊อกล่าสุด sync
+  จากพีซีเมื่อ [เวลา]" — กันเข้าใจผิดว่าตัวเลขสต๊อกเป็น real-time จาก Odoo ตรงๆ (จริงๆ ขึ้นกับพีซีเปิด/sync
+  สำเร็จล่าสุดเมื่อไหร่)
+- **ทดสอบ**: `test-stock-reservation.js` เดิม (15 checks) รันซ้ำผ่านหมดหลังเปลี่ยน `fetchStockByProduct()` เป็น
+  mock Supabase REST แทน mock Odoo client — ยืนยัน logic การจัดคิว/priority ไม่เปลี่ยนพฤติกรรม เปลี่ยนแค่แหล่ง
+  ข้อมูลสต๊อก + เขียน hybrid test ใหม่ (`test-sync-script.js`) ยิง Odoo จริง (เชื่อมต่อสำเร็จ ดึงสต๊อกได้จริง 170
+  รายการใน ~1.2 วิ) แต่ intercept เฉพาะฝั่ง Supabase (ไม่มี credential Supabase จริงในเครื่องนี้ให้ทดสอบ) ยืนยันรูป
+  แบบ request DELETE+POST ถูกต้อง + fake-DOM UI test เพิ่ม check แถบแจ้งความสดของข้อมูล (กรณี `stockLastSyncedAt`
+  เป็น `null`) — ทุกเทสต์ผ่านหมด **ยังไม่ได้ทดสอบ sync script เขียนเข้า Supabase จริง** (ต้องรอ user รัน
+  `supabase-odoo-stock-cache.sql` และกรอก `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` ใน `scripts/.env` ก่อน)
+- **ยังไม่ได้ทำ ก่อนใช้งานจริง (รอ user ทำตามขั้นตอน)**:
+  1. รัน `supabase-odoo-stock-cache.sql` ใน Supabase SQL Editor ของโปรเจกต์นี้ (สร้างตาราง `odoo_stock_cache`)
+  2. คัดลอก `scripts/.env.example` → `scripts/.env` (มีไฟล์ `.env` ที่มี Odoo credential กรอกไว้แล้วในเครื่องนี้
+     ที่โฟลเดอร์ dev — แค่เพิ่ม `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` เข้าไป ดูค่าได้จาก Vercel project
+     settings ของ `contract-system` หรือ Supabase dashboard > Settings > API)
+  3. รันมือครั้งแรก `node scripts/sync-odoo-stock.js` เพื่อทดสอบว่าเขียนเข้า Supabase จริงสำเร็จ (เช็คตาราง
+     `odoo_stock_cache` มีข้อมูลขึ้นจริงใน Supabase Table Editor)
+  4. ตั้ง Windows Task Scheduler ให้รันซ้ำทุก 15 นาทีอัตโนมัติ (Trigger: Repeat every 15 minutes, indefinitely;
+     Action: รัน `node.exe` พร้อม argument เป็น path เต็มของ `scripts/sync-odoo-stock.js`, Start in = path ของ
+     โฟลเดอร์ `webapp`)
