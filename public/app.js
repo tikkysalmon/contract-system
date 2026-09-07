@@ -176,6 +176,13 @@
       initStockTab('stockTabRoot', state.user);
       return;
     }
+    if (state.activeTab === 'packing') {
+      // เดิมเป็นหน้าว่างรอสเปก (เมนูมีอยู่ใน MENU_ITEMS แล้วแต่ไม่เคย wire เข้า routing จริง) ตอนนี้เชื่อม
+      // initPackingTab จริงแล้ว (2026-09-07 — ดู packing-tab.js: ลง IMEI/Serial + export/import MyOrder)
+      container.innerHTML = '<div id="packingTabRoot"></div>';
+      initPackingTab('packingTabRoot', state.user);
+      return;
+    }
     if (state.activeTab === 'upload') {
       // ตั้งค่าหัวจดหมาย ย้ายมาอยู่ที่นี่ (เดิมอยู่บนสุดของแท็บ "ข้อมูลลูกค้าทำสัญญา") — user ขอ 2026-09-03
       container.innerHTML = '<div id="letterheadSettingsRoot"></div>';
