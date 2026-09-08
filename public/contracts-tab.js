@@ -1,10 +1,16 @@
 // "ข้อมูลลูกค้าทำสัญญา" — โมดูลกลาง ให้ทั้ง cs-review.html (หน้าเดี่ยว) และ app.html (แท็บในระบบ sidebar
 // ใหม่) เรียกใช้ร่วมกัน แยกออกมาจาก cs-review.js เดิม (2026-09-03) เพื่อไม่ต้องเขียนซ้ำ 2 ที่
-// ใช้: initContractsTab('containerElementId', currentUser) — currentUser: { username, department } (2026-09-07
+// ใช้: initContractsTab('containerElementId', currentUser, options) — currentUser: { username, department } (2026-09-07
 // เพิ่มมาเพื่อบันทึกชื่อพนักงานที่กดสร้างลิงก์ ให้เมนู "ข้อมูลลูกค้าทำสัญญา" แสดงได้ — ไม่บังคับใส่ เพราะ
 // cs-review.js (หน้าเดี่ยวไม่มีล็อกอิน) ยังเรียกโดยไม่ส่ง currentUser มาเหมือนเดิม)
-function initContractsTab(containerId, currentUser) {
+// options.initialSoNumber (2026-09-08 เพิ่มมาให้ crm-order-detail.js เรียกใช้) — ถ้าใส่มา หน้านี้จะข้ามช่อง
+// ค้นหา/ตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" แล้วค้นหา SO นั้นให้ทันทีตอนโหลด (ใช้เปิดดูข้อมูล CRM ของ SO เดียว
+// เป็นแท็บใหม่จากลิงก์ในตารางค้นหาด้วยชื่อ/รหัสลูกค้า — โฟลว์ "ยืนยันก่อนสร้างลิงก์"/"สร้างลิงก์" เดิมทุกอย่าง
+// ใช้ร่วมกันได้เลยไม่ต้องเขียนซ้ำ)
+function initContractsTab(containerId, currentUser, options) {
   'use strict';
+  options = options || {};
+  var singleSoMode = !!options.initialSoNumber;
 
   // TODO: ระบบล็อกอินพนักงานจริง (แผนก/สิทธิ์) อยู่ที่ app.js — เป็นแค่ mock ยังไม่เช็ค credential จริง
   // "สร้างลิงก์" เรียก POST /api/create-session เขียนลง Supabase จริงแล้ว (2026-09-04 — เดิมใช้ localStorage
@@ -14,8 +20,8 @@ function initContractsTab(containerId, currentUser) {
   var LETTERHEAD_KEY = 'contractLetterheadDataUrl';
 
   var state = {
-    searchMode: 'so',       // 'so' | 'name' (2026-09-04 เพิ่มโหมดค้นหาด้วยชื่อลูกค้า)
-    soNumber: '',
+    searchMode: 'so',       // 'so' | 'name' (2026-09-04 เพิ่มโหมดค้นหาด้วยชื่อลูกค้า) | 'customerId' (2026-09-08)
+    soNumber: options.initialSoNumber || '',
     loading: false,
     error: null,
     result: null,           // โหมด 'so': ข้อมูล SO หลักที่ค้นหา (body.data)
@@ -76,7 +82,7 @@ function initContractsTab(containerId, currentUser) {
   // อุปกรณ์เสริมพร้อมกัน แต่ user ต้องการให้ลูกค้ากรอกฟอร์มครั้งเดียว) — โหมด 'so': SO หลักเสมอ + SO อื่นที่ติ๊ก
   // โหมด 'name': ทุก SO ที่ CS ติ๊กแล้วกด "ดำเนินการต่อ" จากตารางเบา (resolve เต็มแล้วทั้งหมดคือรายการที่เลือก)
   function selectedItems() {
-    if (state.searchMode === 'name') return state.nameItems;
+    if (state.searchMode === 'name' || state.searchMode === 'customerId') return state.nameItems;
     if (!state.result) return [];
     var items = [state.result];
     state.otherItems.forEach(function (it) {
@@ -152,8 +158,33 @@ function initContractsTab(containerId, currentUser) {
     render();
   }
 
+  // ค้นหาด้วยรหัสลูกค้า (2026-09-08 user ขอ) — ต่างจากค้นหาด้วยชื่อตรงที่ไม่มีปัญหาลูกค้าซ้ำชื่อกันหลายคน จึง
+  // ข้ามขั้นตอน "เจอลูกค้าหลายคน" ไปแสดงตารางเบาให้ CS ติ๊กเลือก SO ได้เลย (ใช้ endpoint เดิม ?customerId=
+  // ที่เดิมเรียกจากตอนเลือกลูกค้าที่ซ้ำชื่อกันเท่านั้น — ตอนนี้เรียกตรงจากช่องค้นหาได้เลย)
+  async function doLookupByCustomerId() {
+    resetSearchResults();
+    if (!state.soNumber.trim()) { state.error = 'กรุณากรอกรหัสลูกค้า'; render(); return; }
+    state.loading = true;
+    render();
+    try {
+      var res = await fetch('/api/crm-lookup?customerId=' + encodeURIComponent(state.soNumber.trim()));
+      var body = await res.json();
+      if (!res.ok || body.error) {
+        state.error = body.error || 'เกิดข้อผิดพลาด';
+      } else {
+        state.soListCustomer = body.customer || { firstLastName: '-' };
+        state.soListLight = body.soList || [];
+      }
+    } catch (err) {
+      state.error = 'เรียก API ไม่สำเร็จ: ' + err.message;
+    }
+    state.loading = false;
+    render();
+  }
+
   async function doSearch() {
     if (state.searchMode === 'name') await doLookupByName();
+    else if (state.searchMode === 'customerId') await doLookupByCustomerId();
     else await doLookupBySo();
   }
 
@@ -339,33 +370,51 @@ function initContractsTab(containerId, currentUser) {
     }
   }
 
+  function planLabelOf(planType) {
+    return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
+  }
+
   function filteredSessionList() {
     return state.sessionList.filter(function (s) {
       var f = state.sessionListFilter.trim().toLowerCase();
       if (!f) return true;
-      return (s.customerName || '').toLowerCase().indexOf(f) !== -1 ||
-        s.soNumbers.some(function (so) { return (so || '').toLowerCase().indexOf(f) !== -1; });
+      if ((s.customerName || '').toLowerCase().indexOf(f) !== -1) return true;
+      if (s.soNumbers.some(function (so) { return (so || '').toLowerCase().indexOf(f) !== -1; })) return true;
+      return (s.items || []).some(function (it) { return (it.customerId || '').toLowerCase().indexOf(f) !== -1; });
     });
   }
 
+  // สถานะที่ถือว่า "ทึบ" ช่องคัดลอกลิงก์ (2026-09-08 user ขอ) — เปิดไว้ (คัดลอกได้) จนกว่าสถานะการทำสัญญาจะถึง
+  // "สัญญาลูกค้าเรียบร้อย" (customer_ok) เป็นต้นไป (รวมขั้นตอนหลังจากนั้นด้วย คือ awaiting_staff_sign/complete)
+  // ดู _lib/contract-status.js สำหรับความหมายสถานะทั้งหมด
+  var COPY_LINK_CLOSED_STATUS_KEYS = { customer_ok: true, awaiting_staff_sign: true, complete: true };
+
+  function copyLinkCellHtml(s) {
+    var status = s.contractStatus || { key: 'awaiting_customer', label: 'รอลูกค้ากรอกข้อมูลสัญญา' };
+    if (COPY_LINK_CLOSED_STATUS_KEYS[status.key]) {
+      return '<span style="color:var(--muted);font-size:12.5px;">' + status.label + ' — ดูที่เมนู "ข้อมูลลูกค้าทำสัญญา"</span>';
+    }
+    return '<button type="button" class="btn btn-ghost btnCopySessionLink" data-token="' + s.token + '">📋 คัดลอกลิงก์</button>';
+  }
+
+  // ตาราง 1 แถวต่อ 1 SO (2026-09-08 user ขอปรับคอลัมน์ — เอา "สินค้า" ออก เหลือ รหัสลูกค้า/SO/วิธีการผ่อน/
+  // วันที่สร้างลิงก์/พนักงานสร้างลิงก์ + ช่องคัดลอกลิงก์ที่ปิดทึบเองเมื่อสถานะถึง "สัญญาลูกค้าเรียบร้อย")
   function sessionListRowsHtml(filtered) {
-    return filtered.map(function (s) {
-      var statusHtml = s.submitted
-        ? '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">ส่งข้อมูลแล้ว</span>'
-        : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">ยังไม่กรอกข้อมูล</span>';
-      var actionHtml = s.submitted
-        ? '<span style="color:var(--muted);font-size:12.5px;">ดูที่เมนู "ข้อมูลลูกค้าทำสัญญา"</span>'
-        : '<button type="button" class="btn btn-ghost btnCopySessionLink" data-token="' + s.token + '">📋 คัดลอกลิงก์</button>';
-      return '<tr>' +
-        '<td style="text-align:left;">' + s.customerName + '</td>' +
-        '<td style="text-align:left;">' + s.products.join(', ') + '<br><span style="color:var(--muted);font-size:12px;">' + s.soNumbers.join(', ') + '</span></td>' +
-        '<td>' + fmtDateShort(s.createdAt) + '</td>' +
-        '<td>' + (s.createdByName || '-') + '</td>' +
-        '<td>' + statusHtml + '</td>' +
-        '<td>' + actionHtml + '</td>' +
-        '</tr>';
-    }).join('') +
-      (filtered.length === 0 ? '<tr><td colspan="6" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>' : '');
+    var rows = '';
+    filtered.forEach(function (s) {
+      var items = (s.items && s.items.length) ? s.items : [{ soNumber: (s.soNumbers[0] || '-'), customerId: null, planType: null }];
+      items.forEach(function (it) {
+        rows += '<tr>' +
+          '<td style="text-align:left;">' + (it.customerId || '-') + '</td>' +
+          '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
+          '<td>' + planLabelOf(it.planType) + '</td>' +
+          '<td>' + fmtDateShort(s.createdAt) + '</td>' +
+          '<td>' + (s.createdByName || '-') + '</td>' +
+          '<td>' + copyLinkCellHtml(s) + '</td>' +
+          '</tr>';
+      });
+    });
+    return rows || '<tr><td colspan="6" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>';
   }
 
   function wireCopySessionLinkButtons() {
@@ -403,10 +452,10 @@ function initContractsTab(containerId, currentUser) {
       searchIconId: 'sessionListSearchIcon',
       searchInputId: 'sessionListFilterInput',
       searchValue: state.sessionListFilter,
-      searchPlaceholder: 'พิมพ์ชื่อลูกค้า/เลขที่คำสั่งซื้อ SO เพื่อกรอง',
+      searchPlaceholder: 'พิมพ์ชื่อ/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO เพื่อกรอง',
     }) +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th>ลูกค้า</th><th>สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>สถานะ</th><th>การดำเนินการ</th></tr></thead>' +
+      '<thead><tr><th>รหัสลูกค้า</th><th>SO</th><th>วิธีการผ่อน</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>คัดลอกลิงก์</th></tr></thead>' +
       '<tbody id="sessionListTbody">' + sessionListRowsHtml(filteredSessionList()) + '</tbody>' +
       '</table></div>' +
       '</div>';
@@ -418,25 +467,32 @@ function initContractsTab(containerId, currentUser) {
     var html = '';
 
     // ค้นหาคำสั่งขายอยู่บนสุดของหน้า (2026-09-06 user ขอ) — ก่อนหน้านี้ "ลิงก์แบบฟอร์มที่สร้างไว้" อยู่บนสุด
-    // แต่ CS ใช้ช่องค้นหาเป็นงานแรกทุกครั้งที่เปิดหน้านี้ จึงย้ายมาไว้บนสุดแทน
-    html += '<div class="card"><h2>ค้นหาคำสั่งขาย</h2>' +
-      listToolbarHtml({
-        sortId: 'soSortOrder',
-        sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
-        sortValue: 'latest',
-        typeId: 'soSearchType',
-        typeOptions: [{ value: 'so', label: 'เลขที่สั่งซื้อ SO' }, { value: 'name', label: 'ชื่อลูกค้า' }],
-        typeValue: state.searchMode,
-        searchIconId: 'btnSearch',
-        searchInputId: 'soInput',
-        searchValue: state.soNumber,
-        searchPlaceholder: state.loading ? 'กำลังค้นหา...' : (state.searchMode === 'name' ? 'พิมพ์ชื่อลูกค้า' : 'พิมพ์เพื่อค้นหา'),
-        searchDisabled: state.loading,
-      }) +
-      (state.error ? '<p style="color:var(--danger);margin-top:10px;">' + state.error + '</p>' : '') +
-      '</div>';
+    // แต่ CS ใช้ช่องค้นหาเป็นงานแรกทุกครั้งที่เปิดหน้านี้ จึงย้ายมาไว้บนสุดแทน (2026-09-08 ซ่อนทั้งช่องค้นหา
+    // และตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" ถ้าเปิดมาจากลิงก์ "ดูข้อมูล CRM" ของ SO เดียว — ดู singleSoMode)
+    if (!singleSoMode) {
+      html += '<div class="card"><h2>ค้นหาคำสั่งขาย</h2>' +
+        listToolbarHtml({
+          sortId: 'soSortOrder',
+          sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
+          sortValue: 'latest',
+          typeId: 'soSearchType',
+          typeOptions: [
+            { value: 'so', label: 'เลขที่สั่งซื้อ SO' },
+            { value: 'name', label: 'ชื่อลูกค้า' },
+            { value: 'customerId', label: 'รหัสลูกค้า' },
+          ],
+          typeValue: state.searchMode,
+          searchIconId: 'btnSearch',
+          searchInputId: 'soInput',
+          searchValue: state.soNumber,
+          searchPlaceholder: state.loading ? 'กำลังค้นหา...' : (state.searchMode === 'name' ? 'พิมพ์ชื่อลูกค้า' : (state.searchMode === 'customerId' ? 'พิมพ์รหัสลูกค้า' : 'พิมพ์เพื่อค้นหา')),
+          searchDisabled: state.loading,
+        }) +
+        (state.error ? '<p style="color:var(--danger);margin-top:10px;">' + state.error + '</p>' : '') +
+        '</div>';
 
-    html += sessionListHtml();
+      html += sessionListHtml();
+    }
 
     function row(label, value, bold) {
       return '<tr><td style="text-align:left">' + label + '</td><td' + (bold ? ' style="font-weight:700"' : '') + '>' + value + '</td></tr>';
@@ -529,7 +585,7 @@ function initContractsTab(containerId, currentUser) {
       html += createLinkAndResultHtml(soItems);
     }
 
-    if (state.searchMode === 'name') {
+    if (state.searchMode === 'name' || state.searchMode === 'customerId') {
       if (state.ambiguousCustomers) {
         html += '<div class="card"><h2>เจอลูกค้าหลายคนที่ชื่อตรงกัน</h2>' +
           '<p class="hint">เลือกลูกค้าที่ต้องการ</p>' +
@@ -542,9 +598,9 @@ function initContractsTab(containerId, currentUser) {
           '</div>';
       } else if (state.soListLight) {
         html += '<div class="card"><h2>รายการสั่งซื้อของ ' + (state.soListCustomer.firstLastName || '-') + '</h2>' +
-          '<p class="hint">ติ๊กเลือก SO ที่ต้องการรวมเข้าลิงก์เดียวกัน (กรอกฟอร์ม/เซ็นชื่อครั้งเดียว ได้สัญญาแยกฉบับตาม SO)</p>' +
+          '<p class="hint">ติ๊กเลือก SO ที่ต้องการรวมเข้าลิงก์เดียวกัน (กรอกฟอร์ม/เซ็นชื่อครั้งเดียว ได้สัญญาแยกฉบับตาม SO) — หรือกด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO นั้นในแท็บใหม่</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th></th><th style="text-align:left;">เลขที่สั่งซื้อ SO</th><th>สถานะการสั่งซื้อ</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th>เครดิตปัจจุบัน</th><th>สถานะการชำระ</th><th>เลท (วัน)</th><th>หมายเหตุ</th></tr></thead>' +
+          '<thead><tr><th></th><th style="text-align:left;">เลขที่สั่งซื้อ SO</th><th>สถานะการสั่งซื้อ</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th>เครดิตปัจจุบัน</th><th>สถานะการชำระ</th><th>เลท (วัน)</th><th>หมายเหตุ</th><th></th></tr></thead>' +
           '<tbody>' + state.soListLight.map(function (so) {
             var checked = !!state.soListChecked[so.soNumber];
             var lateStyle = Number(so.overDueDateCount) > 0 ? ' style="color:var(--danger);font-weight:700;"' : '';
@@ -559,6 +615,7 @@ function initContractsTab(containerId, currentUser) {
               '<td>' + (so.paymentStatus ? '<span class="badge badge-warn">' + so.paymentStatusLabel + '</span>' : '-') + '</td>' +
               '<td' + lateStyle + '>' + (so.overDueDateCount || '-') + '</td>' +
               '<td>-</td>' +
+              '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(so.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td>' +
               '</tr>';
           }).join('') + '</tbody></table></div>' +
           '<button class="btn btn-primary" id="btnResolveNameSelection" style="margin-top:14px;"' + (state.resolvingNameItems ? ' disabled' : '') + '>' +
@@ -575,15 +632,17 @@ function initContractsTab(containerId, currentUser) {
 
     app.innerHTML = html;
 
-    document.getElementById('soInput').addEventListener('input', function (e) { state.soNumber = e.target.value; });
-    document.getElementById('soInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
-    document.getElementById('btnSearch').addEventListener('click', doSearch);
-    document.getElementById('soSearchType').addEventListener('change', function (e) {
-      state.searchMode = e.target.value;
-      state.soNumber = '';
-      resetSearchResults();
-      render();
-    });
+    if (!singleSoMode) {
+      document.getElementById('soInput').addEventListener('input', function (e) { state.soNumber = e.target.value; });
+      document.getElementById('soInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
+      document.getElementById('btnSearch').addEventListener('click', doSearch);
+      document.getElementById('soSearchType').addEventListener('change', function (e) {
+        state.searchMode = e.target.value;
+        state.soNumber = '';
+        resetSearchResults();
+        render();
+      });
+    }
 
     if (state.searchMode === 'so' && state.result) {
       Array.prototype.forEach.call(document.querySelectorAll('.otherSoCheck'), function (cb) {
@@ -599,7 +658,7 @@ function initContractsTab(containerId, currentUser) {
       });
     }
 
-    if (state.searchMode === 'name') {
+    if (state.searchMode === 'name' || state.searchMode === 'customerId') {
       if (state.ambiguousCustomers) {
         Array.prototype.forEach.call(document.querySelectorAll('.btnPickCustomer'), function (btn) {
           btn.addEventListener('click', function () {
@@ -663,5 +722,9 @@ function initContractsTab(containerId, currentUser) {
   }
 
   render();
-  loadSessionList();
+  if (singleSoMode) {
+    doLookupBySo();
+  } else {
+    loadSessionList();
+  }
 }

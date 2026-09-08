@@ -214,7 +214,7 @@ var SO_PAYMENT_STATUS_LABELS = {
 // user ส่งภาพมา) ค่อย resolve เต็มเฉพาะรายการที่ติ๊กทีหลัง (ผ่าน endpoint เดิม ?so=) ไม่ resolve ทุกใบล่วงหน้า
 async function fetchCustomerSoListLight(customerId, token) {
   const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(customerId), token);
-  return (customerDetail.saleOrders || []).map(function (so) {
+  const soList = (customerDetail.saleOrders || []).map(function (so) {
     return {
       soNumber: so.saleOrderId,
       status: so.status,
@@ -229,6 +229,10 @@ async function fetchCustomerSoListLight(customerId, token) {
       _debugRawSo: so, // TEMP (2026-09-06) — เช็คว่า field วิธีการผ่อนจริงๆ ชื่ออะไรใน saleOrders[] ของ /crm/customer — ลบทิ้งหลังเช็คเสร็จ
     };
   });
+  // ชื่อลูกค้า (2026-09-08 เพิ่มมาให้โหมดค้นหาด้วยรหัสลูกค้าตรงๆ แสดงชื่อในตารางได้ — เดิมฟังก์ชันนี้คืนแค่
+  // soList เฉยๆ เพราะตอนนั้นโหมดค้นหาด้วยชื่อรู้ชื่อลูกค้าอยู่แล้วจากผลค้นหาชื่อ ไม่ต้องอ่านซ้ำจากตรงนี้)
+  const customerName = ((customerDetail.firstName || '') + ' ' + (customerDetail.lastName || '')).trim();
+  return { customerName: customerName, soList: soList };
 }
 
 module.exports = async function handler(req, res) {
@@ -241,7 +245,7 @@ module.exports = async function handler(req, res) {
   const customerName = String((req.query && req.query.name) || '').trim();
   const customerId = String((req.query && req.query.customerId) || '').trim();
   if (!soNumber && !customerName && !customerId) {
-    res.status(400).json({ error: 'ต้องระบุเลขที่คำสั่งขาย (so) หรือชื่อลูกค้า (name)' });
+    res.status(400).json({ error: 'ต้องระบุเลขที่คำสั่งขาย (so) หรือชื่อลูกค้า (name) หรือรหัสลูกค้า (customerId)' });
     return;
   }
 
@@ -264,14 +268,16 @@ module.exports = async function handler(req, res) {
       const customers = await withRetryOn401(function (t) { return searchCustomersByName(customerName, t); });
       if (!customers.length) { res.status(200).json({ error: 'ไม่พบลูกค้าชื่อนี้ในระบบ' }); return; }
       if (customers.length > 1) { res.status(200).json({ customers: customers }); return; }
-      const soList = await withRetryOn401(function (t) { return fetchCustomerSoListLight(customers[0].customerId, t); });
-      res.status(200).json({ customer: customers[0], soList: soList });
+      const listResult = await withRetryOn401(function (t) { return fetchCustomerSoListLight(customers[0].customerId, t); });
+      res.status(200).json({ customer: customers[0], soList: listResult.soList });
       return;
     }
 
+    // โหมดค้นหาด้วยรหัสลูกค้าตรงๆ (2026-09-08 user ขอเพิ่ม — ต่างจากค้นหาด้วยชื่อตรงที่ไม่มีปัญหาซ้ำกันหลาย
+    // คน จึงข้ามขั้นตอนเลือกลูกค้าไปดึงลิสต์ SO แบบเบาได้เลย)
     if (customerId) {
-      const soList = await withRetryOn401(function (t) { return fetchCustomerSoListLight(customerId, t); });
-      res.status(200).json({ soList: soList });
+      const listResult = await withRetryOn401(function (t) { return fetchCustomerSoListLight(customerId, t); });
+      res.status(200).json({ customer: { customerId: customerId, firstLastName: listResult.customerName || '-' }, soList: listResult.soList });
       return;
     }
 
