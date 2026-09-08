@@ -76,15 +76,20 @@ async function syncOdooStock(supabaseUrl, authHeaders) {
   log('เชื่อมต่อ Odoo แล้วดึงสต๊อกคงเหลือ (เฉพาะคลัง "' + WAREHOUSE_NAME + '")...');
   const odoo = getOdooClientFromEnv();
   const stockLocationId = await getWarehouseStockLocationId(odoo, WAREHOUSE_NAME);
+  // 2026-09-08 แก้บั๊กจริงที่ user เจอ (ยอดเราแสดง 16 แต่ Odoo แสดง 15 สำหรับ Adapter 20W (หัวกลม)) — เดิม
+  // filter ['quantity', '>', 0] ที่ระดับ quant ก่อน sum ทำให้ quant ที่มีค่าติดลบ (รายการปรับปรุงสต๊อก เช่น
+  // quant_id 11013 quantity=-1 ของ Adapter 20W) ถูกตัดออกจากผลรวมไปเลย แทนที่จะถูกนับหักลบตามจริง (16 ก้อน
+  // +1 กับ 1 ก้อน -1 = ยอดจริง 15 แต่ filter ตัด -1 ทิ้งก่อน sum เหลือแค่ 16) — ย้าย filter ไปเช็คหลัง sum แล้ว
+  // แทน (เอาเฉพาะสินค้าที่ยอดสุทธิ > 0 ไปแสดง แต่ตัวยอดสุทธิเองต้องรวม quant ติดลบเข้าไปด้วยเสมอ)
   const groups = await odoo.readGroup(
     'stock.quant',
-    [['location_id', 'child_of', stockLocationId], ['quantity', '>', 0]],
+    [['location_id', 'child_of', stockLocationId]],
     ['product_id', 'quantity:sum'],
     ['product_id']
   );
   const now = new Date().toISOString();
   const rows = groups
-    .filter(function (g) { return g.product_id; })
+    .filter(function (g) { return g.product_id && Number(g.quantity || 0) > 0; })
     .map(function (g) { return { product_name: g.product_id[1], quantity: Number(g.quantity || 0), updated_at: now }; });
   log('ดึงจาก Odoo ได้ ' + rows.length + ' รายการสินค้าที่มีสต๊อก');
 
