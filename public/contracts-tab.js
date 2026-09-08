@@ -582,19 +582,24 @@ function initContractsTab(containerId, currentUser, options) {
         // 2026-09-08 user ขอ: หน้าหลัก "สำหรับ CS" ไม่ต้องโชว์บล็อก "CS กรอกยืนยันก่อนสร้างลิงก์"/ปุ่มสร้างลิงก์
         // อีกต่อไป (ให้ทำขั้นตอนยืนยัน+สร้างลิงก์ที่แท็บใหม่ "ดูข้อมูล CRM" เท่านั้น — ที่นั่นก็ติ๊กรวม SO อื่น
         // ของลูกค้าคนเดียวกันได้ครบอยู่แล้ว) หน้าหลักจึงเหลือแค่ลิสต์ SO ของลูกค้าคนนี้ + ลิงก์เปิดแท็บใหม่
+        // 2026-09-08 user ขอ: กล่องติ๊กไม่ล็อกไว้อีกต่อไป (เดิม SO หลัก checked+disabled ตายตัว) ให้ CS ติ๊ก
+        // เลือกเองทุกแถว + เพิ่มคอลัมน์รหัส/ชื่อลูกค้าเหมือนตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" (ยกเว้นวันที่สร้าง
+        // ลิงก์/พนักงานสร้างลิงก์/คัดลอกลิงก์ที่ตารางนี้ไม่มีข้อมูลอยู่แล้ว) ลิงก์ "ดูข้อมูล CRM" ยังอยู่เหมือนเดิม
+        function soListRowHtml(r) {
+          var checked = !!state.includedSoNumbers[r.soNumber];
+          return '<tr><td><input type="checkbox" class="otherSoCheck" data-so="' + r.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
+            '<td style="text-align:left;">' + (r.customerId || '-') + '</td>' +
+            '<td style="text-align:left;">' + (r.customer.firstLastName || '-') + '</td>' +
+            '<td style="text-align:left;">' + r.soNumber + '</td>' +
+            '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>';
+        }
         html += '<div class="card"><h2>คำสั่งขายของลูกค้าคนนี้</h2>' +
-          '<p class="hint">SO ที่ค้นหา (' + state.result.soNumber + ') ติ๊กเลือกไว้เสมอ — ติ๊กเพิ่ม SO อื่นของลูกค้าคนเดียวกันได้ถ้าต้องการ กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO ที่ต้องการในแท็บใหม่ — ยืนยันตัวเลข/สร้างลิงก์ให้ลูกค้าได้จากหน้านั้นเลย</p>' +
+          '<p class="hint">ติ๊กเลือก SO ที่ต้องการ (รวม SO ที่ค้นหาด้วย) — กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO ที่ต้องการในแท็บใหม่ — ยืนยันตัวเลข/สร้างลิงก์ให้ลูกค้าได้จากหน้านั้นเลย</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th></th><th style="text-align:left;">SO</th><th></th></tr></thead>' +
+          '<thead><tr><th></th><th style="text-align:left;">รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">SO</th><th></th></tr></thead>' +
           '<tbody>' +
-          '<tr><td><input type="checkbox" checked disabled title="SO หลักที่ค้นหา" /></td><td style="text-align:left;">' + state.result.soNumber + '</td>' +
-          '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(state.result.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>' +
-          state.otherItems.map(function (it) {
-            var checked = !!state.includedSoNumbers[it.soNumber];
-            return '<tr><td><input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
-              '<td style="text-align:left;">' + it.soNumber + '</td>' +
-              '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(it.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>';
-          }).join('') +
+          soListRowHtml(state.result) +
+          state.otherItems.map(soListRowHtml).join('') +
           '</tbody></table></div>' +
           '</div>';
       }
