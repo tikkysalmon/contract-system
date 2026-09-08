@@ -491,8 +491,6 @@ function initContractsTab(containerId, currentUser, options) {
         }) +
         (state.error ? '<p style="color:var(--danger);margin-top:10px;">' + state.error + '</p>' : '') +
         '</div>';
-
-      html += sessionListHtml();
     }
 
     function row(label, value, bold) {
@@ -652,6 +650,12 @@ function initContractsTab(containerId, currentUser, options) {
         state.nameItems.forEach(function (r) { html += confirmBlockHtml(r); });
         html += createLinkAndResultHtml(state.nameItems);
       }
+    }
+
+    // "ลิงก์แบบฟอร์มที่สร้างไว้" อยู่ท้ายผลค้นหาเสมอ (2026-09-08 user ขอ) — ผลค้นหา (ตาราง SO/รายการที่เจอ)
+    // ต้องโผล่ต่อจากช่องค้นหาทันที ไม่ให้ตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" มาคั่นกลางเหมือนก่อนหน้านี้
+    if (!singleSoMode) {
+      html += sessionListHtml();
     }
 
     app.innerHTML = html;
