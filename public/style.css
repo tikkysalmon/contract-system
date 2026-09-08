@@ -186,7 +186,10 @@ div[style*="overflow-x:auto"] .installment-table th,
 div[style*="overflow-x:auto"] .installment-table td { padding: 7px 8px; }
 /* ปุ่มในเซลล์ "การดำเนินการ" ของตารางแบบ list (เดิมใช้ .btn ปกติ padding/font ใหญ่ ทำให้คอลัมน์นี้กว้างมากเวลา
    มีหลายปุ่มต่อแถว เช่น ดูข้อมูลลูกค้า/ยืนยัน/เซ็นเอกสาร/ดาวน์โหลดสัญญา/เปลี่ยน SO/ปฏิเสธ) */
-.btn-sm { padding: 6px 10px; font-size: 12.5px; border-radius: 8px; }
+/* .btn.btn-sm (2 คลาส) ไม่ใช่แค่ .btn-sm เฉยๆ — ตั้งใจให้ specificity สูงกว่า .btn/.btn-primary เสมอไม่ว่าจะ
+   ประกาศไว้ตรงไหนในไฟล์ (2026-09-08 บั๊กจริงที่เจอ: ประกาศ .btn-sm ไว้ก่อน .btn/.btn-primary ในไฟล์นี้ ทำให้
+   .btn-primary's padding:12px 18px ที่มาทีหลังชนะไป ปุ่ม "เซ็นเอกสาร"/"ยืนยัน" เลยยังใหญ่เท่าเดิมไม่เล็กลงจริง) */
+.btn.btn-sm { padding: 6px 10px; font-size: 12.5px; border-radius: 8px; }
 
 .contract-text {
   max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;
