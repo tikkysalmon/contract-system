@@ -56,19 +56,29 @@ async function chunkedInsert(supabaseUrl, authHeaders, table, rows, chunkSize) {
 }
 
 // 2026-09-08 user ขอให้นับเฉพาะคลัง "คลังสินค้า" คลังเดียว (เดิมนับทุก location ที่เป็น internal type รวม
-// คลังย่อยอื่นๆ ด้วย เช่น คลังซ่อม/คลังของแถม/คลังสินค้าตัวอย่าง ซึ่งไม่ใช่สต๊อกที่ขายลูกค้าได้จริง) — filter
-// ด้วยชื่อ location ตรงตัว (ไม่ใช้ like/substring กัน false positive กับ "คลังสินค้าตัวอย่าง" ที่มีคำว่า
-// "คลังสินค้า" ขึ้นต้นเหมือนกัน) ⚠️ ยังไม่ได้ทดสอบกับ Odoo จริง (ไม่มีสิทธิ์เข้าถึงจากที่นี่) — ถ้ารันแล้วได้
-// รายการสินค้า 0 รายการ หรือน้อยผิดปกติ แปลว่าชื่อ location ใน Odoo อาจไม่ตรงเป๊ะ (เช่น มีช่องว่าง/เป็นแค่ชื่อ
-// location ลูกใต้ "คลังสินค้า" อีกที) แจ้งกลับมาเพื่อปรับ filter ให้ตรงได้
-const WAREHOUSE_LOCATION_NAME = 'คลังสินค้า';
+// คลังย่อยอื่นๆ ด้วย เช่น คลังซ่อม/คลังของแถม/คลังสินค้าตัวอย่าง ซึ่งไม่ใช่สต๊อกที่ขายลูกค้าได้จริง)
+//
+// รอบแรกลอง filter ด้วย location_id.name = 'คลังสินค้า' ตรงๆ แล้วรันจริงได้ 0 รายการ — debug พบว่า
+// "คลังสินค้า" เป็นชื่อ **คลัง (stock.warehouse)** ไม่ใช่ชื่อ location โดยตรง location เก็บสต๊อกจริงของคลังนี้
+// ชื่อ "WH/Stock" (WH = รหัสคลัง, "Stock" มาจาก default ของ Odoo ไม่ได้เปลี่ยนเป็นภาษาไทย) — แก้เป็นค้นหา
+// stock.warehouse ด้วยชื่อก่อน แล้วดึง lot_stock_id (location เก็บสต๊อกของคลังนั้น) มาใช้กรอง stock.quant ด้วย
+// child_of แทน (ครอบคลุม location ย่อยใต้ WH/Stock ด้วยถ้ามีการแบ่ง shelf/bin เพิ่มในอนาคต) — ทดสอบจริงแล้ว
+// เจอคลัง "คลังสินค้า" รหัส WH, lot_stock_id = WH/Stock (id 8) ตรงกับ location ที่มี stock.quant จริง
+const WAREHOUSE_NAME = 'คลังสินค้า';
+
+async function getWarehouseStockLocationId(odoo, warehouseName) {
+  const warehouses = await odoo.searchRead('stock.warehouse', [['name', '=', warehouseName]], ['id', 'name', 'lot_stock_id']);
+  if (!warehouses.length) throw new Error('ไม่พบคลังชื่อ "' + warehouseName + '" ใน Odoo (stock.warehouse) — เช็คชื่อคลังให้ตรงกับที่ตั้งไว้จริง');
+  return warehouses[0].lot_stock_id[0];
+}
 
 async function syncOdooStock(supabaseUrl, authHeaders) {
-  log('เชื่อมต่อ Odoo แล้วดึงสต๊อกคงเหลือ (เฉพาะคลัง "' + WAREHOUSE_LOCATION_NAME + '")...');
+  log('เชื่อมต่อ Odoo แล้วดึงสต๊อกคงเหลือ (เฉพาะคลัง "' + WAREHOUSE_NAME + '")...');
   const odoo = getOdooClientFromEnv();
+  const stockLocationId = await getWarehouseStockLocationId(odoo, WAREHOUSE_NAME);
   const groups = await odoo.readGroup(
     'stock.quant',
-    [['location_id.usage', '=', 'internal'], ['location_id.name', '=', WAREHOUSE_LOCATION_NAME], ['quantity', '>', 0]],
+    [['location_id', 'child_of', stockLocationId], ['quantity', '>', 0]],
     ['product_id', 'quantity:sum'],
     ['product_id']
   );
