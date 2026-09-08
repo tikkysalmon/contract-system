@@ -557,26 +557,55 @@ function initContractsTab(containerId, currentUser, options) {
       return h;
     }
 
-    if (state.searchMode === 'so' && state.result) {
-      html += itemSummaryHtml(state.result, 'ข้อมูลจาก CRM');
+    // ตารางเลือก SO ที่จะรวมเข้าลิงก์เดียวกัน (2026-09-08 user ขอ) — เดิมโชว์การ์ด "ข้อมูลจาก CRM" เต็มของ SO
+    // หลักทันทีที่ค้นหาเจอ ทำให้เห็นข้อมูลลูกค้าเกินจำเป็นก่อนจะรู้ด้วยซ้ำว่าจะรวม SO ไหนบ้าง (ลูกค้าบางรายมี
+    // หลาย SO แต่อยากให้กรอกลิงก์ทำสัญญาครั้งเดียว) เปลี่ยนมาโชว์แค่ตารางให้เลือกก่อน ข้อมูลเต็มดูผ่านลิงก์
+    // "ดูข้อมูล CRM" ที่เปิดแท็บใหม่ (crm-order-detail.html) แทน — SO หลักที่ค้นหารวมเข้าลิงก์เสมอ (ล็อกติ๊กไว้)
+    function soSelectionRowHtml(r, opts) {
+      opts = opts || {};
+      var planLabel = r.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
+      var checkboxHtml = opts.locked
+        ? '<input type="checkbox" checked disabled title="SO หลักที่ค้นหา รวมเข้าลิงก์เสมอ" />'
+        : '<input type="checkbox" class="otherSoCheck" data-so="' + r.soNumber + '"' + (opts.checked ? ' checked' : '') + ' />';
+      return '<tr>' +
+        '<td>' + checkboxHtml + '</td>' +
+        '<td style="text-align:left;">' + r.soNumber + '</td>' +
+        '<td style="text-align:left;">' + r.product + (r.color ? ' (' + r.color + ')' : '') + '</td>' +
+        '<td>' + planLabel + '</td>' +
+        '<td style="text-align:left;">' + (r.customer.firstLastName || '-') + '</td>' +
+        '<td><b>' + fmtMoney(r.remainingBalance) + ' บาท</b></td>' +
+        '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td>' +
+        '</tr>';
+    }
 
-      // SO อื่นของลูกค้าคนเดียวกัน (2026-09-04) — ข้อจำกัดของ CRM: วางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกันต้อง
-      // เปิดแยก SO แต่ user ต้องการให้ลูกค้ากรอกฟอร์มครั้งเดียว จึงให้ CS ติ๊กรวม SO อื่นเข้าลิงก์เดียวกันได้ตรงนี้
-      // — ไม่กรองด้วยเงื่อนไขเวลา/สถานะใดๆ (2026-09-04 user ยืนยันว่าไม่ต้อง กันเคสกรองผิดตกหล่น) แสดง SO อื่น
-      // ทั้งหมดของลูกค้าคนเดียวกัน (ยึดตาม customerId เดียวกันจาก CRM เป็นตัวกรองเดียว) พร้อมชื่อลูกค้ากำกับไว้ให้
-      // CS เห็นชัดๆ ว่าเป็นคนเดียวกันจริงก่อนตัดสินใจติ๊ก (ไม่ใช่แค่เชื่อระบบเฉยๆ)
-      if (state.otherItems.length > 0) {
-        html += '<div class="card"><h2>พบคำสั่งขายอื่นของลูกค้าคนนี้</h2>' +
-          '<p class="hint">ลูกค้า "' + (state.result.customer.firstLastName || '-') + '" มี SO อื่นในระบบด้วย — ตรวจชื่อให้ตรงกันก่อนติ๊กเลือกรวมเข้าลิงก์เดียวกัน (เช่น อุปกรณ์เสริมที่ CRM บังคับแยกเป็นคนละ SO) ลูกค้าจะกรอกข้อมูล/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO — SO ที่ไม่เกี่ยวข้องกับรายการนี้อย่าติ๊ก</p>' +
-          state.otherItems.map(function (it) {
-            var checked = !!state.includedSoNumbers[it.soNumber];
-            return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border);">' +
-              '<input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' />' +
-              '<span style="flex:1;">' + it.product + (it.color ? ' (' + it.color + ')' : '') + ' — ' + it.soNumber +
-              '<br><span style="color:var(--muted);font-size:12.5px;">ลูกค้า: ' + (it.customer.firstLastName || '-') + '</span></span>' +
-              '<b>' + fmtMoney(it.remainingBalance) + ' บาท</b>' +
-              '</label>';
-          }).join('') +
+    if (state.searchMode === 'so' && state.result) {
+      if (singleSoMode) {
+        // หน้า "ดูข้อมูล CRM" แท็บใหม่ (crm-order-detail.html) — โชว์การ์ดข้อมูลเต็มแบบเดิม (ไม่ใช่ตารางเลือก
+        // เพราะเปิดมาดู SO เดียวนี้อยู่แล้ว) ยังติ๊กรวม SO อื่นของลูกค้าคนเดียวกันแล้วสร้างลิงก์ได้ครบเหมือนเดิม
+        html += itemSummaryHtml(state.result, 'ข้อมูลจาก CRM');
+        if (state.otherItems.length > 0) {
+          html += '<div class="card"><h2>พบคำสั่งขายอื่นของลูกค้าคนนี้</h2>' +
+            '<p class="hint">ลูกค้า "' + (state.result.customer.firstLastName || '-') + '" มี SO อื่นในระบบด้วย — ตรวจชื่อให้ตรงกันก่อนติ๊กเลือกรวมเข้าลิงก์เดียวกัน (เช่น อุปกรณ์เสริมที่ CRM บังคับแยกเป็นคนละ SO) ลูกค้าจะกรอกข้อมูล/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO — SO ที่ไม่เกี่ยวข้องกับรายการนี้อย่าติ๊ก</p>' +
+            state.otherItems.map(function (it) {
+              var checked = !!state.includedSoNumbers[it.soNumber];
+              return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border);">' +
+                '<input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' />' +
+                '<span style="flex:1;">' + it.product + (it.color ? ' (' + it.color + ')' : '') + ' — ' + it.soNumber +
+                '<br><span style="color:var(--muted);font-size:12.5px;">ลูกค้า: ' + (it.customer.firstLastName || '-') + '</span></span>' +
+                '<b>' + fmtMoney(it.remainingBalance) + ' บาท</b>' +
+                '</label>';
+            }).join('') +
+            '</div>';
+        }
+      } else {
+        html += '<div class="card"><h2>เลือกคำสั่งขายที่จะรวมเข้าลิงก์เดียวกัน</h2>' +
+          '<p class="hint">SO ที่ค้นหา (' + state.result.soNumber + ') รวมเข้าลิงก์เสมอ — ถ้าลูกค้ามี SO อื่นด้วย (เช่น อุปกรณ์เสริมที่ CRM บังคับแยก SO) ติ๊กเลือกเพิ่มได้ ลูกค้ากรอกฟอร์ม/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO — กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO นั้นในแท็บใหม่</p>' +
+          '<div style="overflow-x:auto;"><table class="installment-table">' +
+          '<thead><tr><th></th><th style="text-align:left;">SO</th><th style="text-align:left;">สินค้า</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th>ยอดคงเหลือสุทธิ</th><th></th></tr></thead>' +
+          '<tbody>' +
+          soSelectionRowHtml(state.result, { locked: true }) +
+          state.otherItems.map(function (it) { return soSelectionRowHtml(it, { checked: !!state.includedSoNumbers[it.soNumber] }); }).join('') +
+          '</tbody></table></div>' +
           '</div>';
       }
 
@@ -624,7 +653,8 @@ function initContractsTab(containerId, currentUser, options) {
       }
 
       if (state.nameItems.length > 0) {
-        state.nameItems.forEach(function (r) { html += itemSummaryHtml(r, r.product); });
+        // 2026-09-08 user ขอ: ไม่โชว์การ์ด "ข้อมูลจาก CRM" เต็มอีกต่อไปหลังติ๊กเลือกจากตารางเบา — ดูผ่านลิงก์
+        // "ดูข้อมูล CRM" ในตารางด้านบน (เปิดแท็บใหม่) แทน ให้สอดคล้องกับโหมดค้นหาด้วยเลข SO
         state.nameItems.forEach(function (r) { html += confirmBlockHtml(r); });
         html += createLinkAndResultHtml(state.nameItems);
       }
