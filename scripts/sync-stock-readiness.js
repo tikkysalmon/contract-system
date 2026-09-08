@@ -66,10 +66,23 @@ async function chunkedInsert(supabaseUrl, authHeaders, table, rows, chunkSize) {
 // เจอคลัง "คลังสินค้า" รหัส WH, lot_stock_id = WH/Stock (id 8) ตรงกับ location ที่มี stock.quant จริง
 const WAREHOUSE_NAME = 'คลังสินค้า';
 
+// 2026-09-08 user แจ้งว่า "Salmon Mobile Care" ไม่ใช่สินค้าจับต้องได้ แต่เป็นบริการ (ประกันมือถือ) ไม่มี
+// stock.quant ให้ sync เลยอยู่แล้ว (type='service' ใน Odoo ไม่ผูกกับคลังสินค้า) ทำให้หน้า "ตรวจสอบสินค้าพร้อม
+// ส่ง" เข้าใจผิดว่าสต๊อก=0 แล้วขึ้น "รอสต๊อก" ทั้งที่ไม่ต้องรอสต๊อกเลย — sync รายการ type='service' เข้า
+// odoo_stock_cache ด้วย ใส่ยอดปลอมสูงมากๆ (SERVICE_SENTINEL_QTY) แทนยอดจริง เพื่อให้ allocateStock()
+// (stock-reservation.js) ที่หักลบจากยอดนี้ไม่มีวันหมด/ไม่ต้องเข้าคิวรอเลย — ไม่ได้เพิ่มตารางใหม่ ใช้ตารางเดิม
+// ตรงๆ ง่ายกว่า (บริการไม่มีทางไปปนกับสินค้าจริงอยู่แล้วเพราะคนละกลไกกัน ไม่มี stock.quant ของบริการ)
+const SERVICE_SENTINEL_QTY = 999999;
+
 async function getWarehouseStockLocationId(odoo, warehouseName) {
   const warehouses = await odoo.searchRead('stock.warehouse', [['name', '=', warehouseName]], ['id', 'name', 'lot_stock_id']);
   if (!warehouses.length) throw new Error('ไม่พบคลังชื่อ "' + warehouseName + '" ใน Odoo (stock.warehouse) — เช็คชื่อคลังให้ตรงกับที่ตั้งไว้จริง');
   return warehouses[0].lot_stock_id[0];
+}
+
+async function fetchServiceProductRows(odoo, now) {
+  const services = await odoo.searchRead('product.product', [['type', '=', 'service']], ['name']);
+  return services.map(function (p) { return { product_name: p.name, quantity: SERVICE_SENTINEL_QTY, updated_at: now }; });
 }
 
 async function syncOdooStock(supabaseUrl, authHeaders) {
@@ -92,6 +105,11 @@ async function syncOdooStock(supabaseUrl, authHeaders) {
     .filter(function (g) { return g.product_id && Number(g.quantity || 0) > 0; })
     .map(function (g) { return { product_name: g.product_id[1], quantity: Number(g.quantity || 0), updated_at: now }; });
   log('ดึงจาก Odoo ได้ ' + rows.length + ' รายการสินค้าที่มีสต๊อก');
+
+  log('ดึงรายการบริการ (type=service, ไม่ต้องรอสต๊อก) จาก Odoo...');
+  const serviceRows = await fetchServiceProductRows(odoo, now);
+  log('ดึงบริการได้ ' + serviceRows.length + ' รายการ');
+  rows.push.apply(rows, serviceRows);
 
   log('ล้างตาราง odoo_stock_cache เดิมทิ้ง...');
   const delRes = await fetch(supabaseUrl + '/rest/v1/odoo_stock_cache?product_name=neq.__never_matches__', {
