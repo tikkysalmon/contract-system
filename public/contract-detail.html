@@ -10,6 +10,11 @@
 <div class="main-content" style="max-width:900px;margin:0 auto;">
   <div class="wrap"><div id="root"></div></div>
 </div>
+<!-- ปุ่ม "ดาวน์โหลดสัญญา" สร้าง PDF ฝั่ง browser เอง (html2canvas + jsPDF) เหมือนหน้าอื่นๆ ในระบบนี้
+     (2026-09-08 รอบ 2 — ดู contract-html-renderer.js) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="contract-html-renderer.js"></script>
 <script src="validation.js"></script>
 <script src="contract-detail.js"></script>
 <script>initContractDetailView('root');</script>

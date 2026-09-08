@@ -444,6 +444,9 @@ function initStaffSignTab(containerId, currentUser) {
     order: 'รายการสินค้า/เลขที่คำสั่งซื้อ (SO)', // 2026-09-07 — เห็นได้เฉพาะตอนพนักงานกด "เปลี่ยน SO" (doChangeSo)
   };
 
+  // ⚠️ บั๊กจริงที่แก้ไปด้วย (2026-09-08, พบตอนพอร์ตฟังก์ชันนี้ไปใช้ที่ contract-detail.js): เดิมปุ่ม "คัดลอก
+  // ลิงก์ให้ลูกค้าแก้ไข" ใช้ item.token ซึ่งไม่มีอยู่จริง (field จริงจาก /api/staff-sign-queue คือ sessionToken)
+  // ทำให้คัดลอกได้ลิงก์ผิด (".../sign.html?token=undefined") ทุกครั้งที่รายการนี้เคยถูกปฏิเสธ/ขอแก้ไขมาก่อน
   function correctionStatusHtml(item) {
     if (!item.rejectedAt) {
       return '<button type="button" class="btn btn-ghost btn-sm btnOpenReject" data-id="' + item.submissionId + '" style="white-space:nowrap;margin-top:6px;">ปฏิเสธ / ขอแก้ไขข้อมูล</button>';
@@ -454,7 +457,7 @@ function initStaffSignTab(containerId, currentUser) {
       'รายการที่ต้องแก้: <b>' + (labels.join(', ') || '-') + '</b>' +
       (item.rejectedNote ? '<br>หมายเหตุ: ' + item.rejectedNote : '') +
       '</div>' +
-      '<button type="button" class="btn btn-secondary btn-sm btnCopyRejectLink" data-token="' + item.token + '" style="white-space:nowrap;margin-top:6px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
+      '<button type="button" class="btn btn-secondary btn-sm btnCopyRejectLink" data-token="' + item.sessionToken + '" style="white-space:nowrap;margin-top:6px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
   }
 
   // ปุ่มดาวน์โหลดสัญญา/เปลี่ยน SO ของ SO เดียว (2026-09-08 ย้ายมาอยู่ในแถวตารางโดยตรง ไม่ต้องกด "ดูข้อมูล
