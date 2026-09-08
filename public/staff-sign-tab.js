@@ -526,8 +526,10 @@ function initStaffSignTab(containerId, currentUser) {
     return html;
   }
 
-  // ป้ายสถานะตรงตาม "สถานะการทำสัญญา" 5 แบบที่ user กำหนด (2026-09-06 ดู _lib/contract-status.js) — คิวนี้
-  // มีแต่รายการที่ส่งฟอร์มแล้ว จึงไม่มีทาง key เป็น awaiting_customer แต่ยังกัน fallback ไว้เผื่อ
+  // ป้ายสถานะตรงตาม "สถานะการทำสัญญา" 5 แบบที่ user กำหนด (2026-09-06 ดู _lib/contract-status.js) — ตั้งแต่
+  // /api/staff-sign-queue.js เปลี่ยน base เป็น contract_sessions (2026-09-07) คิวนี้มีทั้งที่ส่งฟอร์มแล้ว/
+  // ยังไม่ส่ง จึงมีสิทธิ์เป็น awaiting_customer ("รอลูกค้ากรอกข้อมูลสัญญา") จริง — ใช้แทนคอลัมน์ "สถานะการสร้าง
+  // ลิงก์" เดิมที่เอาออกไปแล้ว (2026-09-08 user ขอ — ดูสถานะสร้างลิงก์แยกได้ที่เมนู "สำหรับ CS" แทน)
   var STATUS_BADGE_STYLE = {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
     pending_review: 'background:#e0f2fe;color:#075985;',
@@ -549,15 +551,6 @@ function initStaffSignTab(containerId, currentUser) {
     return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
   }
 
-  // สถานะ "การสร้างลิงก์ส่งแบบฟอร์มให้ลูกค้า" พร้อม timestamp ตอนสร้าง (2026-09-07 user ขอ) — ต่างจาก
-  // "สถานะการทำสัญญา" (statusBadgeHtml) ตรงที่อันนี้บอกแค่ว่าลูกค้าส่งฟอร์มกลับมาหรือยัง ไม่ใช่ตรวจสอบ/เซ็นแล้ว
-  function linkStatusHtml(q) {
-    var badge = q.submittedAt
-      ? '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">ลูกค้าส่งข้อมูลแล้ว</span>'
-      : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">ยังไม่ส่งข้อมูลกลับ</span>';
-    return badge + '<br><span style="color:var(--muted);font-size:12px;">สร้างลิงก์เมื่อ ' + fmtDateTime(q.createdAt) + '</span>';
-  }
-
   function rowKeyOf(q) { return q.submissionId || q.sessionToken; }
 
   function itemMatchesFilter(q, item) {
@@ -576,11 +569,15 @@ function initStaffSignTab(containerId, currentUser) {
     return h;
   }
 
-  // ตารางหลักของเมนู "ข้อมูลลูกค้าทำสัญญา" (2026-09-07 เปลี่ยนจากการ์ดรายคน เป็นตาราง 1 แถวต่อ 1 SO ตามสเปกที่
-  // user ให้มา: SO / ชื่อลูกค้า / วิธีการผ่อน / เลขที่สัญญา / สถานะสร้างลิงก์ / พนักงานสร้างลิงก์ / สถานะสัญญา /
-  // สถานะจัดส่ง) — session ที่มีหลาย SO (ข้อจำกัด CRM ดู contracts-tab.js) จะมีหลายแถวซ้ำข้อมูลระดับ session
-  // (ลูกค้า/สถานะ/พนักงาน) แต่แยกคอลัมน์ SO/วิธีผ่อน/เลขที่สัญญาต่อแถว — แถวขยายรายละเอียดลูกค้าแทรกหลังแถว
-  // สุดท้ายของกลุ่มนั้นแถวเดียว (ไม่ซ้ำ) กัน "ดูข้อมูลลูกค้า" กางซ้ำหลายรอบเวลามีหลาย SO
+  // ตารางหลักของเมนู "ข้อมูลลูกค้าทำสัญญา" (2026-09-07 เปลี่ยนจากการ์ดรายคน เป็นตาราง 1 แถวต่อ 1 SO, ปรับ
+  // คอลัมน์อีกรอบ 2026-09-08 ตามที่ user ขอ: เอาคอลัมน์ "สถานะการสร้างลิงก์" ออก (ดูที่เมนู "สำหรับ CS" แทน),
+  // เอา "ลูกค้าส่งข้อมูลแล้ว" ไปรวมกับ "สถานะการทำสัญญา" (ใช้ contractStatus.key==='awaiting_customer' แทน),
+  // เพิ่มคอลัมน์ "วันที่ลูกค้าส่งข้อมูล" (submittedAt) และ "วันที่จัดส่ง" (shippingDate ต่อ SO จาก
+  // packing_records.tracking_imported_at) — คอลัมน์ปัจจุบัน: SO / ชื่อลูกค้า / วิธีการผ่อน / เลขที่สัญญา /
+  // พนักงานสร้างลิงก์ / สถานะสัญญา / วันที่ส่งข้อมูล / วันที่จัดส่ง / สถานะจัดส่ง / การดำเนินการ — session ที่มี
+  // หลาย SO (ข้อจำกัด CRM ดู contracts-tab.js) จะมีหลายแถวซ้ำข้อมูลระดับ session (ลูกค้า/สถานะ/พนักงาน) แต่แยก
+  // คอลัมน์ SO/วิธีผ่อน/เลขที่สัญญา/วันที่จัดส่งต่อแถว — แถวขยายรายละเอียดลูกค้าแทรกหลังแถวสุดท้ายของกลุ่มนั้น
+  // แถวเดียว (ไม่ซ้ำ) กัน "ดูข้อมูลลูกค้า" กางซ้ำหลายรอบเวลามีหลาย SO
   function tableRowsHtml() {
     var html = '';
     state.queue.forEach(function (q) {
@@ -594,18 +591,19 @@ function initStaffSignTab(containerId, currentUser) {
           '<td style="text-align:left;">' + q.customerName + '</td>' +
           '<td>' + planLabelOf(it.planType) + '</td>' +
           '<td>' + (it.contractNo || '-') + '</td>' +
-          '<td>' + linkStatusHtml(q) + '</td>' +
           '<td>' + (q.createdByName || '-') + '</td>' +
           '<td>' + statusBadgeHtml(q) + '</td>' +
+          '<td>' + fmtDateTime(q.submittedAt) + '</td>' +
+          '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
           '<td>' + q.shippingStatus.label + '</td>' +
           '<td>' + actionsCellHtml(q, expanded) + '</td>' +
           '</tr>';
       });
       if (expanded && q.submissionId) {
-        html += '<tr><td colspan="9" style="padding:0;">' + customerDetailHtml(q) + '</td></tr>';
+        html += '<tr><td colspan="10" style="padding:0;">' + customerDetailHtml(q) + '</td></tr>';
       }
     });
-    if (!html) html = '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    if (!html) html = '<tr><td colspan="10" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return html;
   }
 
@@ -746,9 +744,10 @@ function initStaffSignTab(containerId, currentUser) {
         '<th style="text-align:left;">ชื่อลูกค้า</th>' +
         '<th>วิธีการผ่อน</th>' +
         '<th>เลขที่สัญญา</th>' +
-        '<th>สถานะการสร้างลิงก์</th>' +
         '<th>พนักงานสร้างลิงก์</th>' +
         '<th>สถานะการทำสัญญา</th>' +
+        '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
+        '<th>วันที่จัดส่ง</th>' +
         '<th>สถานะการจัดส่ง</th>' +
         '<th>การดำเนินการ</th>' +
         '</tr></thead>' +
@@ -801,10 +800,11 @@ function initStaffSignTab(containerId, currentUser) {
   loadSavedSignature(); // ยิงพร้อมกับ loadQueue ไม่ต้องรอกัน (คนละ endpoint ไม่เกี่ยวข้องกัน)
 }
 
-// ---------- มุมมองสำหรับ CS (2026-09-06, ปรับเป็นตาราง 1 แถวต่อ SO 2026-09-07) — อ่านอย่างเดียว เห็นแค่
-// SO/วิธีผ่อน/เลขที่สัญญา/สถานะสร้างลิงก์/พนักงานสร้างลิงก์/สถานะการทำสัญญา/สถานะการจัดส่ง ไม่เห็นข้อมูล
-// ส่วนตัว/เอกสารแนบ และไม่มีปุ่มเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญา (สิทธิ์เต็มเฉพาะแผนกบัญชี/ผู้จัดการ ดู hasFullAccess
-// ใน initStaffSignTab) ใช้ /api/cs-session-list (base contract_sessions ครอบคลุมทั้ง session ที่ยังไม่ส่งฟอร์ม
+// ---------- มุมมองสำหรับ CS (2026-09-06, ปรับเป็นตาราง 1 แถวต่อ SO 2026-09-07, คอลัมน์ปรับอีกรอบ 2026-09-08
+// ตามเดียวกับ tableRowsHtml — ดูหมายเหตุที่นั่น) — อ่านอย่างเดียว เห็นแค่ SO/วิธีผ่อน/เลขที่สัญญา/พนักงาน
+// สร้างลิงก์/สถานะการทำสัญญา/วันที่ลูกค้าส่งข้อมูล/วันที่จัดส่ง/สถานะการจัดส่ง ไม่เห็นข้อมูลส่วนตัว/เอกสารแนบ
+// และไม่มีปุ่มเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญา (สิทธิ์เต็มเฉพาะแผนกบัญชี/ผู้จัดการ ดู hasFullAccess ใน
+// initStaffSignTab) ใช้ /api/cs-session-list (base contract_sessions ครอบคลุมทั้ง session ที่ยังไม่ส่งฟอร์ม
 // กลับมา = สถานะ 1.1 ด้วย) ----------
 function initCsStatusView(containerId) {
   'use strict';
@@ -851,13 +851,6 @@ function initCsStatusView(containerId) {
     return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
   }
 
-  function linkStatusHtml(s) {
-    var badge = s.submitted
-      ? '<span class="badge badge-info" style="background:#e3f5ec;color:#1f7a4d;">ลูกค้าส่งข้อมูลแล้ว</span>'
-      : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">ยังไม่ส่งข้อมูลกลับ</span>';
-    return badge + '<br><span style="color:var(--muted);font-size:12px;">สร้างลิงก์เมื่อ ' + fmtDateTime(s.createdAt) + '</span>';
-  }
-
   // ตัวกรอง 1 ช่อง ค้นได้ทั้งชื่อลูกค้า/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO (2026-09-07 user ขอ)
   function itemMatchesFilter(s, item) {
     var f = state.filter.trim().toLowerCase();
@@ -880,14 +873,15 @@ function initCsStatusView(containerId) {
           '<td style="text-align:left;">' + s.customerName + '</td>' +
           '<td>' + planLabelOf(it.planType) + '</td>' +
           '<td>' + (it.contractNo || '-') + '</td>' +
-          '<td>' + linkStatusHtml(s) + '</td>' +
           '<td>' + (s.createdByName || '-') + '</td>' +
           '<td>' + statusBadge(s.contractStatus) + '</td>' +
+          '<td>' + fmtDateTime(s.submittedAt) + '</td>' +
+          '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
           '<td>' + statusBadge(s.shippingStatus) + '</td>' +
           '</tr>';
       });
     });
-    return html || '<tr><td colspan="8" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    return html || '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
   }
 
   // ช่องกรองอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตามแพทเทิร์น
@@ -914,9 +908,10 @@ function initCsStatusView(containerId) {
       '<th style="text-align:left;">ชื่อลูกค้า</th>' +
       '<th>วิธีการผ่อน</th>' +
       '<th>เลขที่สัญญา</th>' +
-      '<th>สถานะการสร้างลิงก์</th>' +
       '<th>พนักงานสร้างลิงก์</th>' +
       '<th>สถานะการทำสัญญา</th>' +
+      '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
+      '<th>วันที่จัดส่ง</th>' +
       '<th>สถานะการจัดส่ง</th>' +
       '</tr></thead>' +
       '<tbody id="csStatusTbody">' + rowsHtml() + '</tbody></table></div>' +

@@ -43,6 +43,27 @@ module.exports = async function handler(req, res) {
     if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
     const rows = await r.json();
 
+    // "วันที่จัดส่ง" ต่อ SO (2026-09-08 user ขอ) — เอาจาก packing_records.tracking_imported_at (เวลาที่ทีม
+    // แพ็คกิ้งนำเข้าเลข tracking จากไฟล์ export ของ MyOrder กลับมา ดู api/packing.js's handleList ที่ join
+    // แบบเดียวกันนี้อยู่แล้ว) ไม่ใช่วันที่ระบบส่งออกไปให้ MyOrder แต่เป็นวันที่รู้ว่าพัสดุถูกรับเข้าขนส่งจริง
+    const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
+    const allSoNumbers = [];
+    rows.forEach(function (row) {
+      ((row.crm_snapshot || {}).items || []).forEach(function (it) { if (it.soNumber) allSoNumbers.push(it.soNumber); });
+    });
+    let packingBySo = {};
+    if (allSoNumbers.length) {
+      const inList = allSoNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
+      const pkRes = await fetch(
+        SUPABASE_URL + '/rest/v1/packing_records?so_number=in.(' + inList + ')&select=so_number,tracking_imported_at',
+        { headers: authHeaders }
+      );
+      if (pkRes.ok) {
+        const pkRows = await pkRes.json();
+        pkRows.forEach(function (p) { packingBySo[p.so_number] = p; });
+      }
+    }
+
     const FILE_FIELDS = ['idCard', 'selfieWithId', 'guardianId', 'guarantorId', 'signature', 'guardianSignature', 'guarantorSignature', 'staffSignature'];
 
     const queue = rows.map(function (row) {
@@ -69,8 +90,12 @@ module.exports = async function handler(req, res) {
         customerName: (snapshot.customer && snapshot.customer.firstLastName) || customer.firstLastName || '-',
         products: items.map(function (it) { return it.product; }),
         soNumbers: items.map(function (it) { return it.soNumber; }),
-        // items[] มี soNumber/contractNo/planType/customerId ต่อ SO ให้แสดงเป็นแถวย่อย (2026-09-07)
-        items: items,
+        // items[] มี soNumber/contractNo/planType/customerId ต่อ SO ให้แสดงเป็นแถวย่อย (2026-09-07) +
+        // shippingDate ต่อ SO (2026-09-08 — จาก packing_records.tracking_imported_at)
+        items: items.map(function (it) {
+          const pk = packingBySo[it.soNumber];
+          return Object.assign({}, it, { shippingDate: (pk && pk.tracking_imported_at) || null });
+        }),
         customer: customer, // ข้อมูลเต็มที่ลูกค้ากรอก (ส่วนตัว/ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง/ผู้ค้ำ) — ไม่มี base64 รูปปน (อยู่ใน Storage แยกแล้ว ดูผ่าน files) — ว่างเปล่าถ้ายังไม่ส่งฟอร์ม
         files: files,
         staffSignedAt: sub && sub.staff_signed_at,

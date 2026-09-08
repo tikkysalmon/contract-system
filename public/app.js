@@ -6,6 +6,9 @@
   // ระบบ auth จริง (เหมือน 12_esign-approval's auth.js) พร้อมตาราง staff_users ที่มีคอลัมน์แผนกจริงจาก
   // Supabase ทีหลัง — ตอนนั้นค่อยย้าย "ตั้งค่าแผนกของผู้ใช้งาน" ไปอยู่ในเมนู Admin Management/การตั้งค่าจริง
   var SESSION_KEY = 'staffLoginSession';
+  // ย่อ/ขยายเมนูซ้าย (2026-09-08 user ขอ) — จำค่าไว้ใน localStorage กันต้องกดใหม่ทุกครั้งที่เข้าเว็บ (ดู
+  // style.css's .sidebar.collapsed)
+  var SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
 
   // username/password ทดสอบ (ไม่ใช่ระบบความปลอดภัยจริง) — แต่ละบัญชีผูกแผนกไว้ตายตัว ไม่ให้ผู้ใช้เลือกเอง
   var MOCK_USERS = [
@@ -62,12 +65,23 @@
     user: null, // { username, department }
     activeTab: 'contracts',
     loginError: '',
+    sidebarCollapsed: false,
   };
 
   try {
     var stored = sessionStorage.getItem(SESSION_KEY);
     if (stored) state.user = JSON.parse(stored);
   } catch (e) { /* เริ่มใหม่ถ้าอ่านไม่ได้ */ }
+
+  try {
+    state.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch (e) { /* เริ่มแบบขยายเต็มถ้าอ่านไม่ได้ */ }
+
+  function toggleSidebar() {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(state.sidebarCollapsed)); } catch (e) { /* ไม่ critical */ }
+    renderApp();
+  }
 
   function renderLogin() {
     var root = document.getElementById('root');
@@ -128,20 +142,22 @@
 
     root.innerHTML =
       '<div class="app-shell">' +
-      '<div class="sidebar">' +
+      '<div class="sidebar' + (state.sidebarCollapsed ? ' collapsed' : '') + '">' +
+      '<button type="button" class="sidebar-toggle" id="btnToggleSidebar" title="' + (state.sidebarCollapsed ? 'ขยายเมนู' : 'ย่อเมนู') + '">' + (state.sidebarCollapsed ? '›' : '‹') + '</button>' +
       '<div class="sidebar-brand"><img src="assets/mascot.png" alt="" /><div class="name">Salmon Phone<small>ระบบทำสัญญา</small></div></div>' +
       visibleMenus.map(function (m) {
-        return '<button class="menu-item' + (m.key === state.activeTab ? ' active' : '') + '" data-key="' + m.key + '">' +
-          '<span class="icon">' + ICONS[m.icon] + '</span>' + m.label + '</button>';
+        return '<button class="menu-item' + (m.key === state.activeTab ? ' active' : '') + '" data-key="' + m.key + '" title="' + m.label + '">' +
+          '<span class="icon">' + ICONS[m.icon] + '</span><span class="label">' + m.label + '</span></button>';
       }).join('') +
       '<div class="sidebar-footer">' +
       '<div class="who">' + state.user.username + ' · ' + state.user.department + '</div>' +
-      '<button class="menu-item" id="btnLogout"><span class="icon">' + ICONS.logout + '</span>ออกจากระบบ</button>' +
+      '<button class="menu-item" id="btnLogout" title="ออกจากระบบ"><span class="icon">' + ICONS.logout + '</span><span class="label logout-label">ออกจากระบบ</span></button>' +
       '</div>' +
       '</div>' +
       '<div class="main-content"><div class="wrap"><div id="tabContent"></div></div></div>' +
       '</div>';
 
+    document.getElementById('btnToggleSidebar').addEventListener('click', toggleSidebar);
     Array.prototype.forEach.call(document.querySelectorAll('.menu-item[data-key]'), function (btn) {
       btn.addEventListener('click', function () {
         state.activeTab = btn.getAttribute('data-key');

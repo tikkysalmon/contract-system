@@ -32,9 +32,32 @@ module.exports = async function handler(req, res) {
     if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
     const rows = await r.json();
 
+    // "วันที่จัดส่ง" ต่อ SO (2026-09-08 user ขอ) — เอาจาก packing_records.tracking_imported_at เหมือน
+    // staff-sign-queue.js (ดูหมายเหตุที่นั่น)
+    const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
+    const allSoNumbers = [];
+    rows.forEach(function (row) {
+      ((row.crm_snapshot || {}).items || []).forEach(function (it) { if (it.soNumber) allSoNumbers.push(it.soNumber); });
+    });
+    let packingBySo = {};
+    if (allSoNumbers.length) {
+      const inList = allSoNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
+      const pkRes = await fetch(
+        SUPABASE_URL + '/rest/v1/packing_records?so_number=in.(' + inList + ')&select=so_number,tracking_imported_at',
+        { headers: authHeaders }
+      );
+      if (pkRes.ok) {
+        const pkRows = await pkRes.json();
+        pkRows.forEach(function (p) { packingBySo[p.so_number] = p; });
+      }
+    }
+
     const sessions = rows.map(function (row) {
       const snap = row.crm_snapshot || {};
-      const items = snap.items || [];
+      const items = (snap.items || []).map(function (it) {
+        const pk = packingBySo[it.soNumber];
+        return Object.assign({}, it, { shippingDate: (pk && pk.tracking_imported_at) || null });
+      });
       const submissions = row.contract_submissions || [];
       const sub = submissions[0] || null;
       return {
