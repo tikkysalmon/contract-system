@@ -414,6 +414,13 @@ function initStaffSignTab(containerId, currentUser) {
   // customerDetailHtml ไปที่ contract-detail.js (หน้าใหม่แยกต่างหาก) แล้ว ปุ่ม "ดูข้อมูลลูกค้า" ใน
   // actionsCellHtml ตอนนี้เป็นลิงก์เปิด contract-detail.html?id=... ในแท็บใหม่แทน — hasGuardianGuarantor
   // ยังใช้ที่นี่อยู่ (downloadContractFor + REJECT_GROUPS filter ต้องใช้)
+  //
+  // ⚠️ ห้ามใส่ rel="noopener" ที่ลิงก์นี้ (2026-09-08 บั๊กจริงที่เจอ: ใส่ noopener ไปตอนแรกเพราะคิดว่าเป็น best
+  // practice ทั่วไป แต่ noopener ตัดความสัมพันธ์ opener ทิ้ง ทำให้ browser ไม่ copy sessionStorage ให้แท็บใหม่
+  // ตามสเปก (sessionStorage clone ใช้ได้เฉพาะ auxiliary browsing context ที่ยังผูกกับ opener เท่านั้น) —
+  // contract-detail.js เช็ค sessionStorage.getItem('staffLoginSession') เพื่อรู้ว่าล็อกอินอยู่แล้วหรือไม่ ถ้า
+  // ตัด opener ทิ้งจะเจอ session ว่างเปล่าเสมอ ต้องล็อกอินซ้ำทุกครั้งทั้งที่ล็อกอินอยู่แล้วในแท็บหลัก — หน้านี้
+  // เป็นหน้าในระบบเดียวกันเอง (ไม่ใช่ลิงก์ไปเว็บนอก) จึงไม่มีความเสี่ยง tabnabbing ที่ noopener ป้องกันอยู่แล้ว
   function hasGuardianGuarantor(item) {
     var c = item.customer || {};
     return {
@@ -500,7 +507,7 @@ function initStaffSignTab(containerId, currentUser) {
   // (SO ของแถวนี้) เพิ่มเพราะดาวน์โหลด/เปลี่ยน SO ทำทีละ SO ไม่ใช่ทั้ง session
   function actionsCellHtml(q, it) {
     if (!q.submissionId) return '<span style="color:var(--muted);font-size:12.5px;">รอลูกค้าส่งข้อมูล</span>';
-    var h = '<a class="btn btn-ghost btn-sm" href="contract-detail.html?id=' + encodeURIComponent(q.submissionId) + '" target="_blank" rel="noopener" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
+    var h = '<a class="btn btn-ghost btn-sm" href="contract-detail.html?id=' + encodeURIComponent(q.submissionId) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
     if (!q.reviewedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btn-sm btnConfirmReview" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">ยืนยัน</button>';
     if (!q.staffSignedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btn-sm btnOpenSign" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">เซ็นเอกสาร</button>';
     h += ' ' + downloadAndChangeSoButtonsHtml(q, it);
