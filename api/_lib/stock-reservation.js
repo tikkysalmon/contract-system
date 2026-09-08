@@ -206,7 +206,14 @@ async function getStockReadinessFiltered(supabaseUrl, authHeaders, filters) {
     };
   }
 
-  const relevant = candidates.filter(function (o) { return RESERVATION_PRIORITY[o.installment_type]; });
+  // ถ้าพนักงานไม่ได้เจาะจงสถานะมาเอง (filters.status ว่าง = "ทั้งหมด") ให้ยกเว้นสถานะที่รู้แน่ว่าไม่ต้องใช้
+  // สต๊อกออกไปก่อน (COMPLETED/CANCELLED/ฯลฯ) ตามที่ UI บอกไว้ว่า "ทั้งหมด (ยกเว้นสถานะที่ปิดจบ/ยกเลิกอัตโนมัติ)"
+  // — ถ้าเจาะจงสถานะมาเองถือว่ารู้ตัวว่าเลือกอะไรอยู่แล้ว ไม่ต้องยกเว้นซ้อนอีกชั้น
+  const relevant = candidates.filter(function (o) {
+    if (!RESERVATION_PRIORITY[o.installment_type]) return false;
+    if (!filters.status && EXCLUDED_STATUSES.indexOf(o.status) !== -1) return false;
+    return true;
+  });
 
   let enriched = [];
   if (relevant.length) {
