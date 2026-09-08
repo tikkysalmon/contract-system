@@ -1,9 +1,16 @@
 // หน้าแสดง "ดูข้อมูลลูกค้า" แบบเต็ม เปิดเป็นแท็บใหม่แยกจากตาราง (2026-09-08 user ขอ — เดิมกางแถวขยายอยู่ใน
 // ตารางเดียวกับตารางกว้างที่เลื่อนแนวนอนได้ ทำให้ต้องเลื่อนหน้าเว็บไปมาเพื่อดูข้อมูล) เปิดจากปุ่ม "ดูข้อมูลลูกค้า"
-// ในตาราง "ข้อมูลลูกค้าทำสัญญา" (staff-sign-tab.js) ด้วย window.open('contract-detail.html?id=...', '_blank')
-// — หน้านี้อ่านอย่างเดียว (ไม่มีปุ่มดาวน์โหลดสัญญา/เปลี่ยน SO/ปฏิเสธ เพราะย้ายปุ่มเหล่านั้นไปอยู่ในแถวตาราง
-// โดยตรงแล้ว ไม่ต้องกางดูก่อนถึงจะกดได้) ใช้ /api/staff-sign-queue เดิม (ไม่เพิ่ม endpoint ใหม่ กันเกินโควต้า
-// 12 ฟังก์ชันของ Vercel Hobby plan) แล้วกรองหา submissionId ที่ต้องการเอง
+// ในตาราง "ข้อมูลลูกค้าทำสัญญา" (staff-sign-tab.js) — หน้านี้อ่านอย่างเดียว (ไม่มีปุ่มดาวน์โหลดสัญญา/เปลี่ยน SO/
+// ปฏิเสธ เพราะย้ายปุ่มเหล่านั้นไปอยู่ในแถวตารางโดยตรงแล้ว ไม่ต้องกางดูก่อนถึงจะกดได้) ใช้ /api/staff-sign-queue
+// เดิม (ไม่เพิ่ม endpoint ใหม่ กันเกินโควต้า 12 ฟังก์ชันของ Vercel Hobby plan) แล้วกรองหา submissionId ที่ต้องการเอง
+//
+// ⚠️ บั๊กจริงที่เจอ (2026-09-08): ตอนแรกอ่าน user/department จาก sessionStorage เดียวกับ app.js เอง โดยหวังพึ่ง
+// พฤติกรรม browser ที่ "ควร" copy sessionStorage ให้แท็บใหม่อัตโนมัติเวลาเปิดด้วย target="_blank" — ทดสอบจริงบน
+// production แล้วไม่ทำงาน (พฤติกรรมนี้ implement ไม่ตรงกันระหว่างเบราว์เซอร์ มักใช้ได้จริงแค่ตอนเปิดด้วย
+// window.open() ที่เรียกจาก JS โดยตรง ไม่ใช่จาก href ธรรมดา) ทำให้ต้องล็อกอินซ้ำทุกครั้งทั้งที่ล็อกอินอยู่แล้ว
+// — เปลี่ยนมาให้ staff-sign-tab.js ส่ง username/department มาทาง URL query string ตรงๆ แทน (?user=...&dept=...)
+// ชัดเจนแน่นอน ไม่พึ่งพฤติกรรม browser ที่ไม่แน่นอน (ระบบนี้เป็น mock login ยังไม่ใช่ auth จริงอยู่แล้ว ไม่กระทบ
+// ความปลอดภัยเพิ่มจากเดิม) — ยังอ่าน sessionStorage เป็น fallback ไว้เผื่อเปิดหน้านี้ตรงๆ โดยไม่ผ่านลิงก์
 // ใช้: initContractDetailView('containerElementId')
 function initContractDetailView(containerId) {
   'use strict';
@@ -13,10 +20,15 @@ function initContractDetailView(containerId) {
 
   var state = { loading: true, error: null, item: null, user: null };
 
-  try {
-    var stored = sessionStorage.getItem(SESSION_KEY);
-    if (stored) state.user = JSON.parse(stored);
-  } catch (e) { /* ไม่มี session ก็แค่แสดงข้อความให้กลับไปล็อกอิน */ }
+  var urlParams = new URLSearchParams(location.search);
+  if (urlParams.get('user') && urlParams.get('dept')) {
+    state.user = { username: urlParams.get('user'), department: urlParams.get('dept') };
+  } else {
+    try {
+      var stored = sessionStorage.getItem(SESSION_KEY);
+      if (stored) state.user = JSON.parse(stored);
+    } catch (e) { /* ไม่มี session ก็แค่แสดงข้อความให้กลับไปล็อกอิน */ }
+  }
 
   function fmtDateTime(iso) {
     if (!iso) return '-';

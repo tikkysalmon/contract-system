@@ -507,7 +507,15 @@ function initStaffSignTab(containerId, currentUser) {
   // (SO ของแถวนี้) เพิ่มเพราะดาวน์โหลด/เปลี่ยน SO ทำทีละ SO ไม่ใช่ทั้ง session
   function actionsCellHtml(q, it) {
     if (!q.submissionId) return '<span style="color:var(--muted);font-size:12.5px;">รอลูกค้าส่งข้อมูล</span>';
-    var h = '<a class="btn btn-ghost btn-sm" href="contract-detail.html?id=' + encodeURIComponent(q.submissionId) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
+    // ส่ง username/department ผ่าน query string ตรงๆ (2026-09-08 บั๊กจริงที่เจอ: เดิมหวังพึ่ง sessionStorage
+    // ที่ browser อ้างว่า copy ให้แท็บใหม่อัตโนมัติเวลาเปิดด้วย target="_blank" จาก link ธรรมดา — ทดสอบจริงบน
+    // production แล้วไม่ copy ให้ (พฤติกรรมนี้ implement ไม่ตรงกันระหว่างเบราว์เซอร์/มักใช้ได้แค่ตอนเปิดด้วย
+    // window.open() ที่เรียกจาก JS โดยตรงเท่านั้น ไม่ใช่ href ธรรมดา) เปลี่ยนมาส่งข้อมูลล็อกอินผ่าน URL แทน ชัดเจน
+    // แน่นอน ไม่พึ่งพฤติกรรม browser ที่ไม่แน่นอน (ระบบนี้เป็น mock login ยังไม่ใช่ auth จริงอยู่แล้ว ไม่กระทบความ
+    // ปลอดภัยเพิ่มจากเดิม)
+    var detailUrl = 'contract-detail.html?id=' + encodeURIComponent(q.submissionId) +
+      '&user=' + encodeURIComponent(currentUser.username) + '&dept=' + encodeURIComponent(currentUser.department);
+    var h = '<a class="btn btn-ghost btn-sm" href="' + detailUrl + '" target="_blank" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
     if (!q.reviewedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btn-sm btnConfirmReview" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">ยืนยัน</button>';
     if (!q.staffSignedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btn-sm btnOpenSign" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">เซ็นเอกสาร</button>';
     h += ' ' + downloadAndChangeSoButtonsHtml(q, it);
