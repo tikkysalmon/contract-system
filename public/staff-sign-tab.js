@@ -24,7 +24,6 @@ function initStaffSignTab(containerId, currentUser) {
     error: null,
     queue: [],
     filter: '', // ค้นหาชื่อลูกค้า/รหัสลูกค้า/เลขที่คำสั่งซื้อ (2026-09-07 user ขอ)
-    expandedId: null, // rowKey (submissionId || sessionToken) ที่กำลังกาง "ดูข้อมูลลูกค้า" อยู่ (null = ยุบทั้งหมด)
     signingId: null, // submissionId ที่กำลังเปิดเซ็นอยู่ (null = ยังไม่เปิด)
     submitting: false,
     submitError: null,
@@ -88,11 +87,6 @@ function initStaffSignTab(containerId, currentUser) {
       state.error = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้รัน supabase-staff-signature.sql ต้องรันก่อน)';
     }
     state.loading = false;
-    render();
-  }
-
-  function toggleExpand(rowKey) {
-    state.expandedId = state.expandedId === rowKey ? null : rowKey;
     render();
   }
 
@@ -275,7 +269,7 @@ function initStaffSignTab(containerId, currentUser) {
     var sessionItem = (item.items || []).filter(function (it) { return it.soNumber === soNumber; })[0];
     if (!sessionItem) return;
     var btn = document.getElementById('btnDownloadContract__' + submissionId + '__' + soNumber);
-    var errEl = document.getElementById('downloadContractErr__' + submissionId);
+    var errEl = document.getElementById('downloadContractErr__' + submissionId + '__' + soNumber);
     if (errEl) errEl.textContent = '';
     var originalText = btn.textContent;
     btn.disabled = true;
@@ -415,28 +409,11 @@ function initStaffSignTab(containerId, currentUser) {
   }
 
   // ---------- ข้อมูลเต็มของลูกค้า (ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง-ผู้ค้ำ/ไฟล์แนบ) ----------
-  function formatAddress(addr) {
-    if (!addr) return '-';
-    var parts = [];
-    if (addr.detail) parts.push(addr.detail);
-    if (addr.subdistrictName) parts.push('ต./แขวง' + addr.subdistrictName);
-    if (addr.districtName) parts.push('อ./เขต' + addr.districtName);
-    if (addr.provinceName) parts.push('จ.' + addr.provinceName);
-    if (addr.zip) parts.push(addr.zip);
-    return parts.length ? parts.join(' ') : '-';
-  }
-
-  function infoRow(label, value) {
-    return '<tr><td style="text-align:left;color:var(--muted);width:170px;">' + label + '</td><td>' + (value || '-') + '</td></tr>';
-  }
-
-  function fileThumbHtml(url, label) {
-    if (!url) return '';
-    return '<a href="' + url + '" target="_blank" style="display:inline-block;text-align:center;margin:0 10px 10px 0;">' +
-      '<img src="' + url + '" style="width:110px;height:80px;object-fit:cover;border:1px solid var(--border);border-radius:8px;display:block;" />' +
-      '<span style="font-size:12px;color:var(--muted);">' + label + '</span></a>';
-  }
-
+  // 2026-09-08 user ขอให้เปิดเป็นแท็บใหม่แทนการกางแถวในตารางเดิม (เดิมต้องเลื่อนหน้าเว็บเพื่อดูข้อมูล เพราะ
+  // แถวขยายอยู่ในตารางกว้างเดียวกับที่เลื่อนแนวนอนได้) — ย้าย formatAddress/infoRow/fileThumbHtml/
+  // customerDetailHtml ไปที่ contract-detail.js (หน้าใหม่แยกต่างหาก) แล้ว ปุ่ม "ดูข้อมูลลูกค้า" ใน
+  // actionsCellHtml ตอนนี้เป็นลิงก์เปิด contract-detail.html?id=... ในแท็บใหม่แทน — hasGuardianGuarantor
+  // ยังใช้ที่นี่อยู่ (downloadContractFor + REJECT_GROUPS filter ต้องใช้)
   function hasGuardianGuarantor(item) {
     var c = item.customer || {};
     return {
@@ -473,57 +450,15 @@ function initStaffSignTab(containerId, currentUser) {
       '<button type="button" class="btn btn-secondary btnCopyRejectLink" data-token="' + item.token + '" style="margin-top:8px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
   }
 
-  function downloadContractButtonsHtml(item) {
-    if (!item.items || !item.items.length) return '';
-    return '<div style="margin-top:10px;">' +
-      item.items.map(function (it) {
-        return '<button type="button" class="btn btn-ghost btnDownloadContract" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
-          'id="btnDownloadContract__' + item.submissionId + '__' + it.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดาวน์โหลดสัญญา: ' + it.product + '</button>' +
-          '<button type="button" class="btn btn-ghost btnChangeSo" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
-          'data-product="' + (it.product || '').replace(/"/g, '&quot;') + '" data-customer="' + (item.customerName || '').replace(/"/g, '&quot;') + '" ' +
-          'style="margin:4px 8px 4px 0;">🔄 เปลี่ยน SO: ' + it.soNumber + '</button>';
-      }).join('') +
-      '<div class="err" id="downloadContractErr__' + item.submissionId + '"></div>' +
-      '</div>';
-  }
-
-  function customerDetailHtml(item) {
-    var c = item.customer || {};
-    var addr = c.address || {};
-    var ship = c.shippingAddress || {};
-    var ref = c.reference || {};
-    var guardian = c.guardian || {};
-    var guarantor = c.guarantor || {};
-    var hg = hasGuardianGuarantor(item);
-    var hasGuardian = hg.hasGuardian;
-    var hasGuarantor = hg.hasGuarantor;
-
-    var html = '<div style="padding:14px 0 4px;border-top:1px solid var(--border);">' +
-      '<table class="installment-table" style="margin-bottom:12px;">' +
-      infoRow('ชื่อ-นามสกุล', (c.title || '') + (c.firstLastName || '-')) +
-      infoRow('อายุ', c.age ? (c.age + ' ปี') : '-') +
-      infoRow('เลขบัตรประชาชน', c.citizenId) +
-      infoRow('เบอร์โทร', c.phone) +
-      infoRow('สัญชาติ', c.nationality) +
-      infoRow('ที่อยู่ปัจจุบัน', formatAddress(addr)) +
-      infoRow('ที่อยู่จัดส่งสินค้า', ship.sameAsCurrent ? 'ใช้ที่อยู่เดียวกับที่อยู่ปัจจุบัน' : formatAddress(ship)) +
-      infoRow('บุคคลอ้างอิง', ref.firstLastName ? (ref.firstLastName + ' (' + (ref.relation || '-') + ') โทร ' + (ref.phone || '-')) : '-') +
-      (hasGuardian ? infoRow('ผู้ปกครอง', (guardian.title || '') + guardian.firstLastName + ' โทร ' + (guardian.phone || '-') + ' บัตร ' + (guardian.citizenId || '-')) : '') +
-      (hasGuarantor ? infoRow('ผู้ค้ำประกัน', (guarantor.title || '') + guarantor.firstLastName + ' อายุ ' + (guarantor.age || '-') + ' ปี โทร ' + (guarantor.phone || '-') + ' บัตร ' + (guarantor.citizenId || '-')) : '') +
-      '</table>' +
-      '<div style="margin-bottom:4px;color:var(--muted);font-size:13px;">เอกสารแนบ (คลิกเพื่อดูเต็ม)</div>' +
-      fileThumbHtml(item.files.idCard, 'บัตร ปชช. ลูกค้า') +
-      fileThumbHtml(item.files.selfieWithId, 'คู่บัตร ลูกค้า') +
-      fileThumbHtml(item.files.signature, 'ลายเซ็นลูกค้า') +
-      (hasGuardian ? fileThumbHtml(item.files.guardianId, 'บัตร ปชช. ผู้ปกครอง') : '') +
-      (hasGuardian ? fileThumbHtml(item.files.guardianSignature, 'ลายเซ็นผู้ปกครอง') : '') +
-      (hasGuarantor ? fileThumbHtml(item.files.guarantorId, 'บัตร ปชช. ผู้ค้ำ') : '') +
-      (hasGuarantor ? fileThumbHtml(item.files.guarantorSignature, 'ลายเซ็นผู้ค้ำ') : '') +
-      (item.files.staffSignature ? fileThumbHtml(item.files.staffSignature, 'ลายเซ็นพนักงาน') : '') +
-      downloadContractButtonsHtml(item) +
-      correctionStatusHtml(item) +
-      '</div>';
-    return html;
+  // ปุ่มดาวน์โหลดสัญญา/เปลี่ยน SO ของ SO เดียว (2026-09-08 ย้ายมาอยู่ในแถวตารางโดยตรง ไม่ต้องกด "ดูข้อมูล
+  // ลูกค้า" ก่อนแล้วถึงจะเห็น — เดิมวนลูปทุก SO ในหนึ่ง session ในบล็อกเดียว ตอนนี้แยกทีละแถว/ทีละ SO แทน)
+  function downloadAndChangeSoButtonsHtml(item, it) {
+    return '<button type="button" class="btn btn-ghost btnDownloadContract" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
+      'id="btnDownloadContract__' + item.submissionId + '__' + it.soNumber + '" style="white-space:nowrap;margin-top:6px;">📄 ดาวน์โหลดสัญญา</button>' +
+      ' <button type="button" class="btn btn-ghost btnChangeSo" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
+      'data-product="' + (it.product || '').replace(/"/g, '&quot;') + '" data-customer="' + (item.customerName || '').replace(/"/g, '&quot;') + '" ' +
+      'style="white-space:nowrap;margin-top:6px;">🔄 เปลี่ยน SO</button>' +
+      '<div class="err" id="downloadContractErr__' + item.submissionId + '__' + it.soNumber + '"></div>';
   }
 
   // ป้ายสถานะตรงตาม "สถานะการทำสัญญา" 5 แบบที่ user กำหนด (2026-09-06 ดู _lib/contract-status.js) — ตั้งแต่
@@ -551,8 +486,6 @@ function initStaffSignTab(containerId, currentUser) {
     return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
   }
 
-  function rowKeyOf(q) { return q.submissionId || q.sessionToken; }
-
   function itemMatchesFilter(q, item) {
     var f = state.filter.trim().toLowerCase();
     if (!f) return true;
@@ -561,11 +494,17 @@ function initStaffSignTab(containerId, currentUser) {
       (item.soNumber || '').toLowerCase().indexOf(f) !== -1;
   }
 
-  function actionsCellHtml(q, expanded) {
+  // 2026-09-08 user ขอ: "ดูข้อมูลลูกค้า" เปิดเป็นแท็บใหม่ (contract-detail.html) แทนการกางแถวในตารางเดิม
+  // (เดิมต้องเลื่อนหน้าเว็บเพราะแถวขยายอยู่ในตารางกว้างเดียวกับที่เลื่อนแนวนอนได้) — ปุ่มดาวน์โหลดสัญญา/
+  // เปลี่ยน SO/ปฏิเสธ ที่เคยอยู่ในแถวขยายนั้น ย้ายมาอยู่ตรงนี้ (แสดงตลอด ไม่ต้องกดดูข้อมูลก่อน) — รับ it
+  // (SO ของแถวนี้) เพิ่มเพราะดาวน์โหลด/เปลี่ยน SO ทำทีละ SO ไม่ใช่ทั้ง session
+  function actionsCellHtml(q, it) {
     if (!q.submissionId) return '<span style="color:var(--muted);font-size:12.5px;">รอลูกค้าส่งข้อมูล</span>';
-    var h = '<button class="btn btn-ghost btnToggleExpand" data-id="' + rowKeyOf(q) + '" style="white-space:nowrap;">' + (expanded ? 'ซ่อนข้อมูล' : 'ดูข้อมูลลูกค้า') + '</button>';
+    var h = '<a class="btn btn-ghost" href="contract-detail.html?id=' + encodeURIComponent(q.submissionId) + '" target="_blank" rel="noopener" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
     if (!q.reviewedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btnConfirmReview" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">ยืนยัน</button>';
     if (!q.staffSignedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">เซ็นเอกสาร</button>';
+    h += ' ' + downloadAndChangeSoButtonsHtml(q, it);
+    h += ' ' + correctionStatusHtml(q);
     return h;
   }
 
@@ -576,15 +515,14 @@ function initStaffSignTab(containerId, currentUser) {
   // packing_records.tracking_imported_at) — คอลัมน์ปัจจุบัน: SO / ชื่อลูกค้า / วิธีการผ่อน / เลขที่สัญญา /
   // พนักงานสร้างลิงก์ / สถานะสัญญา / วันที่ส่งข้อมูล / วันที่จัดส่ง / สถานะจัดส่ง / การดำเนินการ — session ที่มี
   // หลาย SO (ข้อจำกัด CRM ดู contracts-tab.js) จะมีหลายแถวซ้ำข้อมูลระดับ session (ลูกค้า/สถานะ/พนักงาน) แต่แยก
-  // คอลัมน์ SO/วิธีผ่อน/เลขที่สัญญา/วันที่จัดส่งต่อแถว — แถวขยายรายละเอียดลูกค้าแทรกหลังแถวสุดท้ายของกลุ่มนั้น
-  // แถวเดียว (ไม่ซ้ำ) กัน "ดูข้อมูลลูกค้า" กางซ้ำหลายรอบเวลามีหลาย SO
+  // คอลัมน์ SO/วิธีผ่อน/เลขที่สัญญา/วันที่จัดส่ง/ดาวน์โหลดสัญญา/เปลี่ยน SO ต่อแถว (2026-09-08 "ดูข้อมูลลูกค้า"
+  // เปลี่ยนเป็นเปิดแท็บใหม่แล้ว ไม่มีแถวขยายในตารางนี้อีกต่อไป — ดู contract-detail.js/actionsCellHtml)
   function tableRowsHtml() {
     var html = '';
     state.queue.forEach(function (q) {
       var items = (q.items && q.items.length) ? q.items : [{ soNumber: '-', planType: null, contractNo: null, customerId: null }];
       var visibleItems = items.filter(function (it) { return itemMatchesFilter(q, it); });
       if (!visibleItems.length) return;
-      var expanded = state.expandedId === rowKeyOf(q);
       visibleItems.forEach(function (it) {
         html += '<tr>' +
           '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
@@ -596,12 +534,9 @@ function initStaffSignTab(containerId, currentUser) {
           '<td>' + fmtDateTime(q.submittedAt) + '</td>' +
           '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
           '<td>' + q.shippingStatus.label + '</td>' +
-          '<td>' + actionsCellHtml(q, expanded) + '</td>' +
+          '<td>' + actionsCellHtml(q, it) + '</td>' +
           '</tr>';
       });
-      if (expanded && q.submissionId) {
-        html += '<tr><td colspan="10" style="padding:0;">' + customerDetailHtml(q) + '</td></tr>';
-      }
     });
     if (!html) html = '<tr><td colspan="10" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return html;
@@ -614,9 +549,6 @@ function initStaffSignTab(containerId, currentUser) {
     });
     Array.prototype.forEach.call(document.querySelectorAll('.btnConfirmReview'), function (btn) {
       btn.addEventListener('click', function () { confirmReview(btn.getAttribute('data-id'), btn); });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('.btnToggleExpand'), function (btn) {
-      btn.addEventListener('click', function () { toggleExpand(btn.getAttribute('data-id')); });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.btnDownloadContract'), function (btn) {
       btn.addEventListener('click', function () { downloadContractFor(btn.getAttribute('data-submission-id'), btn.getAttribute('data-so')); });
