@@ -17,7 +17,7 @@
 // ต้องรัน supabase-stock-orders.sql ก่อนใช้งาน (ตาราง stock_order_meta)
 // ต้องตั้งค่าใน Vercel project settings: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
-const { getStockReadiness } = require('./_lib/stock-reservation');
+const { getStockReadinessFiltered, ALL_KNOWN_STATUSES, MAX_FILTERED_ORDERS } = require('./_lib/stock-reservation');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -193,11 +193,23 @@ async function handleUpdate(req, res, authHeaders) {
   res.status(400).json({ error: 'ไม่รู้จัก action นี้' });
 }
 
-// "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07, ข้อ 2/3/4) — GET ?view=readiness ดึงคำสั่งขายจาก CRM
-// ตรงๆ + อ่านสต๊อกจากตาราง Supabase odoo_stock_cache (เขียนโดย scripts/sync-odoo-stock.js ที่รันจากพีซี user
-// เอง — เว็บนี้ยิง Odoo ตรงไม่ได้ ติด firewall ยืนยันแล้ว ดูหมายเหตุยาวใน _lib/stock-reservation.js)
+// "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07, ปรับใหม่ 2026-09-08) — GET ?view=readiness อ่านคำสั่ง
+// ขายจากตาราง Supabase crm_orders_cache + สต๊อกจาก odoo_stock_cache (ทั้งคู่ sync จากพีซี user เองทุก 15 นาที
+// — เว็บยิง CRM/Odoo สดไม่ได้เลย ทั้งติด firewall (Odoo) และข้อมูลเยอะเกินไปจนเกิน timeout (CRM มี 89,031
+// รายการ ไม่รองรับ filter ฝั่ง server — ดูหมายเหตุยาวใน _lib/stock-reservation.js) **บังคับให้พนักงานระบุช่วง
+// วันที่คำสั่งซื้อก่อนเสมอ** (orderDateFrom/orderDateTo) กันดึงข้อมูลกว้างเกินไป — ไม่ระบุมาจะได้แค่รายการ
+// สถานะสำหรับ dropdown กลับไปเฉยๆ ไม่ query อะไรเพิ่ม
 async function handleReadiness(req, res, authHeaders) {
-  const result = await getStockReadiness(SUPABASE_URL, authHeaders);
+  const q = req.query || {};
+  const orderDateFrom = String(q.orderDateFrom || '');
+  const orderDateTo = String(q.orderDateTo || '');
+  if (!orderDateFrom || !orderDateTo) {
+    res.status(200).json({ needsFilter: true, statuses: ALL_KNOWN_STATUSES, maxFilteredOrders: MAX_FILTERED_ORDERS });
+    return;
+  }
+  const result = await getStockReadinessFiltered(SUPABASE_URL, authHeaders, {
+    orderDateFrom: orderDateFrom, orderDateTo: orderDateTo, status: q.status ? String(q.status) : null,
+  });
   res.status(200).json(result);
 }
 

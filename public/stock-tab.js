@@ -24,13 +24,30 @@ function initStockTab(containerId, currentUser) {
     printing: false,
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
-    // "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07) — มุมมองที่ 2 ของหน้านี้ ดึงตรงจาก CRM+Odoo (ดู
-    // _lib/stock-reservation.js) คนละแหล่งข้อมูลกับตาราง "รายการออเดอร์" ด้านบน (ที่ดึงจาก Supabase ของ
-    // ระบบนี้เอง เฉพาะที่ผ่านขั้นตอนทำสัญญาแล้ว) — สลับดูได้ 2 มุมมองในหน้าเดียว
+    // "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07, ปรับใหม่ 2026-09-08) — มุมมองที่ 2 ของหน้านี้ อ่านจากแคช Supabase
+    // ของคำสั่งขาย CRM + สต๊อก Odoo (ดู _lib/stock-reservation.js) คนละแหล่งข้อมูลกับตาราง "รายการออเดอร์"
+    // ด้านบน — **ต้องเลือกตัวกรองช่วงวันที่คำสั่งซื้อก่อนเสมอถึงจะค้นหาได้** (CRM มีคำสั่งขายสะสม 89,031
+    // รายการ ดึงทั้งหมดมาแสดงทีเดียวไม่ได้ ต้องให้พนักงานแคบขอบเขตลงก่อนตามที่ user ยืนยัน 2026-09-08)
     activeView: 'orders', // 'orders' | 'readiness'
-    readinessLoading: false,
-    readinessError: null,
-    readinessData: null, // { orders, shortages, totalCrmOrders, relevantOrders }
+    readinessStatuses: [], // โหลดครั้งแรกตอนสลับมาดูมุมมองนี้ (สำหรับ dropdown ตัวกรองสถานะ)
+    readinessMaxFilteredOrders: null,
+    readinessMetaLoading: false,
+    readinessMetaError: null,
+    readinessFilters: { orderDateFrom: '', orderDateTo: '', status: '' },
+    readinessSearching: false,
+    readinessSearchError: null,
+    readinessSearched: false, // เคยกดค้นหาอย่างน้อย 1 ครั้งหรือยัง
+    readinessResult: null, // { orders, shortages, matchedCount, relevantCount, truncated, stockLastSyncedAt, crmLastSyncedAt }
+  };
+
+  var STATUS_LABELS = {
+    CANCELLED: 'ยกเลิก',
+    PENDING_CANCELLATION: 'รอยกเลิก',
+    MISSED_INSTALLMENTS: 'ขาดผ่อน',
+    INSTALLMENT_BEFORE_CREDIT_APPROVAL: 'รอนุมัติเครดิต (ยังไม่อนุมัติ)',
+    COMPLETED: 'ปิดจบ/จ่ายครบแล้ว',
+    INSTALLMENT_AFTER_CREDIT_APPROVAL: 'อนุมัติเครดิตแล้ว (กำลังผ่อน)',
+    INSTALLMENT_PAUSED_BEFORE_APPROVED: 'พักชั่วคราว (ก่อนอนุมัติ)',
   };
 
   function fmtDateTime(iso) {
@@ -222,26 +239,59 @@ function initStockTab(containerId, currentUser) {
       : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">รอพิมพ์</span>';
   }
 
-  // ---------- "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07, ข้อ 2/3/4 — ดึงตรงจาก CRM+Odoo) ----------
-  async function loadReadiness() {
-    state.readinessLoading = true;
-    state.readinessError = null;
+  // ---------- "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07, ปรับใหม่ 2026-09-08 — ต้องเลือกตัวกรองก่อนค้นหาเสมอ) ----------
+  async function loadReadinessMeta() {
+    state.readinessMetaLoading = true;
+    state.readinessMetaError = null;
     render();
     try {
       var res = await fetch('/api/stock-orders?view=readiness');
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
-      state.readinessData = body;
+      state.readinessStatuses = body.statuses || [];
+      state.readinessMaxFilteredOrders = body.maxFilteredOrders || null;
+      // ตั้งค่าเริ่มต้นให้ช่วงวันที่ = 30 วันล่าสุด กันพนักงานลืมกรอกแล้วกดค้นหาทั้งหมดโดยไม่ตั้งใจ
+      var today = new Date();
+      var from = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
+      state.readinessFilters.orderDateTo = today.toISOString().slice(0, 10);
+      state.readinessFilters.orderDateFrom = from.toISOString().slice(0, 10);
     } catch (err) {
-      state.readinessError = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message + ' (ต้องตั้งค่า CRM_USERNAME/CRM_PASSWORD และ ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_PASSWORD บน server ก่อน)';
+      state.readinessMetaError = 'โหลดตัวเลือกตัวกรองไม่สำเร็จ: ' + err.message;
     }
-    state.readinessLoading = false;
+    state.readinessMetaLoading = false;
+    render();
+  }
+
+  async function searchReadiness() {
+    if (!state.readinessFilters.orderDateFrom || !state.readinessFilters.orderDateTo) {
+      window.alert('กรุณาเลือกช่วงวันที่คำสั่งซื้อก่อนค้นหา');
+      return;
+    }
+    state.readinessSearching = true;
+    state.readinessSearchError = null;
+    state.readinessSearched = true;
+    render();
+    try {
+      var params = new URLSearchParams({
+        view: 'readiness',
+        orderDateFrom: state.readinessFilters.orderDateFrom,
+        orderDateTo: state.readinessFilters.orderDateTo,
+      });
+      if (state.readinessFilters.status) params.set('status', state.readinessFilters.status);
+      var res = await fetch('/api/stock-orders?' + params.toString());
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'ค้นหาไม่สำเร็จ');
+      state.readinessResult = body;
+    } catch (err) {
+      state.readinessSearchError = 'ค้นหาไม่สำเร็จ: ' + err.message + ' (ต้องตั้งค่า CRM_USERNAME/CRM_PASSWORD และรัน scripts/sync-stock-readiness.js อย่างน้อย 1 ครั้งก่อน)';
+    }
+    state.readinessSearching = false;
     render();
   }
 
   function switchView(view) {
     state.activeView = view;
-    if (view === 'readiness' && !state.readinessData && !state.readinessLoading) loadReadiness();
+    if (view === 'readiness' && !state.readinessStatuses.length && !state.readinessMetaLoading) loadReadinessMeta();
     render();
   }
 
@@ -251,23 +301,56 @@ function initStockTab(containerId, currentUser) {
       : '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอสต๊อก (คิวที่ ' + o.queuePosition + ')</span>';
   }
 
+  function readinessFilterFormHtml() {
+    return '<div class="card"><h2>ตัวกรอง (บังคับเลือกช่วงวันที่คำสั่งซื้อก่อนค้นหาเสมอ)</h2>' +
+      '<p class="hint">CRM มีคำสั่งขายสะสมกว่า 89,000 รายการ ดึงมาแสดงทั้งหมดพร้อมกันไม่ได้ กรุณาเลือกช่วงวันที่ให้แคบพอ (แนะนำไม่เกิน 1-2 เดือน) — ถ้าผลลัพธ์เกิน ' + (state.readinessMaxFilteredOrders || 300) + ' รายการ ระบบจะขอให้แคบช่วงลงอีก</p>' +
+      '<div class="so-search-filter-row" style="flex-wrap:wrap;align-items:flex-end;">' +
+      '<div class="field"><label>วันที่คำสั่งซื้อ ตั้งแต่</label><input type="date" id="rdFilterFrom" value="' + state.readinessFilters.orderDateFrom + '" /></div>' +
+      '<div class="field"><label>ถึงวันที่</label><input type="date" id="rdFilterTo" value="' + state.readinessFilters.orderDateTo + '" /></div>' +
+      '<select id="rdFilterStatus" class="filter-select">' +
+      '<option value="">สถานะ: ทั้งหมด (ยกเว้นสถานะที่ปิดจบ/ยกเลิกอัตโนมัติ)</option>' +
+      state.readinessStatuses.map(function (s) { return '<option value="' + s + '"' + (state.readinessFilters.status === s ? ' selected' : '') + '>' + (STATUS_LABELS[s] || s) + '</option>'; }).join('') +
+      '</select>' +
+      '<button type="button" class="btn btn-primary" id="rdBtnSearch"' + (state.readinessSearching ? ' disabled' : '') + '>' + (state.readinessSearching ? 'กำลังค้นหา...' : '🔍 ค้นหา') + '</button>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:10px;">⚠️ ยังไม่มีตัวกรอง "วันที่อนุมัติเครดิต" (CRM ไม่มีฟิลด์นี้ตรงๆ — อยู่ระหว่างหาวิธี) ตอนนี้กรองได้แค่วันที่คำสั่งซื้อกับสถานะ</p>' +
+      '</div>';
+  }
+
   function readinessSectionHtml() {
     var h = '';
-    if (state.readinessLoading) { return '<div class="card">กำลังโหลดข้อมูลจาก CRM + Odoo... (อาจใช้เวลาสักครู่)</div>'; }
-    if (state.readinessError) { return '<div class="card"><p style="color:var(--danger);">' + state.readinessError + '</p></div>'; }
-    if (!state.readinessData) { return '<div class="card"><p class="hint">ยังไม่ได้โหลดข้อมูล</p></div>'; }
-    var data = state.readinessData;
+    if (state.readinessMetaLoading) { return '<div class="card">กำลังโหลดตัวเลือกตัวกรอง...</div>'; }
+    if (state.readinessMetaError) { return '<div class="card"><p style="color:var(--danger);">' + state.readinessMetaError + '</p></div>'; }
 
-    h += '<div class="notice">⚠️ ฟีเจอร์นี้ใหม่ เพิ่งเชื่อมกับ CRM/Odoo — ถ้าเห็นสถานะที่ดูผิดปกติ (เช่น รายการที่ควรพร้อมส่งแต่ขึ้นรอสต๊อก) แจ้งได้เลย มีจุดที่ยังไม่ยืนยัน 100% กับข้อมูลจริง (การจับคู่ชื่อสินค้า/enum สถานะบางตัว)</div>';
+    h += readinessFilterFormHtml();
 
-    // ยอดสต๊อกมาจากตาราง Supabase ที่สคริปต์บนพีซี user sync มาให้ทุก 15 นาที (ไม่ได้ยิง Odoo ตรงจากเว็บ — ดู
-    // _lib/stock-reservation.js) เตือนถ้าข้อมูลเก่าเกินไป (พีซีปิด/ไม่ได้ต่อเน็ตนาน) กันเข้าใจผิดว่าสต๊อกสดจริง
-    var syncAgeMs = data.stockLastSyncedAt ? (Date.now() - new Date(data.stockLastSyncedAt).getTime()) : null;
-    var syncStale = syncAgeMs === null || syncAgeMs > 60 * 60 * 1000; // เกิน 1 ชม. = น่าจะพีซี sync ไม่ได้อยู่
-    h += '<div class="notice"' + (syncStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
+    if (state.readinessSearching) { h += '<div class="card">กำลังค้นหา...</div>'; return h; }
+    if (state.readinessSearchError) { h += '<div class="card"><p style="color:var(--danger);">' + state.readinessSearchError + '</p></div>'; return h; }
+    if (!state.readinessSearched || !state.readinessResult) { h += '<div class="card"><p class="hint">เลือกตัวกรองแล้วกดค้นหาเพื่อดูผลลัพธ์</p></div>'; return h; }
+
+    var data = state.readinessResult;
+
+    if (data.truncated) {
+      h += '<div class="card"><p style="color:var(--danger);">⚠️ พบ ' + data.matchedCount + ' รายการ เกินขีดจำกัด ' + data.maxFilteredOrders + ' รายการต่อการค้นหา — กรุณาแคบช่วงวันที่หรือเลือกสถานะให้เจาะจงมากขึ้นแล้วค้นหาใหม่</p></div>';
+      return h;
+    }
+
+    h += '<div class="notice">⚠️ ฟีเจอร์นี้ใหม่ — ถ้าเห็นสถานะที่ดูผิดปกติ (เช่น รายการที่ควรพร้อมส่งแต่ขึ้นรอสต๊อก) แจ้งได้เลย มีจุดที่ยังไม่ยืนยัน 100% กับข้อมูลจริง (การจับคู่ชื่อสินค้า)</div>';
+
+    var stockAgeMs = data.stockLastSyncedAt ? (Date.now() - new Date(data.stockLastSyncedAt).getTime()) : null;
+    var stockStale = stockAgeMs === null || stockAgeMs > 60 * 60 * 1000;
+    h += '<div class="notice"' + (stockStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
       (data.stockLastSyncedAt
-        ? (syncStale ? '⚠️ ' : '✅ ') + 'ข้อมูลสต๊อกล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(data.stockLastSyncedAt) + (syncStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
-        : '⚠️ ยังไม่เคย sync สต๊อกจาก Odoo เข้ามาเลย — รัน scripts/sync-odoo-stock.js ที่พีซีก่อน (ดู README)') +
+        ? (stockStale ? '⚠️ ' : '✅ ') + 'ข้อมูลสต๊อก Odoo ล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(data.stockLastSyncedAt) + (stockStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
+        : '⚠️ ยังไม่เคย sync สต๊อกจาก Odoo เข้ามาเลย — รัน scripts/sync-stock-readiness.js ที่พีซีก่อน (ดู README)') +
+      '</div>';
+
+    var crmAgeMs = data.crmLastSyncedAt ? (Date.now() - new Date(data.crmLastSyncedAt).getTime()) : null;
+    var crmStale = crmAgeMs === null || crmAgeMs > 60 * 60 * 1000;
+    h += '<div class="notice"' + (crmStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
+      (data.crmLastSyncedAt
+        ? (crmStale ? '⚠️ ' : '✅ ') + 'ข้อมูลคำสั่งขาย CRM ล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(data.crmLastSyncedAt) + (crmStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
+        : '⚠️ ยังไม่เคย sync คำสั่งขาย CRM เข้ามาเลย — รัน scripts/sync-stock-readiness.js ที่พีซีก่อน (ดู README)') +
       '</div>';
 
     if (data.shortages.length) {
@@ -283,8 +366,8 @@ function initStockTab(containerId, currentUser) {
       h += '<div class="card"><p class="hint">✅ ไม่มีสินค้าขาดสต๊อกในรายการที่ตรวจสอบตอนนี้</p></div>';
     }
 
-    h += '<div class="card"><h2>รายการที่ตรวจสอบ (' + data.orders.length + ' จาก ' + data.totalCrmOrders + ' คำสั่งขายทั้งหมดใน CRM)</h2>' +
-      '<p class="hint">กรองเฉพาะที่อนุมัติเครดิตแล้ว/ไม่ถูกยกเลิก/ไม่ขาดผ่อน แล้วจัดคิวจองสต๊อกตามลำดับ: ซื้อสด/ผ่อนครบรับของ → วางดาวน์ → เครดิตผ่าน (เรียงตามวันที่สั่งซื้อภายในลำดับเดียวกัน)</p>' +
+    h += '<div class="card"><h2>รายการที่ตรวจสอบ (' + data.matchedCount + ' รายการตามตัวกรอง)</h2>' +
+      '<p class="hint">จัดคิวจองสต๊อกตามลำดับ: ซื้อสด/ผ่อนครบรับของ → วางดาวน์ → เครดิตผ่าน (เรียงตามวันที่สั่งซื้อภายในลำดับเดียวกัน)</p>' +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
       '<thead><tr><th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">สินค้า</th><th>วิธีการผ่อน</th><th>วันที่สั่งซื้อ</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะ</th></tr></thead>' +
       '<tbody>' + data.orders.map(function (o) {
@@ -316,6 +399,14 @@ function initStockTab(containerId, currentUser) {
       app.innerHTML = html;
       document.getElementById('stkViewOrders').addEventListener('click', function () { switchView('orders'); });
       document.getElementById('stkViewReadiness').addEventListener('click', function () { switchView('readiness'); });
+      var rdFrom = document.getElementById('rdFilterFrom');
+      var rdTo = document.getElementById('rdFilterTo');
+      var rdStatus = document.getElementById('rdFilterStatus');
+      var rdBtn = document.getElementById('rdBtnSearch');
+      if (rdFrom) rdFrom.addEventListener('change', function (e) { state.readinessFilters.orderDateFrom = e.target.value; });
+      if (rdTo) rdTo.addEventListener('change', function (e) { state.readinessFilters.orderDateTo = e.target.value; });
+      if (rdStatus) rdStatus.addEventListener('change', function (e) { state.readinessFilters.status = e.target.value; });
+      if (rdBtn) rdBtn.addEventListener('click', searchReadiness);
       return;
     }
 
