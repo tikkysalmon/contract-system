@@ -456,7 +456,7 @@ function initContractsTab(containerId, currentUser, options) {
       searchPlaceholder: 'พิมพ์ชื่อ/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO เพื่อกรอง',
     }) +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th>รหัสลูกค้า</th><th>ชื่อลูกค้า</th><th>SO</th><th>วิธีการผ่อน</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>คัดลอกลิงก์</th></tr></thead>' +
+      '<thead><tr><th style="text-align:left;">รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">SO</th><th>วิธีการผ่อน</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>คัดลอกลิงก์</th></tr></thead>' +
       '<tbody id="sessionListTbody">' + sessionListRowsHtml(filteredSessionList()) + '</tbody>' +
       '</table></div>' +
       '</div>';
