@@ -302,7 +302,9 @@ function paginateBodyBlocks(blocks, meta, headerH) {
   for (var bi = 0; bi < blocks.length; bi++) {
     if (groupStart !== -1 && bi === groupStart) {
       var groupHtml = blocks.slice(tableHeadingIdx, tableIdx + 1).map(blockHtml).join('');
-      items.push({ html: groupHtml, pageBreakBefore: false });
+      // 2026-09-08 user ขอ: ตารางแสดงภาระหนี้ต้องขึ้นหน้าใหม่เสมอ ไม่ปนกับเนื้อหาข้ออื่น/บล็อกลายเซ็นที่อยู่
+      // ก่อนหน้า (เดิม pageBreakBefore: false ปล่อยให้ไหลต่อท้ายหน้าเดิมถ้ายังพอมีที่เหลือ)
+      items.push({ html: groupHtml, pageBreakBefore: true });
       bi = tableIdx; // for loop จะ ++ ต่ออีกทีให้เอง ข้ามบล็อกที่รวมเข้ากลุ่มไปแล้วทั้งหมด
       continue;
     }
@@ -328,7 +330,10 @@ function paginateBodyBlocks(blocks, meta, headerH) {
   var used = 0;
   items.forEach(function (item, i) {
     var h = heights[i];
-    var needsBreak = item.pageBreakBefore || (current.length > 0 && used + h > maxContentH);
+    // current.length > 0 กันไว้ทั้ง 2 เงื่อนไข (2026-09-08 แก้บั๊กจริงที่เจอตอนเพิ่ม pageBreakBefore:true ให้
+    // กลุ่มตารางภาระหนี้ — ถ้า item ก่อนหน้าเพิ่งพอดีเต็มหน้าจน current ว่างอยู่แล้ว แล้ว item ถัดมาดัน
+    // pageBreakBefore:true ซ้ำ จะ push current ว่างๆ เป็นหน้าเปล่าอีกใบแทรกเข้ามา)
+    var needsBreak = current.length > 0 && (item.pageBreakBefore || used + h > maxContentH);
     if (needsBreak) {
       pages.push(current);
       current = [];
