@@ -360,11 +360,12 @@ function initContractsTab(containerId, currentUser) {
         '<td style="text-align:left;">' + s.customerName + '</td>' +
         '<td style="text-align:left;">' + s.products.join(', ') + '<br><span style="color:var(--muted);font-size:12px;">' + s.soNumbers.join(', ') + '</span></td>' +
         '<td>' + fmtDateShort(s.createdAt) + '</td>' +
+        '<td>' + (s.createdByName || '-') + '</td>' +
         '<td>' + statusHtml + '</td>' +
         '<td>' + actionHtml + '</td>' +
         '</tr>';
     }).join('') +
-      (filtered.length === 0 ? '<tr><td colspan="5" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>' : '');
+      (filtered.length === 0 ? '<tr><td colspan="6" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>' : '');
   }
 
   function wireCopySessionLinkButtons() {
@@ -405,7 +406,7 @@ function initContractsTab(containerId, currentUser) {
       searchPlaceholder: 'พิมพ์ชื่อลูกค้า/เลขที่คำสั่งซื้อ SO เพื่อกรอง',
     }) +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th>ลูกค้า</th><th>สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>สถานะ</th><th>การดำเนินการ</th></tr></thead>' +
+      '<thead><tr><th>ลูกค้า</th><th>สินค้า / SO</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>สถานะ</th><th>การดำเนินการ</th></tr></thead>' +
       '<tbody id="sessionListTbody">' + sessionListRowsHtml(filteredSessionList()) + '</tbody>' +
       '</table></div>' +
       '</div>';

@@ -439,7 +439,7 @@ function initStaffSignTab(containerId, currentUser) {
 
   function correctionStatusHtml(item) {
     if (!item.rejectedAt) {
-      return '<button type="button" class="btn btn-ghost btnOpenReject" data-id="' + item.submissionId + '" style="margin-top:10px;">ปฏิเสธ / ขอแก้ไขข้อมูล</button>';
+      return '<button type="button" class="btn btn-ghost btn-sm btnOpenReject" data-id="' + item.submissionId + '" style="white-space:nowrap;margin-top:6px;">ปฏิเสธ / ขอแก้ไขข้อมูล</button>';
     }
     var labels = (item.rejectedFields || []).map(function (k) { return CORRECTION_GROUP_LABELS[k] || k; });
     return '<div class="notice" style="margin-top:12px;">' +
@@ -447,15 +447,15 @@ function initStaffSignTab(containerId, currentUser) {
       'รายการที่ต้องแก้: <b>' + (labels.join(', ') || '-') + '</b>' +
       (item.rejectedNote ? '<br>หมายเหตุ: ' + item.rejectedNote : '') +
       '</div>' +
-      '<button type="button" class="btn btn-secondary btnCopyRejectLink" data-token="' + item.token + '" style="margin-top:8px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
+      '<button type="button" class="btn btn-secondary btn-sm btnCopyRejectLink" data-token="' + item.token + '" style="white-space:nowrap;margin-top:6px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
   }
 
   // ปุ่มดาวน์โหลดสัญญา/เปลี่ยน SO ของ SO เดียว (2026-09-08 ย้ายมาอยู่ในแถวตารางโดยตรง ไม่ต้องกด "ดูข้อมูล
   // ลูกค้า" ก่อนแล้วถึงจะเห็น — เดิมวนลูปทุก SO ในหนึ่ง session ในบล็อกเดียว ตอนนี้แยกทีละแถว/ทีละ SO แทน)
   function downloadAndChangeSoButtonsHtml(item, it) {
-    return '<button type="button" class="btn btn-ghost btnDownloadContract" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
+    return '<button type="button" class="btn btn-ghost btn-sm btnDownloadContract" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
       'id="btnDownloadContract__' + item.submissionId + '__' + it.soNumber + '" style="white-space:nowrap;margin-top:6px;">📄 ดาวน์โหลดสัญญา</button>' +
-      ' <button type="button" class="btn btn-ghost btnChangeSo" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
+      ' <button type="button" class="btn btn-ghost btn-sm btnChangeSo" data-submission-id="' + item.submissionId + '" data-so="' + it.soNumber + '" ' +
       'data-product="' + (it.product || '').replace(/"/g, '&quot;') + '" data-customer="' + (item.customerName || '').replace(/"/g, '&quot;') + '" ' +
       'style="white-space:nowrap;margin-top:6px;">🔄 เปลี่ยน SO</button>' +
       '<div class="err" id="downloadContractErr__' + item.submissionId + '__' + it.soNumber + '"></div>';
@@ -500,20 +500,21 @@ function initStaffSignTab(containerId, currentUser) {
   // (SO ของแถวนี้) เพิ่มเพราะดาวน์โหลด/เปลี่ยน SO ทำทีละ SO ไม่ใช่ทั้ง session
   function actionsCellHtml(q, it) {
     if (!q.submissionId) return '<span style="color:var(--muted);font-size:12.5px;">รอลูกค้าส่งข้อมูล</span>';
-    var h = '<a class="btn btn-ghost" href="contract-detail.html?id=' + encodeURIComponent(q.submissionId) + '" target="_blank" rel="noopener" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
-    if (!q.reviewedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btnConfirmReview" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">ยืนยัน</button>';
-    if (!q.staffSignedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btnOpenSign" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">เซ็นเอกสาร</button>';
+    var h = '<a class="btn btn-ghost btn-sm" href="contract-detail.html?id=' + encodeURIComponent(q.submissionId) + '" target="_blank" rel="noopener" style="white-space:nowrap;">ดูข้อมูลลูกค้า</a>';
+    if (!q.reviewedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btn-sm btnConfirmReview" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">ยืนยัน</button>';
+    if (!q.staffSignedAt && !q.rejectedAt) h += ' <button class="btn btn-primary btn-sm btnOpenSign" data-id="' + q.submissionId + '" style="white-space:nowrap;margin-top:6px;">เซ็นเอกสาร</button>';
     h += ' ' + downloadAndChangeSoButtonsHtml(q, it);
     h += ' ' + correctionStatusHtml(q);
     return h;
   }
 
   // ตารางหลักของเมนู "ข้อมูลลูกค้าทำสัญญา" (2026-09-07 เปลี่ยนจากการ์ดรายคน เป็นตาราง 1 แถวต่อ 1 SO, ปรับ
-  // คอลัมน์อีกรอบ 2026-09-08 ตามที่ user ขอ: เอาคอลัมน์ "สถานะการสร้างลิงก์" ออก (ดูที่เมนู "สำหรับ CS" แทน),
+  // คอลัมน์อีกรอบ 2026-09-08 ตามที่ user ขอ: เอาคอลัมน์ "สถานะการสร้างลิงก์" และ "พนักงานสร้างลิงก์" ออก (ดูได้
+  // ที่เมนู "สำหรับ CS" แทน — เพิ่มคอลัมน์ "พนักงานสร้างลิงก์" ให้ contracts-tab.js's sessionListRowsHtml แล้ว),
   // เอา "ลูกค้าส่งข้อมูลแล้ว" ไปรวมกับ "สถานะการทำสัญญา" (ใช้ contractStatus.key==='awaiting_customer' แทน),
   // เพิ่มคอลัมน์ "วันที่ลูกค้าส่งข้อมูล" (submittedAt) และ "วันที่จัดส่ง" (shippingDate ต่อ SO จาก
   // packing_records.tracking_imported_at) — คอลัมน์ปัจจุบัน: SO / ชื่อลูกค้า / วิธีการผ่อน / เลขที่สัญญา /
-  // พนักงานสร้างลิงก์ / สถานะสัญญา / วันที่ส่งข้อมูล / วันที่จัดส่ง / สถานะจัดส่ง / การดำเนินการ — session ที่มี
+  // สถานะสัญญา / วันที่ส่งข้อมูล / วันที่จัดส่ง / สถานะจัดส่ง / การดำเนินการ — session ที่มี
   // หลาย SO (ข้อจำกัด CRM ดู contracts-tab.js) จะมีหลายแถวซ้ำข้อมูลระดับ session (ลูกค้า/สถานะ/พนักงาน) แต่แยก
   // คอลัมน์ SO/วิธีผ่อน/เลขที่สัญญา/วันที่จัดส่ง/ดาวน์โหลดสัญญา/เปลี่ยน SO ต่อแถว (2026-09-08 "ดูข้อมูลลูกค้า"
   // เปลี่ยนเป็นเปิดแท็บใหม่แล้ว ไม่มีแถวขยายในตารางนี้อีกต่อไป — ดู contract-detail.js/actionsCellHtml)
@@ -529,7 +530,6 @@ function initStaffSignTab(containerId, currentUser) {
           '<td style="text-align:left;">' + q.customerName + '</td>' +
           '<td>' + planLabelOf(it.planType) + '</td>' +
           '<td>' + (it.contractNo || '-') + '</td>' +
-          '<td>' + (q.createdByName || '-') + '</td>' +
           '<td>' + statusBadgeHtml(q) + '</td>' +
           '<td>' + fmtDateTime(q.submittedAt) + '</td>' +
           '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
@@ -538,7 +538,7 @@ function initStaffSignTab(containerId, currentUser) {
           '</tr>';
       });
     });
-    if (!html) html = '<tr><td colspan="10" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    if (!html) html = '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return html;
   }
 
@@ -676,7 +676,6 @@ function initStaffSignTab(containerId, currentUser) {
         '<th style="text-align:left;">ชื่อลูกค้า</th>' +
         '<th>วิธีการผ่อน</th>' +
         '<th>เลขที่สัญญา</th>' +
-        '<th>พนักงานสร้างลิงก์</th>' +
         '<th>สถานะการทำสัญญา</th>' +
         '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
         '<th>วันที่จัดส่ง</th>' +
@@ -805,7 +804,6 @@ function initCsStatusView(containerId) {
           '<td style="text-align:left;">' + s.customerName + '</td>' +
           '<td>' + planLabelOf(it.planType) + '</td>' +
           '<td>' + (it.contractNo || '-') + '</td>' +
-          '<td>' + (s.createdByName || '-') + '</td>' +
           '<td>' + statusBadge(s.contractStatus) + '</td>' +
           '<td>' + fmtDateTime(s.submittedAt) + '</td>' +
           '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
@@ -813,7 +811,7 @@ function initCsStatusView(containerId) {
           '</tr>';
       });
     });
-    return html || '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    return html || '<tr><td colspan="8" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
   }
 
   // ช่องกรองอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตามแพทเทิร์น
@@ -840,7 +838,6 @@ function initCsStatusView(containerId) {
       '<th style="text-align:left;">ชื่อลูกค้า</th>' +
       '<th>วิธีการผ่อน</th>' +
       '<th>เลขที่สัญญา</th>' +
-      '<th>พนักงานสร้างลิงก์</th>' +
       '<th>สถานะการทำสัญญา</th>' +
       '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
       '<th>วันที่จัดส่ง</th>' +
