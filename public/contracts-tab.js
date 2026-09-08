@@ -397,8 +397,8 @@ function initContractsTab(containerId, currentUser, options) {
     return '<button type="button" class="btn btn-ghost btnCopySessionLink" data-token="' + s.token + '">📋 คัดลอกลิงก์</button>';
   }
 
-  // ตาราง 1 แถวต่อ 1 SO (2026-09-08 user ขอปรับคอลัมน์ — เอา "สินค้า" ออก เหลือ รหัสลูกค้า/SO/วิธีการผ่อน/
-  // วันที่สร้างลิงก์/พนักงานสร้างลิงก์ + ช่องคัดลอกลิงก์ที่ปิดทึบเองเมื่อสถานะถึง "สัญญาลูกค้าเรียบร้อย")
+  // ตาราง 1 แถวต่อ 1 SO (2026-09-08 user ขอปรับคอลัมน์ — เอา "สินค้า" ออก เหลือ รหัสลูกค้า/ชื่อลูกค้า/SO/
+  // วิธีการผ่อน/วันที่สร้างลิงก์/พนักงานสร้างลิงก์ + ช่องคัดลอกลิงก์ที่ปิดทึบเองเมื่อสถานะถึง "สัญญาลูกค้าเรียบร้อย")
   function sessionListRowsHtml(filtered) {
     var rows = '';
     filtered.forEach(function (s) {
@@ -406,6 +406,7 @@ function initContractsTab(containerId, currentUser, options) {
       items.forEach(function (it) {
         rows += '<tr>' +
           '<td style="text-align:left;">' + (it.customerId || '-') + '</td>' +
+          '<td style="text-align:left;">' + (s.customerName || '-') + '</td>' +
           '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
           '<td>' + planLabelOf(it.planType) + '</td>' +
           '<td>' + fmtDateShort(s.createdAt) + '</td>' +
@@ -414,7 +415,7 @@ function initContractsTab(containerId, currentUser, options) {
           '</tr>';
       });
     });
-    return rows || '<tr><td colspan="6" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>';
+    return rows || '<tr><td colspan="7" style="color:var(--muted);">ไม่พบลูกค้าที่ตรงกับคำค้นหา</td></tr>';
   }
 
   function wireCopySessionLinkButtons() {
@@ -455,7 +456,7 @@ function initContractsTab(containerId, currentUser, options) {
       searchPlaceholder: 'พิมพ์ชื่อ/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO เพื่อกรอง',
     }) +
       '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th>รหัสลูกค้า</th><th>SO</th><th>วิธีการผ่อน</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>คัดลอกลิงก์</th></tr></thead>' +
+      '<thead><tr><th>รหัสลูกค้า</th><th>ชื่อลูกค้า</th><th>SO</th><th>วิธีการผ่อน</th><th>วันที่สร้างลิงก์</th><th>พนักงานสร้างลิงก์</th><th>คัดลอกลิงก์</th></tr></thead>' +
       '<tbody id="sessionListTbody">' + sessionListRowsHtml(filteredSessionList()) + '</tbody>' +
       '</table></div>' +
       '</div>';
@@ -561,19 +562,16 @@ function initContractsTab(containerId, currentUser, options) {
     // หลักทันทีที่ค้นหาเจอ ทำให้เห็นข้อมูลลูกค้าเกินจำเป็นก่อนจะรู้ด้วยซ้ำว่าจะรวม SO ไหนบ้าง (ลูกค้าบางรายมี
     // หลาย SO แต่อยากให้กรอกลิงก์ทำสัญญาครั้งเดียว) เปลี่ยนมาโชว์แค่ตารางให้เลือกก่อน ข้อมูลเต็มดูผ่านลิงก์
     // "ดูข้อมูล CRM" ที่เปิดแท็บใหม่ (crm-order-detail.html) แทน — SO หลักที่ค้นหารวมเข้าลิงก์เสมอ (ล็อกติ๊กไว้)
+    // 2026-09-08 user ขอ: ถ้ามีข้อมูลดูได้จากลิงก์ "ดูข้อมูล CRM" อยู่แล้ว ไม่ต้องโชว์ข้อมูล (สินค้า/วิธีผ่อน/
+    // ลูกค้า/ยอดคงเหลือ) ซ้ำในตารางเลือกอีก — เหลือแค่ checkbox + เลข SO + ลิงก์ดูข้อมูลเต็ม
     function soSelectionRowHtml(r, opts) {
       opts = opts || {};
-      var planLabel = r.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
       var checkboxHtml = opts.locked
         ? '<input type="checkbox" checked disabled title="SO หลักที่ค้นหา รวมเข้าลิงก์เสมอ" />'
         : '<input type="checkbox" class="otherSoCheck" data-so="' + r.soNumber + '"' + (opts.checked ? ' checked' : '') + ' />';
       return '<tr>' +
         '<td>' + checkboxHtml + '</td>' +
         '<td style="text-align:left;">' + r.soNumber + '</td>' +
-        '<td style="text-align:left;">' + r.product + (r.color ? ' (' + r.color + ')' : '') + '</td>' +
-        '<td>' + planLabel + '</td>' +
-        '<td style="text-align:left;">' + (r.customer.firstLastName || '-') + '</td>' +
-        '<td><b>' + fmtMoney(r.remainingBalance) + ' บาท</b></td>' +
         '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td>' +
         '</tr>';
     }
@@ -601,7 +599,7 @@ function initContractsTab(containerId, currentUser, options) {
         html += '<div class="card"><h2>เลือกคำสั่งขายที่จะรวมเข้าลิงก์เดียวกัน</h2>' +
           '<p class="hint">SO ที่ค้นหา (' + state.result.soNumber + ') รวมเข้าลิงก์เสมอ — ถ้าลูกค้ามี SO อื่นด้วย (เช่น อุปกรณ์เสริมที่ CRM บังคับแยก SO) ติ๊กเลือกเพิ่มได้ ลูกค้ากรอกฟอร์ม/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO — กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO นั้นในแท็บใหม่</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th></th><th style="text-align:left;">SO</th><th style="text-align:left;">สินค้า</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th>ยอดคงเหลือสุทธิ</th><th></th></tr></thead>' +
+          '<thead><tr><th></th><th style="text-align:left;">SO</th><th></th></tr></thead>' +
           '<tbody>' +
           soSelectionRowHtml(state.result, { locked: true }) +
           state.otherItems.map(function (it) { return soSelectionRowHtml(it, { checked: !!state.includedSoNumbers[it.soNumber] }); }).join('') +
