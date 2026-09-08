@@ -91,6 +91,36 @@ function fieldLineHtml(block) {
     '</div>';
 }
 
+// ข้อย่อยแบบ "N.N" (เช่น "4.1 ... 4.2 ... 4.3 ... 4.4") ที่บางข้อในต้นฉบับ .docx ไม่ได้ขึ้นย่อหน้าใหม่จริง
+// ระหว่างข้อย่อย (ต่างจากข้อ 5.1/5.2 ที่ขึ้นย่อหน้าใหม่มาให้แล้วปกติ) ทำให้เนื้อหาไหลติดกันเป็นพรืดอ่านยาก
+// (2026-09-08 user ชี้ที่ "ข้อที่ 4 การดูแลรักษาทรัพย์สิน") — แยกเป็นย่อหน้าใหม่ต่อข้อย่อยให้อ่านง่ายขึ้น
+// กัน false positive จากการอ้างอิงข้ามข้อกลางประโยค (เช่น "...ทราบทันทีเมื่อเกิดกรณีตามข้อ 4.3 และต้องชด...")
+// ที่ไม่ใช่จุดเริ่มข้อย่อยจริง ด้วยการเช็คว่าก่อนเลขนั้นมีคำว่า "ข้อ" นำหน้าอยู่ไหม ถ้ามีให้ข้ามไปไม่ตัด — ทำงาน
+// เฉพาะย่อหน้าที่เจอจุดเริ่มข้อย่อยแบบนี้ตั้งแต่ 2 จุดขึ้นไปเท่านั้น (ย่อหน้าปกติที่มีแค่ตัวเลขทศนิยม/ราคา
+// ปนอยู่ 1 จุดไม่โดนผลกระทบ) — ⚠️ ตัดสูญเสียการจัดรูปแบบตัวหนา/สีของ runs เดิมไปหลัง split (ใช้ escHtml ข้อความ
+// ล้วนแทน) ยอมรับได้เพราะเนื้อหาข้อย่อยกลุ่มนี้เป็นข้อความล้วนไม่มีตัวหนากลางประโยคอยู่แล้ว
+function splitEmbeddedSubclauses(text) {
+  var markerRe = /\s(\d{1,2}\.\d{1,2})\s+(?=\S)/g;
+  var matches = [];
+  var m;
+  while ((m = markerRe.exec(text)) !== null) {
+    var before = text.slice(Math.max(0, m.index - 8), m.index);
+    if (before.indexOf('ข้อ') !== -1) continue; // "...ตามข้อ 4.3..." เป็นการอ้างอิง ไม่ใช่จุดเริ่มข้อย่อยจริง
+    matches.push(m);
+  }
+  if (matches.length < 2) return null;
+  var parts = [];
+  var cursor = 0;
+  matches.forEach(function (mm) {
+    var seg = text.slice(cursor, mm.index).trim();
+    if (seg) parts.push(seg);
+    cursor = mm.index;
+  });
+  var tail = text.slice(cursor).trim();
+  if (tail) parts.push(tail);
+  return parts.length >= 2 ? parts : null;
+}
+
 function paragraphHtml(block) {
   if (isDebtTableHeading(block.text) || isContractTitleHeading(block.text)) {
     return '<p style="margin:0 0 10px; text-align:center; font-weight:700;">' + runsHtml(block.runs, block.text) + '</p>';
@@ -100,6 +130,12 @@ function paragraphHtml(block) {
   }
   if (isFieldLine(block.text)) {
     return fieldLineHtml(block);
+  }
+  var subParts = splitEmbeddedSubclauses(block.text);
+  if (subParts) {
+    return subParts.map(function (p) {
+      return '<p style="margin:0 0 10px; text-align:justify; text-indent:1.8em;">' + escHtml(p) + '</p>';
+    }).join('');
   }
   return '<p style="margin:0 0 10px; text-align:justify; text-indent:1.8em;">' + runsHtml(block.runs, block.text) + '</p>';
 }
