@@ -561,24 +561,6 @@ function initContractsTab(containerId, currentUser, options) {
       return h;
     }
 
-    // ตารางเลือก SO ที่จะรวมเข้าลิงก์เดียวกัน (2026-09-08 user ขอ) — เดิมโชว์การ์ด "ข้อมูลจาก CRM" เต็มของ SO
-    // หลักทันทีที่ค้นหาเจอ ทำให้เห็นข้อมูลลูกค้าเกินจำเป็นก่อนจะรู้ด้วยซ้ำว่าจะรวม SO ไหนบ้าง (ลูกค้าบางรายมี
-    // หลาย SO แต่อยากให้กรอกลิงก์ทำสัญญาครั้งเดียว) เปลี่ยนมาโชว์แค่ตารางให้เลือกก่อน ข้อมูลเต็มดูผ่านลิงก์
-    // "ดูข้อมูล CRM" ที่เปิดแท็บใหม่ (crm-order-detail.html) แทน — SO หลักที่ค้นหารวมเข้าลิงก์เสมอ (ล็อกติ๊กไว้)
-    // 2026-09-08 user ขอ: ถ้ามีข้อมูลดูได้จากลิงก์ "ดูข้อมูล CRM" อยู่แล้ว ไม่ต้องโชว์ข้อมูล (สินค้า/วิธีผ่อน/
-    // ลูกค้า/ยอดคงเหลือ) ซ้ำในตารางเลือกอีก — เหลือแค่ checkbox + เลข SO + ลิงก์ดูข้อมูลเต็ม
-    function soSelectionRowHtml(r, opts) {
-      opts = opts || {};
-      var checkboxHtml = opts.locked
-        ? '<input type="checkbox" checked disabled title="SO หลักที่ค้นหา รวมเข้าลิงก์เสมอ" />'
-        : '<input type="checkbox" class="otherSoCheck" data-so="' + r.soNumber + '"' + (opts.checked ? ' checked' : '') + ' />';
-      return '<tr>' +
-        '<td>' + checkboxHtml + '</td>' +
-        '<td style="text-align:left;">' + r.soNumber + '</td>' +
-        '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td>' +
-        '</tr>';
-    }
-
     if (state.searchMode === 'so' && state.result) {
       if (singleSoMode) {
         // หน้า "ดูข้อมูล CRM" แท็บใหม่ (crm-order-detail.html) — โชว์การ์ดข้อมูลเต็มแบบเดิม (ไม่ใช่ตารางเลือก
@@ -599,20 +581,28 @@ function initContractsTab(containerId, currentUser, options) {
             '</div>';
         }
       } else {
-        html += '<div class="card"><h2>เลือกคำสั่งขายที่จะรวมเข้าลิงก์เดียวกัน</h2>' +
-          '<p class="hint">SO ที่ค้นหา (' + state.result.soNumber + ') รวมเข้าลิงก์เสมอ — ถ้าลูกค้ามี SO อื่นด้วย (เช่น อุปกรณ์เสริมที่ CRM บังคับแยก SO) ติ๊กเลือกเพิ่มได้ ลูกค้ากรอกฟอร์ม/เซ็นชื่อครั้งเดียว แต่ได้สัญญาแยกฉบับตาม SO — กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO นั้นในแท็บใหม่</p>' +
+        // 2026-09-08 user ขอ: หน้าหลัก "สำหรับ CS" ไม่ต้องโชว์บล็อก "CS กรอกยืนยันก่อนสร้างลิงก์"/ปุ่มสร้างลิงก์
+        // อีกต่อไป (ให้ทำขั้นตอนยืนยัน+สร้างลิงก์ที่แท็บใหม่ "ดูข้อมูล CRM" เท่านั้น — ที่นั่นก็ติ๊กรวม SO อื่น
+        // ของลูกค้าคนเดียวกันได้ครบอยู่แล้ว) หน้าหลักจึงเหลือแค่ลิสต์ SO ของลูกค้าคนนี้ + ลิงก์เปิดแท็บใหม่
+        var soCandidates = [state.result].concat(state.otherItems);
+        html += '<div class="card"><h2>คำสั่งขายของลูกค้าคนนี้</h2>' +
+          '<p class="hint">กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO ที่ต้องการในแท็บใหม่ — ยืนยันตัวเลข เลือกรวม SO อื่นของลูกค้าคนเดียวกัน (ถ้ามี) แล้วสร้างลิงก์ให้ลูกค้าได้จากหน้านั้นเลย</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th></th><th style="text-align:left;">SO</th><th></th></tr></thead>' +
+          '<thead><tr><th style="text-align:left;">SO</th><th></th></tr></thead>' +
           '<tbody>' +
-          soSelectionRowHtml(state.result, { locked: true }) +
-          state.otherItems.map(function (it) { return soSelectionRowHtml(it, { checked: !!state.includedSoNumbers[it.soNumber] }); }).join('') +
+          soCandidates.map(function (r) {
+            return '<tr><td style="text-align:left;">' + r.soNumber + '</td>' +
+              '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>';
+          }).join('') +
           '</tbody></table></div>' +
           '</div>';
       }
 
-      var soItems = selectedItems();
-      soItems.forEach(function (r) { html += confirmBlockHtml(r); });
-      html += createLinkAndResultHtml(soItems);
+      if (singleSoMode) {
+        var soItems = selectedItems();
+        soItems.forEach(function (r) { html += confirmBlockHtml(r); });
+        html += createLinkAndResultHtml(soItems);
+      }
     }
 
     if (state.searchMode === 'name' || state.searchMode === 'customerId') {
