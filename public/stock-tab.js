@@ -33,7 +33,7 @@ function initStockTab(containerId, currentUser) {
     readinessMaxFilteredOrders: null,
     readinessMetaLoading: false,
     readinessMetaError: null,
-    readinessFilters: { orderDateFrom: '', orderDateTo: '', status: '' },
+    readinessFilters: { orderDateFrom: '', orderDateTo: '', statuses: [] }, // statuses: [] ว่าง = "ทั้งหมด" (2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน — เดิมเลือกได้ทีละสถานะ)
     readinessSearching: false,
     readinessSearchError: null,
     readinessSearched: false, // เคยกดค้นหาอย่างน้อย 1 ครั้งหรือยัง
@@ -277,7 +277,7 @@ function initStockTab(containerId, currentUser) {
         orderDateFrom: state.readinessFilters.orderDateFrom,
         orderDateTo: state.readinessFilters.orderDateTo,
       });
-      if (state.readinessFilters.status) params.set('status', state.readinessFilters.status);
+      if (state.readinessFilters.statuses.length) params.set('status', state.readinessFilters.statuses.join(','));
       var res = await fetch('/api/stock-orders?' + params.toString());
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'ค้นหาไม่สำเร็จ');
@@ -307,12 +307,19 @@ function initStockTab(containerId, currentUser) {
       '<div class="so-search-filter-row" style="flex-wrap:wrap;align-items:flex-end;">' +
       '<div class="field"><label>วันที่คำสั่งซื้อ ตั้งแต่</label><input type="date" id="rdFilterFrom" value="' + state.readinessFilters.orderDateFrom + '" /></div>' +
       '<div class="field"><label>ถึงวันที่</label><input type="date" id="rdFilterTo" value="' + state.readinessFilters.orderDateTo + '" /></div>' +
-      '<select id="rdFilterStatus" class="filter-select">' +
-      '<option value="">สถานะ: ทั้งหมด (ยกเว้นสถานะที่ปิดจบ/ยกเลิกอัตโนมัติ)</option>' +
-      state.readinessStatuses.map(function (s) { return '<option value="' + s + '"' + (state.readinessFilters.status === s ? ' selected' : '') + '>' + (STATUS_LABELS[s] || s) + '</option>'; }).join('') +
-      '</select>' +
       '<button type="button" class="btn btn-primary" id="rdBtnSearch"' + (state.readinessSearching ? ' disabled' : '') + '>' + (state.readinessSearching ? 'กำลังค้นหา...' : '🔍 ค้นหา') + '</button>' +
       '</div>' +
+      // 2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน — เดิมเป็น <select> เลือกได้ทีละสถานะ เปลี่ยนมาเป็นติ๊ก
+      // checkbox หลายอันได้ (ไม่ติ๊กเลย = ทั้งหมด เหมือนเดิม)
+      '<div class="field" style="margin-top:10px;"><label>สถานะ (เลือกได้หลายรายการ — ไม่เลือกเลย = ทั้งหมด ยกเว้นสถานะที่ปิดจบ/ยกเลิกอัตโนมัติ)</label>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding:6px 0;">' +
+      state.readinessStatuses.map(function (s) {
+        var checked = state.readinessFilters.statuses.indexOf(s) !== -1;
+        return '<label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;">' +
+          '<input type="checkbox" class="rdStatusCheck" data-status="' + s + '"' + (checked ? ' checked' : '') + ' />' +
+          (STATUS_LABELS[s] || s) + '</label>';
+      }).join('') +
+      '</div></div>' +
       '<p class="hint" style="margin-top:10px;">⚠️ ยังไม่มีตัวกรอง "วันที่อนุมัติเครดิต" (CRM ไม่มีฟิลด์นี้ตรงๆ — อยู่ระหว่างหาวิธี) ตอนนี้กรองได้แค่วันที่คำสั่งซื้อกับสถานะ</p>' +
       '</div>';
   }
@@ -401,11 +408,17 @@ function initStockTab(containerId, currentUser) {
       document.getElementById('stkViewReadiness').addEventListener('click', function () { switchView('readiness'); });
       var rdFrom = document.getElementById('rdFilterFrom');
       var rdTo = document.getElementById('rdFilterTo');
-      var rdStatus = document.getElementById('rdFilterStatus');
       var rdBtn = document.getElementById('rdBtnSearch');
       if (rdFrom) rdFrom.addEventListener('change', function (e) { state.readinessFilters.orderDateFrom = e.target.value; });
       if (rdTo) rdTo.addEventListener('change', function (e) { state.readinessFilters.orderDateTo = e.target.value; });
-      if (rdStatus) rdStatus.addEventListener('change', function (e) { state.readinessFilters.status = e.target.value; });
+      Array.prototype.forEach.call(document.querySelectorAll('.rdStatusCheck'), function (cb) {
+        cb.addEventListener('change', function () {
+          var s = cb.getAttribute('data-status');
+          var idx = state.readinessFilters.statuses.indexOf(s);
+          if (cb.checked && idx === -1) state.readinessFilters.statuses.push(s);
+          else if (!cb.checked && idx !== -1) state.readinessFilters.statuses.splice(idx, 1);
+        });
+      });
       if (rdBtn) rdBtn.addEventListener('click', searchReadiness);
       return;
     }

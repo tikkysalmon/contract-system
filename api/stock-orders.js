@@ -207,8 +207,10 @@ async function handleReadiness(req, res, authHeaders) {
     res.status(200).json({ needsFilter: true, statuses: ALL_KNOWN_STATUSES, maxFilteredOrders: MAX_FILTERED_ORDERS });
     return;
   }
+  // status รับได้หลายค่าคั่นด้วย , (2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน — เดิมรับได้ทีละสถานะ)
+  const statuses = q.status ? String(q.status).split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
   const result = await getStockReadinessFiltered(SUPABASE_URL, authHeaders, {
-    orderDateFrom: orderDateFrom, orderDateTo: orderDateTo, status: q.status ? String(q.status) : null,
+    orderDateFrom: orderDateFrom, orderDateTo: orderDateTo, status: statuses.length ? statuses : null,
   });
   res.status(200).json(result);
 }

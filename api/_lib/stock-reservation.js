@@ -147,7 +147,13 @@ async function fetchCrmOrdersFromCache(supabaseUrl, authHeaders, filters) {
     'order_date=lte.' + encodeURIComponent(filters.orderDateTo),
     'limit=' + (MAX_FILTERED_ORDERS + 1),
   ];
-  if (filters.status) params.push('status=eq.' + encodeURIComponent(filters.status));
+  // filters.status เป็น array ได้แล้ว (2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน) — 1 ค่าใช้ eq. เหมือนเดิม
+  // มากกว่า 1 ค่าใช้ in.(...) ของ PostgREST
+  if (filters.status && filters.status.length) {
+    params.push(filters.status.length === 1
+      ? 'status=eq.' + encodeURIComponent(filters.status[0])
+      : 'status=in.(' + filters.status.map(function (s) { return encodeURIComponent(s); }).join(',') + ')');
+  }
   const res = await fetch(supabaseUrl + '/rest/v1/crm_orders_cache?' + params.join('&'), { headers: authHeaders });
   if (!res.ok) {
     throw new Error('อ่านแคชคำสั่งขาย CRM จาก Supabase ไม่สำเร็จ (HTTP ' + res.status + ') — ตรวจว่ารัน supabase-crm-orders-cache.sql แล้วหรือยัง และ scripts/sync-odoo-stock.js เคยรันสำเร็จอย่างน้อย 1 ครั้งหรือยัง');
