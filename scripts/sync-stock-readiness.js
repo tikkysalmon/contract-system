@@ -55,12 +55,20 @@ async function chunkedInsert(supabaseUrl, authHeaders, table, rows, chunkSize) {
   }
 }
 
+// 2026-09-08 user ขอให้นับเฉพาะคลัง "คลังสินค้า" คลังเดียว (เดิมนับทุก location ที่เป็น internal type รวม
+// คลังย่อยอื่นๆ ด้วย เช่น คลังซ่อม/คลังของแถม/คลังสินค้าตัวอย่าง ซึ่งไม่ใช่สต๊อกที่ขายลูกค้าได้จริง) — filter
+// ด้วยชื่อ location ตรงตัว (ไม่ใช้ like/substring กัน false positive กับ "คลังสินค้าตัวอย่าง" ที่มีคำว่า
+// "คลังสินค้า" ขึ้นต้นเหมือนกัน) ⚠️ ยังไม่ได้ทดสอบกับ Odoo จริง (ไม่มีสิทธิ์เข้าถึงจากที่นี่) — ถ้ารันแล้วได้
+// รายการสินค้า 0 รายการ หรือน้อยผิดปกติ แปลว่าชื่อ location ใน Odoo อาจไม่ตรงเป๊ะ (เช่น มีช่องว่าง/เป็นแค่ชื่อ
+// location ลูกใต้ "คลังสินค้า" อีกที) แจ้งกลับมาเพื่อปรับ filter ให้ตรงได้
+const WAREHOUSE_LOCATION_NAME = 'คลังสินค้า';
+
 async function syncOdooStock(supabaseUrl, authHeaders) {
-  log('เชื่อมต่อ Odoo แล้วดึงสต๊อกคงเหลือ...');
+  log('เชื่อมต่อ Odoo แล้วดึงสต๊อกคงเหลือ (เฉพาะคลัง "' + WAREHOUSE_LOCATION_NAME + '")...');
   const odoo = getOdooClientFromEnv();
   const groups = await odoo.readGroup(
     'stock.quant',
-    [['location_id.usage', '=', 'internal'], ['quantity', '>', 0]],
+    [['location_id.usage', '=', 'internal'], ['location_id.name', '=', WAREHOUSE_LOCATION_NAME], ['quantity', '>', 0]],
     ['product_id', 'quantity:sum'],
     ['product_id']
   );
