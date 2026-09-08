@@ -27,8 +27,10 @@ function escHtml(s) {
 var PAGE_W = 794;   // 210mm ที่ ~96dpi (สอดคล้องกับที่ใช้เดิมทั้งระบบ)
 var PAGE_H = 1123;  // 297mm
 var MARGIN_X = 72;  // ~19mm ซ้าย-ขวา
-var MARGIN_TOP = 88; // ~23mm บน (เผื่อที่ให้หัวจดหมาย)
-var MARGIN_BOTTOM = 70; // ~18.5mm ล่าง
+// 2026-09-08 user ขอ: หัวกระดาษ (letterhead) ขยับขึ้น + ขอบบน-ล่างให้เท่ากัน (เดิม 88/70 บนมากกว่าล่างจน
+// ดูไม่สมดุล) — ลดเหลือ 50px (~13mm) เท่ากันทั้งสองด้าน
+var MARGIN_TOP = 50;
+var MARGIN_BOTTOM = 50;
 var CONTENT_W = PAGE_W - MARGIN_X * 2;
 var BODY_FONT = "'Sarabun','Noto Sans Thai','Leelawadee UI',sans-serif";
 
@@ -61,12 +63,33 @@ function isFieldLine(text) {
   return text.indexOf(' : ') !== -1 && text.length < 90;
 }
 
-function paragraphHtml(block) {
-  var inner = runsHtml(block.runs, block.text);
-  if (isFieldLine(block.text)) {
-    return '<p style="margin:0 0 8px; text-align:left;">' + inner + '</p>';
+// หัวข้อ "ตารางแสดงภาระหนี้ตามสัญญาเช่าซื้อ" — จัดกลางหน้ากระดาษ (2026-09-08 user ขอ)
+function isDebtTableHeading(text) {
+  return text.indexOf('ตารางแสดงภาระหนี้') === 0;
+}
+
+// 2026-09-08 user ขอ "ปรับข้อความในตารางแสดงภาระหนี้ให้ดูสวยงาม" — ต้นฉบับ .docx ใช้ w:tab (คนละจำนวนต่อ
+// บรรทัด) จัดตำแหน่งคอลัมน์แบบ tab-stop ของ Word ซึ่งพอมาเรนเดอร์บนความกว้างกระดาษของเราเองแล้วช่องว่างจะ
+// เพี้ยนไม่เท่ากันแต่ละบรรทัด (ยิ่งข้อความสั้น/ยาวต่างกัน ยิ่งเห็นชัด) — ตัดปัญหานี้โดยแยกแต่ละคู่ "label :
+// value" ที่คั่นด้วย tab ออกเป็นชิ้นๆ แล้วจัดเรียงด้วย flex gap คงที่แทน ระยะห่างจะสม่ำเสมอทุกบรรทัด
+function fieldLineHtml(block) {
+  var segments = block.text.split('\t').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (segments.length <= 1) {
+    return '<p style="margin:0 0 8px; text-align:left;">' + runsHtml(block.runs, block.text) + '</p>';
   }
-  return '<p style="margin:0 0 10px; text-align:justify; text-indent:1.8em;">' + inner + '</p>';
+  return '<div style="display:flex; flex-wrap:wrap; gap:6px 32px; margin:0 0 8px;">' +
+    segments.map(function (seg) { return '<span>' + escHtml(seg) + '</span>'; }).join('') +
+    '</div>';
+}
+
+function paragraphHtml(block) {
+  if (isDebtTableHeading(block.text)) {
+    return '<p style="margin:0 0 10px; text-align:center; font-weight:700;">' + runsHtml(block.runs, block.text) + '</p>';
+  }
+  if (isFieldLine(block.text)) {
+    return fieldLineHtml(block);
+  }
+  return '<p style="margin:0 0 10px; text-align:justify; text-indent:1.8em;">' + runsHtml(block.runs, block.text) + '</p>';
 }
 
 function tableHtml(block) {
@@ -257,11 +280,13 @@ function paginateBodyBlocks(blocks, meta, headerH) {
 }
 
 function pageDivHtml(meta, innerHtml, isFirstPage) {
+  // 2026-09-08 user ขอเอาหัวข้อ "ตัวอย่างสัญญาเช่าซื้อ (ฉบับร่างก่อนลงลายมือชื่อ)" ออก (ซ้ำกับหัวข้อ "สัญญา
+  // เช่าซื้อแบบผ่อนชำระ..." ที่เป็นย่อหน้าแรกของเนื้อหาสัญญาเองอยู่แล้ว) — meta.title ยังส่งมาเหมือนเดิม (ใช้
+  // ตั้งชื่อไฟล์/browser tab ที่อื่น) แค่ไม่ต้องพิมพ์ซ้ำบนหน้ากระดาษอีกต่อไป
   return '<div style="width:' + PAGE_W + 'px; height:' + PAGE_H + 'px; box-sizing:border-box; ' +
     'padding:' + MARGIN_TOP + 'px ' + MARGIN_X + 'px ' + MARGIN_BOTTOM + 'px; background:#ffffff; ' +
     'font-family:' + BODY_FONT + '; color:#1c1b19; font-size:13.5px; line-height:1.55; overflow:hidden;">' +
     headerHtml(meta) +
-    (isFirstPage ? '<div style="text-align:center; font-size:16px; font-weight:700; margin-bottom:14px;">' + escHtml(meta.title || '') + '</div>' : '') +
     innerHtml +
     '</div>';
 }

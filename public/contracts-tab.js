@@ -284,7 +284,8 @@ function initContractsTab(containerId, currentUser, options) {
       })
       .finally(function () {
         btn.disabled = false;
-        btn.textContent = '📄 ดูตัวอย่างสัญญา: ' + item.product + ' (PDF)';
+        // 2026-09-08 user ขอเปลี่ยนป้ายปุ่มจากชื่อสินค้าเป็นชื่อลูกค้าแทน
+        btn.textContent = '📄 ดูตัวอย่างสัญญา : ' + ((state.lastCustomer && state.lastCustomer.firstLastName) || '-') + ' (PDF)';
       });
   }
 
@@ -550,7 +551,9 @@ function initContractsTab(containerId, currentUser, options) {
           '<a href="' + state.lastLinkUrl + '" target="_blank" class="btn btn-secondary">เปิดฟอร์มลูกค้า</a>' +
           '<div style="margin-top:10px;">' +
           state.lastSessionItems.map(function (item) {
-            return '<button class="btn btn-ghost" id="btnPreviewContract__' + item.soNumber + '" data-so="' + item.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดูตัวอย่างสัญญา: ' + item.product + ' (PDF)</button>';
+            // 2026-09-08 user ขอเปลี่ยนป้ายปุ่มจากชื่อสินค้าเป็นชื่อลูกค้าแทน
+            var previewLabel = (state.lastCustomer && state.lastCustomer.firstLastName) || '-';
+            return '<button class="btn btn-ghost" id="btnPreviewContract__' + item.soNumber + '" data-so="' + item.soNumber + '" style="margin:4px 8px 4px 0;">📄 ดูตัวอย่างสัญญา : ' + previewLabel + ' (PDF)</button>';
           }).join('') +
           '</div>' +
           '<div class="err" id="previewContractErr"></div>' +
