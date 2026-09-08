@@ -584,15 +584,18 @@ function initContractsTab(containerId, currentUser, options) {
         // 2026-09-08 user ขอ: หน้าหลัก "สำหรับ CS" ไม่ต้องโชว์บล็อก "CS กรอกยืนยันก่อนสร้างลิงก์"/ปุ่มสร้างลิงก์
         // อีกต่อไป (ให้ทำขั้นตอนยืนยัน+สร้างลิงก์ที่แท็บใหม่ "ดูข้อมูล CRM" เท่านั้น — ที่นั่นก็ติ๊กรวม SO อื่น
         // ของลูกค้าคนเดียวกันได้ครบอยู่แล้ว) หน้าหลักจึงเหลือแค่ลิสต์ SO ของลูกค้าคนนี้ + ลิงก์เปิดแท็บใหม่
-        var soCandidates = [state.result].concat(state.otherItems);
         html += '<div class="card"><h2>คำสั่งขายของลูกค้าคนนี้</h2>' +
-          '<p class="hint">กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO ที่ต้องการในแท็บใหม่ — ยืนยันตัวเลข เลือกรวม SO อื่นของลูกค้าคนเดียวกัน (ถ้ามี) แล้วสร้างลิงก์ให้ลูกค้าได้จากหน้านั้นเลย</p>' +
+          '<p class="hint">SO ที่ค้นหา (' + state.result.soNumber + ') ติ๊กเลือกไว้เสมอ — ติ๊กเพิ่ม SO อื่นของลูกค้าคนเดียวกันได้ถ้าต้องการ กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO ที่ต้องการในแท็บใหม่ — ยืนยันตัวเลข/สร้างลิงก์ให้ลูกค้าได้จากหน้านั้นเลย</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th style="text-align:left;">SO</th><th></th></tr></thead>' +
+          '<thead><tr><th></th><th style="text-align:left;">SO</th><th></th></tr></thead>' +
           '<tbody>' +
-          soCandidates.map(function (r) {
-            return '<tr><td style="text-align:left;">' + r.soNumber + '</td>' +
-              '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>';
+          '<tr><td><input type="checkbox" checked disabled title="SO หลักที่ค้นหา" /></td><td style="text-align:left;">' + state.result.soNumber + '</td>' +
+          '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(state.result.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>' +
+          state.otherItems.map(function (it) {
+            var checked = !!state.includedSoNumbers[it.soNumber];
+            return '<tr><td><input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
+              '<td style="text-align:left;">' + it.soNumber + '</td>' +
+              '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(it.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>';
           }).join('') +
           '</tbody></table></div>' +
           '</div>';
