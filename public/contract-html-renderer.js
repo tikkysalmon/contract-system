@@ -205,17 +205,31 @@ function buildPhotoPagesHtml(meta) {
 // ---------- วัดความสูงเนื้อหาจริง แล้วจัดเรียงลงหน้า A4 (2026-09-04) ----------
 // สร้าง div วัดผลนอกจอ ความกว้างเท่าเนื้อหาจริงเป๊ะ ใส่ item ทีละอันแล้วอ่าน getBoundingClientRect — เป็น
 // ข้อความ/ตารางล้วน ไม่มีรูปภาพ (รูปภาพอยู่ในหน้าที่แยกไปแล้วข้างบน ไม่ต้องกังวลเรื่อง <img> โหลดไม่ทันตอนวัด)
+// 2026-09-08 แก้บั๊กจริงที่ user เจอ (ข้อความล้นตกขอบล่าง โดน overflow:hidden ของ pageDivHtml ตัดหาย): เดิม
+// ห่อแต่ละ block ด้วย <div> แยกกันแล้วอ่าน .getBoundingClientRect().height ของ wrap แต่ละอัน — margin-bottom
+// ของ <p>/<div> ข้างในที่ไม่มีอะไรตามหลังภายใน wrap เดียวกัน "escape" ทะลุ wrap เปล่าๆ (ไม่มี border/padding
+// กันไว้ ไม่ใช่ block formatting context) ทำให้ความสูงที่วัดได้ "ขาด" ไปเท่ากับ margin-bottom ของ block นั้น
+// ทุกครั้ง สะสมหลายสิบ block เข้าก็คลาดเคลื่อนไปหลายร้อยพิกเซล ทำให้จัดหน้าแน่นเกินจริง เนื้อหาจึงล้นพ้นขอบล่าง
+// จริงตอน render — แก้โดยแทรก marker (div สูง 0 ไม่มี margin) คั่นระหว่างแต่ละ block แทน แล้ววัดตำแหน่งจริงของ
+// marker ในโครงสร้าง DOM เดียวกับที่จะ render จริง (block ทุกตัวในไฟล์นี้ไม่มี margin-top เลย มีแต่ margin-
+// bottom จึงแทรก marker คั่นได้โดยไม่กระทบระยะห่างที่วัดได้แม้แต่พิกเซลเดียว — ดู CSS margin collapsing)
 function measureHeights(htmls) {
   var measurer = document.createElement('div');
   measurer.style.cssText = 'position:fixed; left:-99999px; top:0; width:' + CONTENT_W + 'px; ' +
     'font-family:' + BODY_FONT + '; font-size:13.5px; line-height:1.55; color:#1c1b19;';
+  measurer.innerHTML = htmls.map(function (html, i) {
+    return html + '<div class="pgmk" data-i="' + i + '"></div>';
+  }).join('');
   document.body.appendChild(measurer);
-  var heights = htmls.map(function (html) {
-    var wrap = document.createElement('div');
-    wrap.innerHTML = html;
-    measurer.appendChild(wrap);
-    return wrap.getBoundingClientRect().height;
-  });
+  var markers = measurer.querySelectorAll('.pgmk');
+  var measurerTop = measurer.getBoundingClientRect().top;
+  var heights = [];
+  var prevBottom = 0;
+  for (var i = 0; i < markers.length; i++) {
+    var top = markers[i].getBoundingClientRect().top - measurerTop;
+    heights.push(top - prevBottom);
+    prevBottom = top;
+  }
   measurer.remove();
   return heights;
 }
@@ -352,9 +366,11 @@ function renderContractPdf(blocks, meta) {
   meta = meta || {};
   meta.contractDateText = (typeof isoToDDMMYYYY === 'function' && isoToDDMMYYYY(meta.contractDate)) || '';
 
-  // วัด header ก่อน (ถ้ามีรูป letterhead ต้องโหลดรูปให้เสร็จก่อนวัดความสูงจริง)
+  // วัด header ก่อน (ถ้ามีรูป letterhead ต้องโหลดรูปให้เสร็จก่อนวัดความสูงจริง) — overflow:hidden กันไม่ให้
+  // margin-bottom ของ <img> (ดู headerHtml) escape ทะลุ container เปล่าๆ แล้วนับ headerH ขาดไป (บั๊กเดียวกับ
+  // measureHeights ด้านบน — ดูเหตุผลที่นั่น)
   var headerMeasureContainer = document.createElement('div');
-  headerMeasureContainer.style.cssText = 'position:fixed; left:-99999px; top:0; width:' + CONTENT_W + 'px;';
+  headerMeasureContainer.style.cssText = 'position:fixed; left:-99999px; top:0; width:' + CONTENT_W + 'px; overflow:hidden;';
   headerMeasureContainer.innerHTML = headerHtml(meta);
   document.body.appendChild(headerMeasureContainer);
 
