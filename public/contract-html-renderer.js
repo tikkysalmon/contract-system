@@ -68,6 +68,15 @@ function isDebtTableHeading(text) {
   return text.indexOf('ตารางแสดงภาระหนี้') === 0;
 }
 
+// หัวข้อประเภทสัญญา "สัญญาเช่าซื้อแบบผ่อนชำระ(วางดาวน์/เครดิตผ่าน)" — จัดกลางหน้ากระดาษเหมือนกัน (2026-09-08
+// user ขอ) ส่วน "ทำสัญญาวันที่ ..." / "เลขที่สัญญา ..." ต่อจากหัวข้อนี้ ให้เยื้องไปทางขวาแทน
+function isContractTitleHeading(text) {
+  return text.indexOf('สัญญาเช่าซื้อแบบผ่อนชำระ') === 0;
+}
+function isContractMetaLine(text) {
+  return text.indexOf('ทำสัญญาวันที่') === 0 || text.indexOf('เลขที่สัญญา') === 0;
+}
+
 // 2026-09-08 user ขอ "ปรับข้อความในตารางแสดงภาระหนี้ให้ดูสวยงาม" — ต้นฉบับ .docx ใช้ w:tab (คนละจำนวนต่อ
 // บรรทัด) จัดตำแหน่งคอลัมน์แบบ tab-stop ของ Word ซึ่งพอมาเรนเดอร์บนความกว้างกระดาษของเราเองแล้วช่องว่างจะ
 // เพี้ยนไม่เท่ากันแต่ละบรรทัด (ยิ่งข้อความสั้น/ยาวต่างกัน ยิ่งเห็นชัด) — ตัดปัญหานี้โดยแยกแต่ละคู่ "label :
@@ -83,8 +92,11 @@ function fieldLineHtml(block) {
 }
 
 function paragraphHtml(block) {
-  if (isDebtTableHeading(block.text)) {
+  if (isDebtTableHeading(block.text) || isContractTitleHeading(block.text)) {
     return '<p style="margin:0 0 10px; text-align:center; font-weight:700;">' + runsHtml(block.runs, block.text) + '</p>';
+  }
+  if (isContractMetaLine(block.text)) {
+    return '<p style="margin:0 0 8px; text-align:right;">' + runsHtml(block.runs, block.text) + '</p>';
   }
   if (isFieldLine(block.text)) {
     return fieldLineHtml(block);
