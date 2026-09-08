@@ -520,7 +520,10 @@ function initContractsTab(containerId, currentUser, options) {
     function confirmBlockHtml(r) {
       var cfg = state.itemInputs[r.soNumber];
       var suffix = '__' + r.soNumber;
-      return '<div class="card"><h2>CS กรอกยืนยันก่อนสร้างลิงก์ — ' + r.product + '</h2>' +
+      // 2026-09-08 user ขอ: หัวข้อนี้เคยใส่ชื่อสินค้า (ข้อมูลจาก CRM) กำกับไว้ — ตอนนี้ข้อมูลสินค้าดูได้จาก
+      // ลิงก์ "ดูข้อมูล CRM" อยู่แล้ว ไม่ต้องโชว์ซ้ำตรงนี้ ใช้เลข SO แทน (ไม่ใช่ข้อมูลจาก CRM แค่เลขอ้างอิงที่
+      // CS เห็นจากตารางเลือกด้านบนอยู่แล้ว) แยกบล็อกกันเวลามีหลาย SO ที่เลือกรวมเข้าลิงก์เดียวกัน
+      return '<div class="card"><h2>CS กรอกยืนยันก่อนสร้างลิงก์ — ' + r.soNumber + '</h2>' +
         '<p class="hint">ตัวเลขจาก CRM เป็นแค่ค่าเริ่มต้น กรุณาตรวจสอบ/แก้ไขให้ตรงกับที่ตกลงกับลูกค้าจริงก่อนกดสร้างลิงก์</p>' +
         '<div class="row2">' +
         '<div class="field"><label>จำนวนงวดที่ผ่อน</label><input type="text" id="installmentCountInput' + suffix + '" data-so="' + r.soNumber + '" value="' + cfg.installmentCount + '" /></div>' +
