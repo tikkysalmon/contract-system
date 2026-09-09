@@ -311,7 +311,7 @@ function initStockTab(containerId, currentUser) {
       '</div>' +
       // 2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน — เดิมเป็น <select> เลือกได้ทีละสถานะ เปลี่ยนมาเป็นติ๊ก
       // checkbox หลายอันได้ (ไม่ติ๊กเลย = ทั้งหมด เหมือนเดิม)
-      '<div class="field" style="margin-top:10px;"><label>สถานะ (เลือกได้หลายรายการ — ไม่เลือกเลย = ทั้งหมด ยกเว้นสถานะที่ปิดจบ/ยกเลิกอัตโนมัติ)</label>' +
+      '<div class="field" style="margin-top:10px;"><label>สถานะ (เลือกได้หลายรายการ — ไม่เลือกเลย = ใช้เงื่อนไข "พร้อมส่ง" อัตโนมัติตามวิธีผ่อน: ซื้อสด/ผ่อนครบรับของ→ปิดยอด, วางดาวน์/เครดิตผ่าน→อนุมัติเครดิตแล้ว)</label>' +
       '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding:6px 0;">' +
       state.readinessStatuses.map(function (s) {
         var checked = state.readinessFilters.statuses.indexOf(s) !== -1;
@@ -320,7 +320,7 @@ function initStockTab(containerId, currentUser) {
           (STATUS_LABELS[s] || s) + '</label>';
       }).join('') +
       '</div></div>' +
-      '<p class="hint" style="margin-top:10px;">⚠️ ยังไม่มีตัวกรอง "วันที่อนุมัติเครดิต" (CRM ไม่มีฟิลด์นี้ตรงๆ — อยู่ระหว่างหาวิธี) ตอนนี้กรองได้แค่วันที่คำสั่งซื้อกับสถานะ</p>' +
+      '<p class="hint" style="margin-top:10px;">⚠️ ยังไม่มีตัวกรอง "วันที่พร้อมส่งจริง" (วันอนุมัติเครดิต/ปิดยอด) — ยืนยันแล้วว่า CRM ไม่มีฟิลด์นี้ใน endpoint แบบ list ที่ใช้ sync เลย (มีแค่ endpoint รายละเอียดทีละใบ) กรองด้วยวันที่คำสั่งซื้อไปก่อน อาจไม่ครอบคลุมรายการที่สั่งซื้อนานแล้วแต่เพิ่งพร้อมส่งช่วงนี้</p>' +
       '</div>';
   }
 

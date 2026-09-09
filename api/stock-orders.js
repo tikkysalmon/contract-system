@@ -193,12 +193,13 @@ async function handleUpdate(req, res, authHeaders) {
   res.status(400).json({ error: 'ไม่รู้จัก action นี้' });
 }
 
-// "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07, ปรับใหม่ 2026-09-08) — GET ?view=readiness อ่านคำสั่ง
-// ขายจากตาราง Supabase crm_orders_cache + สต๊อกจาก odoo_stock_cache (ทั้งคู่ sync จากพีซี user เองทุก 15 นาที
-// — เว็บยิง CRM/Odoo สดไม่ได้เลย ทั้งติด firewall (Odoo) และข้อมูลเยอะเกินไปจนเกิน timeout (CRM มี 89,031
-// รายการ ไม่รองรับ filter ฝั่ง server — ดูหมายเหตุยาวใน _lib/stock-reservation.js) **บังคับให้พนักงานระบุช่วง
-// วันที่คำสั่งซื้อก่อนเสมอ** (orderDateFrom/orderDateTo) กันดึงข้อมูลกว้างเกินไป — ไม่ระบุมาจะได้แค่รายการ
-// สถานะสำหรับ dropdown กลับไปเฉยๆ ไม่ query อะไรเพิ่ม
+// "ตรวจสอบสินค้าในคลังว่าพร้อมส่งหรือไม่" (2026-09-07, ปรับใหม่ 2026-09-08, แก้เงื่อนไข "พร้อมส่ง" 2026-09-09) —
+// GET ?view=readiness อ่านคำสั่งขายจากตาราง Supabase crm_orders_cache + สต๊อกจาก odoo_stock_cache (ทั้งคู่ sync
+// จากพีซี user เองทุก 15 นาที — เว็บยิง CRM/Odoo สดไม่ได้เลย ทั้งติด firewall (Odoo) และข้อมูลเยอะเกินไปจนเกิน
+// timeout (CRM มี 89,031 รายการ ไม่รองรับ filter ฝั่ง server — ดูหมายเหตุ + READY_STATUS_BY_TYPE ยาวใน
+// _lib/stock-reservation.js) **บังคับให้พนักงานระบุช่วงวันที่คำสั่งซื้อก่อนเสมอ** (orderDateFrom/orderDateTo —
+// ยังใช้วันที่คำสั่งซื้อ ไม่ใช่วันที่พร้อมส่งจริง เพราะ CRM ไม่มีฟิลด์นั้นให้ query แบบ bulk ได้ ดูหมายเหตุใน
+// _lib/stock-reservation.js) กันดึงข้อมูลกว้างเกินไป — ไม่ระบุมาจะได้แค่รายการสถานะสำหรับ dropdown กลับไปเฉยๆ
 async function handleReadiness(req, res, authHeaders) {
   const q = req.query || {};
   const orderDateFrom = String(q.orderDateFrom || '');
