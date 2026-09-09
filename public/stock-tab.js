@@ -40,7 +40,10 @@ function initStockTab(containerId, currentUser) {
     printingBillSo: null, // SO ที่กำลังพิมพ์ใบเบิกรายบิลอยู่ (กันกดซ้ำ)
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
+    pageSize: 20, // 2026-09-09 user ขอแบ่งหน้าตาราง "รายการออเดอร์" — ทำฝั่ง client (ข้อมูลทั้งหมดโหลดมาแล้ว)
+    currentPage: 1, // เริ่มที่ 1 เสมอ
   };
+  var PAGE_SIZE_OPTIONS = [20, 50, 100];
 
   function fmtDateTime(iso) {
     if (!iso) return '-';
@@ -453,6 +456,13 @@ function initStockTab(containerId, currentUser) {
       html += '<div class="card"><p style="color:var(--danger);">' + state.error + '</p></div>';
     } else {
       var orders = filtered();
+      // แบ่งหน้าฝั่ง client (2026-09-09 user ขอ) — ข้อมูลทั้งหมดโหลด/กรองไว้แล้ว แค่ตัดโชว์เป็นหน้าๆ ไม่กระทบ
+      // selection/print (ยังอิงจาก orders/filtered() เต็มทุกรายการเหมือนเดิม ไม่ใช่แค่หน้าที่กำลังโชว์)
+      var totalPages = Math.max(1, Math.ceil(orders.length / state.pageSize));
+      if (state.currentPage > totalPages) state.currentPage = totalPages;
+      if (state.currentPage < 1) state.currentPage = 1;
+      var pageStart = (state.currentPage - 1) * state.pageSize;
+      var pagedOrders = orders.slice(pageStart, pageStart + state.pageSize);
       html += '<div class="card"><h2>รายการออเดอร์ (' + orders.length + ' รายการ)</h2>' +
         '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">' +
         '<select id="stkAssignRound" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;">' +
@@ -462,9 +472,20 @@ function initStockTab(containerId, currentUser) {
         '<button class="btn btn-primary" id="stkBtnPrint"' + (state.printing ? ' disabled' : '') + '>' + (state.printing ? 'กำลังสร้าง PDF...' : '📄 พิมพ์ใบเบิกประจำวัน (PDF)') + '</button>' +
         '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่') + '</span>' +
         '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">' +
+        '<label style="font-size:13px;color:var(--muted);">แสดง ' +
+        '<select id="stkPageSize" class="filter-select" style="display:inline-block;width:auto;">' +
+        PAGE_SIZE_OPTIONS.map(function (n) { return '<option value="' + n + '"' + (state.pageSize === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') +
+        '</select> รายการต่อหน้า</label>' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-left:auto;">' +
+        '<button type="button" class="btn btn-ghost" id="stkBtnPrevPage"' + (state.currentPage <= 1 ? ' disabled' : '') + '>‹ ก่อนหน้า</button>' +
+        '<span style="font-size:13px;color:var(--muted);">หน้า ' + state.currentPage + ' / ' + totalPages + '</span>' +
+        '<button type="button" class="btn btn-ghost" id="stkBtnNextPage"' + (state.currentPage >= totalPages ? ' disabled' : '') + '>ถัดไป ›</button>' +
+        '</div>' +
+        '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
         '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th><th></th></tr></thead>' +
-        '<tbody>' + orders.map(function (o) {
+        '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
             '<td><input type="checkbox" class="stkRowCheck" data-so="' + o.soNumber + '"' + (checked ? ' checked' : '') + (o.cancelledAt ? ' disabled' : '') + ' /></td>' +
@@ -481,7 +502,7 @@ function initStockTab(containerId, currentUser) {
             '<td><button type="button" class="btn btn-ghost stkBtnPrintBill" data-so="' + o.soNumber + '"' + (state.printingBillSo === o.soNumber ? ' disabled' : '') + '>' + (state.printingBillSo === o.soNumber ? 'กำลังสร้าง...' : '🖨️ ใบเบิกรายบิล') + '</button></td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (orders.length === 0 ? '<tr><td colspan="13" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="13" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }
@@ -497,13 +518,13 @@ function initStockTab(containerId, currentUser) {
 
     app.innerHTML = html;
 
-    document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; load(); });
+    document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; state.currentPage = 1; load(); });
     document.getElementById('stkFilterQuery').addEventListener('input', function (e) { state.filterQuery = e.target.value; });
-    document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
-    document.getElementById('stkFilterRound').addEventListener('change', function (e) { state.filterRound = e.target.value; load(); });
-    document.getElementById('stkFilterPrintStatus').addEventListener('change', function (e) { state.filterPrintStatus = e.target.value; load(); });
-    document.getElementById('stkFilterChannel').addEventListener('change', function (e) { state.filterChannel = e.target.value; render(); });
-    document.getElementById('stkShowCancelled').addEventListener('change', function (e) { state.showCancelled = e.target.checked; load(); });
+    document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.currentPage = 1; load(); } });
+    document.getElementById('stkFilterRound').addEventListener('change', function (e) { state.filterRound = e.target.value; state.currentPage = 1; load(); });
+    document.getElementById('stkFilterPrintStatus').addEventListener('change', function (e) { state.filterPrintStatus = e.target.value; state.currentPage = 1; load(); });
+    document.getElementById('stkFilterChannel').addEventListener('change', function (e) { state.filterChannel = e.target.value; state.currentPage = 1; render(); });
+    document.getElementById('stkShowCancelled').addEventListener('change', function (e) { state.showCancelled = e.target.checked; state.currentPage = 1; load(); });
 
     if (!state.loading && !state.error) {
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowCheck'), function (cb) {
@@ -521,6 +542,12 @@ function initStockTab(containerId, currentUser) {
       Array.prototype.forEach.call(document.querySelectorAll('.stkBtnPrintBill'), function (btn) {
         btn.addEventListener('click', function () { printSingleBill(btn.getAttribute('data-so')); });
       });
+      var pageSizeSel = document.getElementById('stkPageSize');
+      if (pageSizeSel) pageSizeSel.addEventListener('change', function (e) { state.pageSize = Number(e.target.value) || 20; state.currentPage = 1; render(); });
+      var btnPrevPage = document.getElementById('stkBtnPrevPage');
+      if (btnPrevPage) btnPrevPage.addEventListener('click', function () { state.currentPage--; render(); });
+      var btnNextPage = document.getElementById('stkBtnNextPage');
+      if (btnNextPage) btnNextPage.addEventListener('click', function () { state.currentPage++; render(); });
       var assignRoundSel = document.getElementById('stkAssignRound');
       if (assignRoundSel) assignRoundSel.addEventListener('change', function (e) { state.assignRound = e.target.value; });
       var btnPrint = document.getElementById('stkBtnPrint');
