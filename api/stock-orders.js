@@ -25,12 +25,16 @@
 
 const {
   splitProductName, normalizeProductName, allocateStock, fetchStockByProduct, fetchCrmCacheSyncedAt,
-  enrichWithProductName, crmLoginForStock, MAX_FILTERED_ORDERS,
+  enrichWithProductName, crmLoginForStock, MAX_FILTERED_ORDERS, INSTALLMENT_TYPE_LABELS,
 } = require('./_lib/stock-reservation');
 const { computeContractStatus } = require('./_lib/contract-status');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// planType ที่ CS กรอกไว้ตอนสร้างลิงก์ (mapPlanType ใน crm-lookup.js) เป็นค่าคนละชุดกับ installmentType ดิบ
+// ของ CRM — ใช้ map กลับตอน SO ยังไม่เข้าแคช crm_orders_cache เท่านั้น (ปกติจะได้ installmentType ดิบจากแคชอยู่แล้ว)
+const PLAN_TYPE_TO_INSTALLMENT_TYPE = { downpayment: 'DOWN_PAYMENT', installment: 'PARTIAL_PAY_THEN_RECEIVE' };
 
 // ดึงเฉพาะ order_date/installment_type ของ SO ที่ระบุจากแคช crm_orders_cache (query เดียว ไม่ยิง CRM สด) —
 // ใช้เติมให้ฝั่งเครดิต/วางดาวน์ ที่ item ใน crm_snapshot.items[] ไม่มี 2 ฟิลด์นี้เก็บไว้เอง (ดู create-session.js)
@@ -85,6 +89,7 @@ async function fetchCreditOrders(authHeaders) {
         source: 'credit',
         sourceLabel: 'เครดิตผ่าน/วางดาวน์',
         contractStatus: contractStatus,
+        sessionToken: session.token || null, // ใช้กรุ๊ป SO ที่ลูกค้าคนเดียวกันเซ็นรวมลิงก์เดียวกัน (เช่น เครื่อง+อุปกรณ์เสริม) ในใบสรุปเบิกประจำวัน
         customerId: item.customerId || null,
         customerName: customer.firstLastName || (snapshot.customer && snapshot.customer.firstLastName) || '-',
         product: item.product,
@@ -98,6 +103,13 @@ async function fetchCreditOrders(authHeaders) {
           provinceName: addr.provinceName || null,
           zip: addr.zip || null,
         },
+        deliveryChannel: item.deliveryChannel || null, // CS เลือกตอนตรวจสอบก่อนสร้างลิงก์ (2026-09-09)
+        giftItem: customer.giftItem || null, // ลูกค้าเลือกเองตอนกรอกฟอร์ม (sign.js's step 'gift')
+        planType: item.planType || null, // 'downpayment'/'installment' — สำรองไว้เผื่อ SO นี้ยังไม่เข้าแคช CRM (ดู PLAN_TYPE_TO_INSTALLMENT_TYPE ด้านล่าง)
+        productPrice: item.productPrice != null ? item.productPrice : null,
+        netPrice: item.netPrice != null ? item.netPrice : null,
+        downPayment: item.downPayment != null ? item.downPayment : null,
+        remainingBalance: item.remainingBalance != null ? item.remainingBalance : null,
       });
     });
   });
@@ -109,9 +121,11 @@ async function fetchCreditOrders(authHeaders) {
   const crmFieldsBySo = await fetchCrmCacheFieldsForSoNumbers(authHeaders, soNumbers);
   return orders.map(function (o) {
     const cached = crmFieldsBySo[o.soNumber];
+    const installmentType = cached ? cached.installment_type : (PLAN_TYPE_TO_INSTALLMENT_TYPE[o.planType] || null);
     return Object.assign({}, o, {
       orderDate: cached ? cached.order_date : null,
-      installmentType: cached ? cached.installment_type : null,
+      installmentType: installmentType,
+      installmentTypeLabel: INSTALLMENT_TYPE_LABELS[installmentType] || installmentType,
     });
   });
 }
@@ -163,8 +177,13 @@ async function fetchCashOrders(authHeaders) {
       recipientName: null,
       recipientPhone: null,
       shippingAddress: null,
+      deliveryChannel: null, // ไม่ผ่านระบบทำสัญญา ไม่มี step ให้ CS เลือกช่องทางจัดส่งเหมือนฝั่งเครดิต
+      giftItem: null, // ไม่ผ่านฟอร์มลูกค้า ไม่มีของแถม
+      productPrice: null, netPrice: null, downPayment: null, remainingBalance: null,
       orderDate: o.orderDate,
       installmentType: o.installmentType,
+      installmentTypeLabel: INSTALLMENT_TYPE_LABELS[o.installmentType] || o.installmentType,
+      sessionToken: null, // ไม่ผ่านระบบทำสัญญา ไม่มี session ให้กรุ๊ป (แสดงเดี่ยวเสมอในใบสรุปเบิกประจำวัน)
     };
   });
   return { orders: orders, truncated: truncated, matchedCount: rows.length };

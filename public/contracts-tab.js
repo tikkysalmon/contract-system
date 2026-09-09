@@ -18,6 +18,9 @@ function initContractsTab(containerId, currentUser, options) {
   // เบราว์เซอร์ได้แล้ว
 
   var LETTERHEAD_KEY = 'contractLetterheadDataUrl';
+  // 2026-09-09 user ขอเพิ่ม — ให้ CS เลือกตอนตรวจสอบข้อมูลก่อนสร้างลิงก์ (ลูกค้าไม่ได้กรอกเอง) ใช้โชว์ในใบเบิก
+  // สินค้า/ใบสรุปเบิกประจำวันของเมนู "สำหรับสต๊อค" — รายการช่องทางยืนยันจาก user ตรงๆ
+  var DELIVERY_CHANNEL_OPTIONS = ['ส่งไปรษณีย์', 'ส่งแมส', 'นัดรับสาขาอ่อนนุช', 'นัดรับสาขาพัทยา'];
 
   var state = {
     searchMode: 'so',       // 'so' | 'name' (2026-09-04 เพิ่มโหมดค้นหาด้วยชื่อลูกค้า) | 'customerId' (2026-09-08)
@@ -75,6 +78,7 @@ function initContractsTab(containerId, currentUser, options) {
     state.itemInputs[item.soNumber] = {
       installmentCount: item.installmentCountFromCrm || 12,
       firstDueDate: firstDueDate,
+      deliveryChannel: DELIVERY_CHANNEL_OPTIONS[0],
     };
   }
 
@@ -312,6 +316,7 @@ function initContractsTab(containerId, currentUser, options) {
         remainingBalance: r.remainingBalance,
         installmentCount: cfg.installmentCount,
         firstDueDate: cfg.firstDueDate,
+        deliveryChannel: cfg.deliveryChannel, // 2026-09-09 user ขอเพิ่ม — ใช้โชว์ในใบเบิกสินค้า/ใบสรุปเบิกประจำวันของเมนู "สำหรับสต๊อค"
       };
     });
     var session = {
@@ -531,6 +536,9 @@ function initContractsTab(containerId, currentUser, options) {
         '<div class="date-display">' + (isoToDDMMYYYY(cfg.firstDueDate) || 'เลือกวันที่') + '</div>' +
         '</div></div>' +
         '</div>' +
+        '<div class="field"><label>ช่องทางการจัดส่ง</label><select id="deliveryChannelInput' + suffix + '" data-so="' + r.soNumber + '">' +
+        DELIVERY_CHANNEL_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (cfg.deliveryChannel === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
+        '</select></div>' +
         '<p>ยอดผ่อนต่องวดที่คำนวณได้: <b id="computedInstallmentAmount' + suffix + '">' + fmtMoney(computeInstallmentAmountFor(r)) + ' บาท</b></p>' +
         '</div>';
     }
@@ -727,6 +735,8 @@ function initContractsTab(containerId, currentUser, options) {
           value: state.itemInputs[r.soNumber].firstDueDate,
           onChange: function (iso) { state.itemInputs[r.soNumber].firstDueDate = iso; },
         });
+        var channelInput = document.getElementById('deliveryChannelInput' + suffix);
+        if (channelInput) channelInput.addEventListener('change', function (e) { state.itemInputs[r.soNumber].deliveryChannel = e.target.value; });
       });
       var btnCreateLink = document.getElementById('btnCreateLink');
       if (btnCreateLink) btnCreateLink.addEventListener('click', createLink);

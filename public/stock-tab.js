@@ -1,14 +1,22 @@
-// "สำหรับสต๊อค" (2026-09-06, ยุบรวมกับแท็บ "ตรวจสอบสินค้าพร้อมส่ง" เดิมเข้าเป็นแท็บเดียว 2026-09-09 ตามที่
-// user ยืนยัน) — แทนที่ระบบเดิมที่ดึงจาก Lark Base (ดู ระบบจัดการออเดอร์.tsx ที่ user ส่งมาอ้างอิง UI/PDF เดิม)
-// ดึงข้อมูลสด 2 แหล่ง: เครดิตผ่าน/วางดาวน์ (จากเมนู "ข้อมูลลูกค้าทำสัญญา" สถานะ "สัญญาลูกค้าเรียบร้อย") +
-// ซื้อสด/ปิดยอด (จาก crm_orders_cache — ต่อจริงแล้ว) แล้วจับคู่กับสต๊อก Odoo ต่อแถวเลย (คอลัมน์ "สต๊อกคงเหลือ"/
-// "สถานะ" ในตาราง — ตรรกะจัดคิวอยู่ที่ api/_lib/stock-reservation.js) ให้สต๊อคกำหนด "รอบการเบิก" แล้วพิมพ์ใบเบิก
-// ประจำวันเป็น PDF ก่อนพิมพ์จริง
+// "สำหรับสต๊อค" (2026-09-06, ยุบรวมกับแท็บ "ตรวจสอบสินค้าพร้อมส่ง" เดิมเข้าเป็นแท็บเดียว + เพิ่มฟอร์ม PDF
+// 2 แบบ 2026-09-09 ตามที่ user ยืนยัน) — แทนที่ระบบเดิมที่ดึงจาก Lark Base (ดู ระบบจัดการออเดอร์.tsx ที่ user
+// ส่งมาอ้างอิง UI/PDF เดิม) ดึงข้อมูลสด 2 แหล่ง: เครดิตผ่าน/วางดาวน์ (จากเมนู "ข้อมูลลูกค้าทำสัญญา" สถานะ
+// "สัญญาลูกค้าเรียบร้อย") + ซื้อสด/ปิดยอด (จาก crm_orders_cache) แล้วจับคู่กับสต๊อก Odoo ต่อแถวเลย (คอลัมน์
+// "สต๊อกคงเหลือ"/"สถานะ" ในตาราง — ตรรกะจัดคิวอยู่ที่ api/_lib/stock-reservation.js) ให้สต๊อคกำหนด "รอบการเบิก"
+// ต่อแถว (dropdown) แล้วพิมพ์ได้ 2 แบบ:
+//   1. "ใบเบิกสินค้า ราย SO" (ปุ่ม 🖨️ ใบเบิกรายบิล ต่อแถว) — พิมพ์ทีละบิล รวมอุปกรณ์เสริม (SO อื่นใน session
+//      เดียวกัน — ดู contracts-tab.js's DELIVERY_CHANNEL_OPTIONS) เข้าใบเดียวกันด้วย
+//   2. "ใบสรุปเบิกสินค้าประจำวัน" (ปุ่ม 📄 พิมพ์ใบเบิกประจำวัน) — กรุ๊ป SO ที่ session เดียวกันเป็นแถวเดียว
+//      (คอลัมน์ Accessory แยกจากสินค้าหลัก) ตามตัวอย่างจริงที่ user ส่งมา (โฟลเดอร์ 15_ระบบทำสัญญา)
 // ใช้: initStockTab('containerElementId', currentUser)
 function initStockTab(containerId, currentUser) {
   'use strict';
 
   var ROUND_OPTIONS = ['เช้ารอบ 1', 'เช้ารอบ 2', 'เช้ารอบ 3', 'บ่ายรอบ 1', 'บ่ายรอบ 2', 'บ่ายรอบ 3'];
+  // เหมือนกับ DELIVERY_CHANNEL_OPTIONS ใน contracts-tab.js (ที่ CS เป็นคนเลือกตอนตรวจสอบก่อนสร้างลิงก์) —
+  // ใช้กรองรายการ/โชว์หัวใบสรุปเบิกประจำวันฝั่งนี้
+  var DELIVERY_CHANNEL_OPTIONS = ['ส่งไปรษณีย์', 'ส่งแมส', 'นัดรับสาขาอ่อนนุช', 'นัดรับสาขาพัทยา'];
+  var CUSTOMER_TYPE_LABELS = { all: 'ทั้งหมด', credit: 'เครดิตผ่าน/วางดาวน์', cash: 'ซื้อสด/ปิดยอด' };
 
   var state = {
     loading: true,
@@ -24,10 +32,12 @@ function initStockTab(containerId, currentUser) {
     filterCustomerType: 'all',
     filterQuery: '',
     filterRound: 'all',
+    filterChannel: 'all', // ฝั่ง client ล้วน (ยังไม่ได้ส่งไป server เหมือน filter อื่น — ข้อมูลทั้งหมดโหลดมาแล้ว)
     filterPrintStatus: 'all',
     showCancelled: false,
     assignRound: '', // เลือกไว้แค่ตอนพิมพ์ใบสรุปเบิกประจำวัน (label บนใบ) ไม่ใช่ตัวกำหนดรอบต่อรายการแล้ว
     printing: false,
+    printingBillSo: null, // SO ที่กำลังพิมพ์ใบเบิกรายบิลอยู่ (กันกดซ้ำ)
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
   };
@@ -37,6 +47,14 @@ function initStockTab(containerId, currentUser) {
     var d = new Date(iso);
     if (isNaN(d)) return '-';
     return (isoToDDMMYYYY(iso.slice(0, 10)) || '-') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function fmtMoney(n) {
+    return n == null ? '-' : Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fmtAddress(addr) {
+    if (!addr) return '-';
+    var parts = [addr.detail, addr.subdistrictName, addr.districtName, addr.provinceName, addr.zip].filter(Boolean);
+    return parts.length ? parts.join(' ') : '-';
   }
 
   async function load() {
@@ -135,24 +153,57 @@ function initStockTab(containerId, currentUser) {
   // วันที่/ประเภทลูกค้า/รอบการเบิก + ตาราง ลำดับที่/รหัส SO/รหัสลูกค้า/ชื่อลูกค้า/ผู้รับสินค้า/รายการสินค้า/จำนวน
   // + ช่องเซ็น 3 จุด (ผู้ขอเบิก/ผู้ตรวจสอบสินค้า/ผู้รับสินค้า) — สร้างด้วย html2canvas+jsPDF เหมือนสัญญา
   // (contract-html-renderer.js) ไม่ใช้ jspdf-autotable ของระบบเดิม กันต้องโหลดไลบรารีเพิ่ม ----------
-  function requisitionPageHtml(rows, roundLabel, pageNo, totalPages) {
+  // กรุ๊ปแถวที่มี sessionToken เดียวกัน (ลูกค้าคนเดียวกันเซ็นรวมลิงก์เดียว เช่น วางดาวน์เครื่อง+อุปกรณ์เสริม
+  // ที่ CRM บังคับแยก SO — ดู contracts-tab.js) ให้เหลือแถวเดียวต่อการจัดส่ง 1 ครั้ง ตามตัวอย่างใบสรุปเบิก
+  // ประจำวันจริงที่ user ส่งมา (คอลัมน์ Accessory แยกจากรายการสินค้าหลัก ไม่ใช่คนละแถว) — sessionToken เป็น
+  // null ได้ (ฝั่งซื้อสด/ปิดยอดไม่มี session) แต่ละแถวก็แสดงเดี่ยวไปตามปกติ ไม่กรุ๊ปกับใคร
+  function groupForDailySummary(orders) {
+    var bySession = {};
+    var result = [];
+    orders.forEach(function (o) {
+      if (!o.sessionToken) { result.push({ main: o, accessories: [] }); return; }
+      if (!bySession[o.sessionToken]) {
+        var group = { main: o, accessories: [] };
+        bySession[o.sessionToken] = group;
+        result.push(group);
+      } else {
+        bySession[o.sessionToken].accessories.push(o);
+      }
+    });
+    return result;
+  }
+
+  function productLabel(o) { return o.product + (o.color ? ' (' + o.color + ')' : ''); }
+
+  // เค้าโครงตรงตามตัวอย่างจริง "ใบสรุปเบิกสินค้าประจำวัน" ที่ user ส่งมา (โฟลเดอร์ 15_ระบบทำสัญญา) — เพิ่ม
+  // คอลัมน์ Accessory/ของแถม จากของเดิมที่มีแค่ ลำดับ/SO/รหัสลูกค้า/ชื่อ/ผู้รับ/สินค้า/จำนวน
+  function requisitionPageHtml(groups, startIndex, roundLabel, pageNo, totalPages) {
     var td = 'border:1px solid #999;padding:5px;';
-    var rowsHtml = rows.map(function (r, i) {
+    var rowsHtml = groups.map(function (g, i) {
+      var r = g.main;
+      var accessoryLabel = g.accessories.length ? g.accessories.map(productLabel).join(', ') : '-';
       return '<tr>' +
-        '<td style="' + td + 'text-align:center;">' + (i + 1) + '</td>' +
+        '<td style="' + td + 'text-align:center;">' + (startIndex + i + 1) + '</td>' +
         '<td style="' + td + '">' + r.soNumber + '</td>' +
         '<td style="' + td + '">' + (r.customerId || '-') + '</td>' +
         '<td style="' + td + '">' + r.customerName + '</td>' +
-        '<td style="' + td + '">' + (r.recipientName || '-') + '</td>' +
-        '<td style="' + td + '">' + r.product + (r.color ? ' (' + r.color + ')' : '') + '</td>' +
+        '<td style="' + td + '">' + (r.recipientName || r.customerName || '-') + '</td>' +
+        '<td style="' + td + '">' + productLabel(r) + '</td>' +
+        '<td style="' + td + '">' + accessoryLabel + '</td>' +
         '<td style="' + td + 'text-align:center;">1</td>' +
+        '<td style="' + td + '">' + (r.giftItem || '-') + '</td>' +
         '</tr>';
     }).join('');
+    var channelLabel = state.filterChannel === 'all' ? 'ทุกช่องทาง' : state.filterChannel;
+    var customerTypeLabel = CUSTOMER_TYPE_LABELS[state.filterCustomerType] || 'ทั้งหมด';
     return '<div style="width:794px;min-height:1123px;box-sizing:border-box;padding:36px 32px;font-family:\'Sarabun\',\'Noto Sans Thai\',sans-serif;color:#1c1b19;">' +
       '<div style="text-align:center;font-weight:700;font-size:15px;">บริษัท แซลม่อน เอ็นเตอร์ไพรส์ จำกัด</div>' +
       '<div style="text-align:center;font-weight:700;font-size:14px;margin-top:2px;">ใบสรุปเบิกสินค้าประจำวัน</div>' +
-      '<div style="text-align:center;font-size:12px;color:#555;margin-top:8px;">วันที่พิมพ์: ' + isoToDDMMYYYY(new Date().toISOString().slice(0, 10)) + ' &nbsp;|&nbsp; รอบการเบิก: ' + (roundLabel || '-') + ' &nbsp;|&nbsp; หน้า ' + pageNo + '/' + totalPages + '</div>' +
-      '<table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:11px;">' +
+      '<div style="text-align:center;font-size:12px;color:#555;margin-top:8px;">' +
+      'วันที่จัดส่ง: ' + isoToDDMMYYYY(new Date().toISOString().slice(0, 10)) + ' &nbsp;|&nbsp; ช่องทางการจัดส่ง: ' + channelLabel + '<br/>' +
+      'ประเภทลูกค้า: ' + customerTypeLabel + ' &nbsp;|&nbsp; รอบการเบิก: ' + (roundLabel || '-') + ' &nbsp;|&nbsp; หน้า ' + pageNo + '/' + totalPages +
+      '</div>' +
+      '<table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:10px;">' +
       '<thead><tr style="background:#f2f2f2;">' +
       '<th style="' + td + '">ลำดับ</th>' +
       '<th style="' + td + '">เลขที่ SO</th>' +
@@ -160,7 +211,9 @@ function initStockTab(containerId, currentUser) {
       '<th style="' + td + '">ชื่อลูกค้า</th>' +
       '<th style="' + td + '">ผู้รับสินค้า</th>' +
       '<th style="' + td + '">รายการสินค้า</th>' +
+      '<th style="' + td + '">Accessory</th>' +
       '<th style="' + td + '">จำนวน</th>' +
+      '<th style="' + td + '">ของแถม</th>' +
       '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
       '<div style="display:flex;justify-content:space-around;margin-top:60px;">' +
       ['ผู้ขอเบิก / วันที่', 'ผู้ตรวจสอบสินค้า / วันที่', 'ผู้รับสินค้า / วันที่'].map(function (label) {
@@ -179,14 +232,15 @@ function initStockTab(containerId, currentUser) {
     state.printing = true;
     render();
     try {
+      var groups = groupForDailySummary(orders);
       var ITEMS_PER_PAGE = 25;
-      var totalPages = Math.ceil(orders.length / ITEMS_PER_PAGE);
+      var totalPages = Math.ceil(groups.length / ITEMS_PER_PAGE);
       var pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
       for (var p = 0; p < totalPages; p++) {
-        var chunk = orders.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
+        var chunk = groups.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
         var wrap = document.createElement('div');
         wrap.style.cssText = 'position:fixed;left:-99999px;top:0;';
-        wrap.innerHTML = requisitionPageHtml(chunk, state.assignRound, p + 1, totalPages);
+        wrap.innerHTML = requisitionPageHtml(chunk, p * ITEMS_PER_PAGE, state.assignRound, p + 1, totalPages);
         document.body.appendChild(wrap);
         var canvas = await window.html2canvas(wrap.firstChild, { scale: 2, backgroundColor: '#ffffff' });
         wrap.remove();
@@ -203,7 +257,89 @@ function initStockTab(containerId, currentUser) {
     render();
   }
 
-  function filtered() { return state.orders; } // กรองฝั่ง server ผ่าน query params ไปแล้วตอน load()
+  // ---------- พิมพ์ "ใบเบิกสินค้า ราย SO" (2026-09-09 user ขอเพิ่ม) — เค้าโครงตรงตามตัวอย่างจริงที่ user
+  // ส่งมา (โฟลเดอร์ 15_ระบบทำสัญญา) — พิมพ์ทีละบิล รวมอุปกรณ์เสริม (SO อื่นใน session เดียวกัน) เป็นรายการ
+  // ที่ 2 เข้าไปในใบเดียวกันด้วยเลย (แพ็ค/ส่งพร้อมกัน) ราคา/ยอดโอนจริง/ยอดคงเหลือใช้ค่าที่ CS กรอกไว้ตอนสร้าง
+  // ลิงก์ (session.items[]) ไม่ใช่ยอดสดจาก CRM — เพราะเป็นยอดที่ตกลงกับลูกค้าไว้ในสัญญาแล้ว (เหมือนที่หน้า CS
+  // ใช้แสดง ไม่ใช่ยอดที่ขยับตามการผ่อนจริงที่เกิดขึ้นทีหลัง) ----------
+  function billItemDetailHtml(o, label) {
+    return '<p style="margin:4px 0;">' + label + ' : ' + productLabel(o) + '</p>' +
+      '<p style="margin:4px 0;">ราคาขาย : ' + fmtMoney(o.productPrice) + '</p>' +
+      '<p style="margin:4px 0;">ยอดโอนจริง : ' + fmtMoney(o.downPayment) + '</p>' +
+      '<p style="margin:4px 0;">ยอดคงเหลือที่ต้องผ่อน : ' + fmtMoney(o.remainingBalance) + '</p>';
+  }
+
+  function perBillPageHtml(main, accessories) {
+    var itemRowsHtml = [main].concat(accessories).map(function (o, i) {
+      return '<tr>' +
+        '<td style="border:1px solid #999;padding:6px;text-align:center;">' + (i + 1) + '</td>' +
+        '<td style="border:1px solid #999;padding:6px;">' + (i === 0 ? productLabel(o) : 'อุปกรณ์เสริม : ' + productLabel(o)) + '</td>' +
+        '<td style="border:1px solid #999;padding:6px;text-align:center;">1</td>' +
+        '<td style="border:1px solid #999;padding:6px;"></td>' + // ดีลเปลี่ยนสินค้า — ไม่มีข้อมูลให้ดึงอัตโนมัติ พนักงานกรอกเอง
+        '</tr>';
+    }).join('');
+    var detailHtml = billItemDetailHtml(main, 'รายการสินค้า') +
+      accessories.map(function (a) { return billItemDetailHtml(a, 'รายการสินค้าอุปกรณ์เสริม'); }).join('');
+    return '<div style="width:794px;min-height:1123px;box-sizing:border-box;padding:36px 32px;font-family:\'Sarabun\',\'Noto Sans Thai\',sans-serif;color:#1c1b19;font-size:13px;">' +
+      '<div style="font-weight:700;font-size:14px;">บริษัท แซลม่อน เอ็นเตอร์ไพรส์ จำกัด</div>' +
+      '<div style="font-size:11px;color:#555;">ที่อยู่ 64/19 หมู่บ้าน เดอะมาสเตอร์อ่อนนุช-พัฒนาการ ถนนอ่อนนุช แขวงประเวศ เขตประเวศ กรุงเทพมหานคร 10250</div>' +
+      '<div style="font-size:11px;color:#555;">เลขประจำตัวผู้เสียภาษี 0115564013831</div>' +
+      '<hr style="margin:12px 0;border:none;border-top:1px solid #999;" />' +
+      '<div style="text-align:center;font-weight:700;font-size:16px;text-decoration:underline;margin-bottom:14px;">ใบเบิกสินค้า</div>' +
+      '<table style="width:100%;font-size:13px;border-collapse:collapse;">' +
+      '<tr><td style="padding:3px 0;"><b>ลูกค้า :</b> ' + main.customerName + '</td><td style="padding:3px 0;"><b>วันที่จัดส่ง :</b> ' + isoToDDMMYYYY(new Date().toISOString().slice(0, 10)) + '</td></tr>' +
+      '<tr><td style="padding:3px 0;"><b>รหัสลูกค้า :</b> ' + (main.customerId || '-') + '</td><td style="padding:3px 0;"><b>เลขใบสั่งขาย :</b> ' + main.soNumber + '</td></tr>' +
+      '</table>' +
+      '<hr style="margin:12px 0;border:none;border-top:1px solid #999;" />' +
+      '<table style="width:100%;font-size:13px;border-collapse:collapse;">' +
+      '<tr><td style="padding:3px 0;"><b>ชื่อผู้รับสินค้า :</b> ' + (main.recipientName || main.customerName || '-') + '</td><td style="padding:3px 0;"><b>เบอร์ติดต่อผู้รับสินค้า :</b> ' + (main.recipientPhone || '-') + '</td></tr>' +
+      '</table>' +
+      '<p style="margin:8px 0 2px;"><b>ที่อยู่จัดส่ง :</b> ' + fmtAddress(main.shippingAddress) + '</p>' +
+      '<p style="margin:2px 0 12px;"><b>ช่องทางการจัดส่ง :</b> ' + (main.deliveryChannel || '-') + '</p>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+      '<thead><tr style="background:#f2f2f2;">' +
+      '<th style="border:1px solid #999;padding:6px;">ลำดับที่</th><th style="border:1px solid #999;padding:6px;">รายการสินค้า</th>' +
+      '<th style="border:1px solid #999;padding:6px;">จำนวน</th><th style="border:1px solid #999;padding:6px;">ดีลเปลี่ยนสินค้า</th>' +
+      '</tr></thead><tbody>' + itemRowsHtml + '</tbody></table>' +
+      '<div style="margin-top:14px;">' + detailHtml + '</div>' +
+      '<hr style="margin:14px 0;border:none;border-top:1px solid #999;" />' +
+      '<p style="margin:4px 0;"><b>ของแถม :</b> ' + (main.giftItem || '-') + '</p>' +
+      '<p style="margin:4px 0;"><b>วิธีการผ่อน :</b> ' + (main.installmentTypeLabel || '-') + '</p>' +
+      '<p style="margin:4px 0;"><b>รายละเอียดอื่นๆ :</b> </p>' +
+      '</div>';
+  }
+
+  async function printSingleBill(soNumber) {
+    var main = state.orders.find(function (o) { return o.soNumber === soNumber; });
+    if (!main) return;
+    var accessories = main.sessionToken
+      ? state.orders.filter(function (o) { return o.sessionToken === main.sessionToken && o.soNumber !== main.soNumber; })
+      : [];
+    state.printingBillSo = soNumber;
+    render();
+    try {
+      var pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'position:fixed;left:-99999px;top:0;';
+      wrap.innerHTML = perBillPageHtml(main, accessories);
+      document.body.appendChild(wrap);
+      var canvas = await window.html2canvas(wrap.firstChild, { scale: 2, backgroundColor: '#ffffff' });
+      wrap.remove();
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      pdf.save('ใบเบิกสินค้า_' + soNumber + '.pdf');
+    } catch (err) {
+      window.alert('พิมพ์ใบเบิกรายบิลไม่สำเร็จ: ' + err.message);
+    }
+    state.printingBillSo = null;
+    render();
+  }
+
+  // กรองส่วนใหญ่ทำฝั่ง server ผ่าน query params ไปแล้วตอน load() — filterChannel กรองฝั่ง client เพิ่ม (ข้อมูล
+  // ทั้งหมดโหลดมาอยู่แล้ว ไม่ต้อง round-trip ใหม่)
+  function filtered() {
+    if (state.filterChannel === 'all') return state.orders;
+    return state.orders.filter(function (o) { return o.deliveryChannel === state.filterChannel; });
+  }
 
   function sourceBadge(o) {
     return o.source === 'credit'
@@ -301,6 +437,10 @@ function initStockTab(containerId, currentUser) {
       '<option value="printed"' + (state.filterPrintStatus === 'printed' ? ' selected' : '') + '>พิมพ์ใบเบิกแล้ว</option>' +
       '<option value="unprinted"' + (state.filterPrintStatus === 'unprinted' ? ' selected' : '') + '>รอพิมพ์</option>' +
       '</select>' +
+      '<select id="stkFilterChannel" class="filter-select">' +
+      '<option value="all"' + (state.filterChannel === 'all' ? ' selected' : '') + '>ช่องทางการจัดส่ง: ทุกช่องทาง</option>' +
+      DELIVERY_CHANNEL_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (state.filterChannel === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
+      '</select>' +
       '<label class="filter-checkbox-chip"><input type="checkbox" id="stkShowCancelled"' + (state.showCancelled ? ' checked' : '') + ' /> แสดงรายการที่ยกเลิกแล้วด้วย</label>' +
       '</div>' +
       '</div>';
@@ -323,7 +463,7 @@ function initStockTab(containerId, currentUser) {
         '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่') + '</span>' +
         '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
-        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th></tr></thead>' +
+        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th><th></th></tr></thead>' +
         '<tbody>' + orders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
@@ -338,9 +478,10 @@ function initStockTab(containerId, currentUser) {
             '<td>' + contractStatusBadge(o) + '</td>' +
             '<td>' + printBadge(o) + '</td>' +
             '<td>' + roundSelectHtml(o) + '</td>' +
+            '<td><button type="button" class="btn btn-ghost stkBtnPrintBill" data-so="' + o.soNumber + '"' + (state.printingBillSo === o.soNumber ? ' disabled' : '') + '>' + (state.printingBillSo === o.soNumber ? 'กำลังสร้าง...' : '🖨️ ใบเบิกรายบิล') + '</button></td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (orders.length === 0 ? '<tr><td colspan="12" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (orders.length === 0 ? '<tr><td colspan="13" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }
@@ -361,6 +502,7 @@ function initStockTab(containerId, currentUser) {
     document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
     document.getElementById('stkFilterRound').addEventListener('change', function (e) { state.filterRound = e.target.value; load(); });
     document.getElementById('stkFilterPrintStatus').addEventListener('change', function (e) { state.filterPrintStatus = e.target.value; load(); });
+    document.getElementById('stkFilterChannel').addEventListener('change', function (e) { state.filterChannel = e.target.value; render(); });
     document.getElementById('stkShowCancelled').addEventListener('change', function (e) { state.showCancelled = e.target.checked; load(); });
 
     if (!state.loading && !state.error) {
@@ -375,6 +517,9 @@ function initStockTab(containerId, currentUser) {
       });
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowRound'), function (sel) {
         sel.addEventListener('change', function () { setRoundForOrder(sel.getAttribute('data-so'), sel.value); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.stkBtnPrintBill'), function (btn) {
+        btn.addEventListener('click', function () { printSingleBill(btn.getAttribute('data-so')); });
       });
       var assignRoundSel = document.getElementById('stkAssignRound');
       if (assignRoundSel) assignRoundSel.addEventListener('change', function (e) { state.assignRound = e.target.value; });
