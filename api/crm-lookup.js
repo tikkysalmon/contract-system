@@ -217,6 +217,14 @@ var SO_STATUS_LABELS = {
 // ดึงลิสต์ SO ของลูกค้าคนหนึ่งแบบ "เบา" (ไม่เรียก buildSoData ทีละใบ ไม่ต้องรอนาน) ใช้ตอนค้นหาด้วยชื่อลูกค้า
 // เพราะลูกค้าอาจมี SO เก่าที่ไม่เกี่ยวข้องปนอยู่เยอะ — โชว์ตารางให้ CS ติ๊กเลือกก่อน (เหมือนหน้า CRM จริงที่
 // user ส่งภาพมา) ค่อย resolve เต็มเฉพาะรายการที่ติ๊กทีหลัง (ผ่าน endpoint เดิม ?so=) ไม่ resolve ทุกใบล่วงหน้า
+//
+// **แก้บั๊กจริง (2026-09-09)**: คอลัมน์ "วิธีการผ่อน" โชว์ "-" เสมอทุกแถว — เช็คจาก _debugRawSo (ที่ค้างไว้ตั้งแต่
+// 2026-09-06 รอเช็คเรื่องนี้พอดี) ยืนยันว่า `/crm/customer/{id}` ไม่มีฟิลด์ installmentType ให้เลยสักตัว (มีแค่
+// saleOrderId/productPrice/accumulatedAmount/status/createdAt/percentCredit/overDueDateCount/paymentStatus/
+// paymentDuaDate) — เดิม `mapPlanType(so.installmentType)` จึงได้ undefined -> null ทุกครั้ง ทั้งที่ SO นั้น
+// จริงๆ มีวิธีผ่อนแน่นอน (ยืนยันจาก endpoint เต็ม /crm/sale-order/{id} ที่มี installmentType จริง) — ต้องยิง
+// endpoint เต็มเพิ่มทีละใบเพื่อเอาแค่ installmentType (ไม่เรียก buildSoData เต็มเพราะพ่วง payment-transaction
+// ที่แพงกว่ามากและตารางเบานี้ไม่ได้ใช้) จำกัด concurrency กันยิง CRM ถี่เกินไปเหมือน enrichWithProductName
 async function fetchCustomerSoListLight(customerId, token) {
   const customerDetail = await crmGet('/crm/customer/' + encodeURIComponent(customerId), token);
   const soList = (customerDetail.saleOrders || []).map(function (so) {
@@ -224,12 +232,27 @@ async function fetchCustomerSoListLight(customerId, token) {
       soNumber: so.saleOrderId,
       status: so.status,
       statusLabel: SO_STATUS_LABELS[so.status] || so.status,
-      planType: mapPlanType(so.installmentType), // ใช้โชว์คอลัมน์ "วิธีการผ่อน" ในตารางเบา (2026-09-06)
+      planType: null, // เติมจาก endpoint เต็มด้านล่าง
       createdAt: so.createdAt,
       productPrice: so.productPrice,
-      _debugRawSo: so, // TEMP (2026-09-06) — เช็คว่า field วิธีการผ่อนจริงๆ ชื่ออะไรใน saleOrders[] ของ /crm/customer — ลบทิ้งหลังเช็คเสร็จ
     };
   });
+
+  const CONCURRENCY = 5;
+  let idx = 0;
+  async function worker() {
+    while (idx < soList.length) {
+      const i = idx++;
+      try {
+        const detail = await crmGet('/crm/sale-order/' + encodeURIComponent(soList[i].soNumber), token);
+        soList[i].planType = mapPlanType(detail.installmentType);
+      } catch (e) {
+        soList[i].planType = null; // ข้ามตัวที่ดึงพังไปทีละตัว ไม่ให้ทั้งตารางพัง
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, soList.length) }, worker));
+
   // ชื่อลูกค้า (2026-09-08 เพิ่มมาให้โหมดค้นหาด้วยรหัสลูกค้าตรงๆ แสดงชื่อในตารางได้ — เดิมฟังก์ชันนี้คืนแค่
   // soList เฉยๆ เพราะตอนนั้นโหมดค้นหาด้วยชื่อรู้ชื่อลูกค้าอยู่แล้วจากผลค้นหาชื่อ ไม่ต้องอ่านซ้ำจากตรงนี้)
   const customerName = ((customerDetail.firstName || '') + ' ' + (customerDetail.lastName || '')).trim();
