@@ -3,7 +3,7 @@
 // serverless function ทั้งโปรเจกต์ — Vercel Hobby plan จำกัดไว้แค่ 12 ฟังก์ชัน/deployment เกินแล้ว deploy
 // ล้มเงียบๆ เจอบั๊กจริง 2026-09-06 ตอนเพิ่มเมนูสต๊อค deploy พังเพราะเกินโควต้านี้พอดี)
 //
-// POST body: { action: 'sign' | 'reject' | 'confirm' | 'changeSo', submissionId, staffName, ...action-specific fields }
+// POST body: { action: 'sign' | 'reject' | 'confirm' | 'changeSo' | 'updateLogistics', submissionId, staffName, ...action-specific fields }
 //   'sign'    — { signatureDataUrl } อัปโหลดรูปลายเซ็น + บันทึก staff_signed_at/staff_signed_by
 //   'reject'  — { rejectedFields: string[], note? } ปฏิเสธ ส่งกลับให้ลูกค้าแก้ไข (ต้องรัน supabase-reject-correction.sql)
 //   'confirm' — {} ยืนยันว่าตรวจสอบข้อมูลแล้วถูกต้อง (ต้องรัน supabase-review-confirm.sql)
@@ -14,6 +14,14 @@
 //     บังคับ rejected_fields เป็น ['order'] เสมอ (ไม่ผ่าน ALLOWED_REJECT_FIELDS — เก็บข้อมูลส่วนตัว/ที่อยู่/
 //     เอกสารแนบเดิมของลูกค้าไว้ทั้งหมด ไม่ต้องกรอกใหม่ ให้ลูกค้าแค่ดูรายการที่ทำสัญญาใหม่แล้วเซ็นใหม่) ใช้
 //     ลิงก์/token เดิม ไม่สร้างลิงก์ใหม่ (user ยืนยัน 2026-09-07)
+//   'updateLogistics' — { soNumber, shippingAddress?, giftItem?, deliveryChannel? } (2026-09-09) — ให้ CS
+//     แก้ที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งได้ตรงๆ โดยไม่ต้องผ่านทีมเร่งรัดหนี้สิน (เคส "ลูกค้าเปลี่ยนช่องทาง
+//     จัดส่งทีหลัง"/"นัดรับสาขา ผ่อนสะสมยอด") — ยืนยันแล้วว่าทั้ง 3 ฟิลด์นี้ไม่ได้ถูกพิมพ์ลงในตัวเอกสารสัญญาที่
+//     เซ็นจริงเลย (ไม่มีที่ไหนอ้างอิงใน preview-contract.js/master template) จึง **ไม่ต้องรีเซ็ต reviewed_at/
+//     rejected_at/staff_signed_at เหมือน reject/changeSo** แก้ตรงๆ ได้เลยไม่กระทบสถานะเซ็น/ตรวจสอบ ส่งฟิลด์
+//     ไหนมาก็แก้แค่ฟิลด์นั้น (ไม่บังคับส่งครบทั้ง 3) — shippingAddress ไปแก้ contract_submissions.customer_data,
+//     giftItem ไปแก้ contract_submissions.customer_data เหมือนกัน, deliveryChannel ไปแก้ item ใน
+//     contract_sessions.crm_snapshot.items[] (ต้องมี soNumber ระบุว่าแก้ item ไหน)
 //
 // ต้องตั้งค่าใน Vercel project settings: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -198,6 +206,77 @@ async function doChangeSo(authHeaders, submissionId, staffName, oldSoNumber, new
   res.status(200).json({ ok: true, token: sessTokenRows[0] && sessTokenRows[0].token });
 }
 
+async function doUpdateLogistics(authHeaders, submissionId, staffName, soNumber, shippingAddress, giftItem, deliveryChannel, res) {
+  const hasCustomerDataUpdate = shippingAddress !== undefined || giftItem !== undefined;
+  const hasDeliveryChannelUpdate = deliveryChannel !== undefined;
+  if (!hasCustomerDataUpdate && !hasDeliveryChannelUpdate) { res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' }); return; }
+
+  if (hasCustomerDataUpdate) {
+    const subRes = await fetch(
+      SUPABASE_URL + '/rest/v1/contract_submissions?id=eq.' + encodeURIComponent(submissionId) + '&select=customer_data',
+      { headers: authHeaders }
+    );
+    const subRows = await subRes.json();
+    if (!subRes.ok || !subRows.length) { res.status(404).json({ error: 'ไม่พบรายการนี้' }); return; }
+    const customerData = subRows[0].customer_data || {};
+    // เซ็ต sameAsCurrent เป็น false เสมอตอน CS แก้ตรงนี้ — ให้ค่าที่แก้มีผลจริงเป็นที่อยู่จัดส่งตัวสุดท้าย
+    // (ไม่งั้นถ้า flag เดิมเป็น true ระบบอื่น (เช่น stock-orders.js) จะ fallback ไปใช้ที่อยู่ปัจจุบันแทนเงียบๆ)
+    if (shippingAddress !== undefined) customerData.shippingAddress = Object.assign({}, shippingAddress, { sameAsCurrent: false });
+    if (giftItem !== undefined) customerData.giftItem = giftItem;
+    const patchRes = await fetch(
+      SUPABASE_URL + '/rest/v1/contract_submissions?id=eq.' + encodeURIComponent(submissionId),
+      {
+        method: 'PATCH',
+        headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+        body: JSON.stringify({ customer_data: customerData }),
+      }
+    );
+    if (!patchRes.ok) {
+      const text = await patchRes.text();
+      throw new Error('บันทึกที่อยู่จัดส่ง/ของแถมไม่สำเร็จ (HTTP ' + patchRes.status + '): ' + text.slice(0, 300));
+    }
+  }
+
+  if (hasDeliveryChannelUpdate) {
+    if (!soNumber) { res.status(400).json({ error: 'ไม่มี soNumber (จำเป็นสำหรับแก้ช่องทางการจัดส่ง)' }); return; }
+    const subRes = await fetch(
+      SUPABASE_URL + '/rest/v1/contract_submissions?id=eq.' + encodeURIComponent(submissionId) + '&select=session_id',
+      { headers: authHeaders }
+    );
+    const subRows = await subRes.json();
+    if (!subRes.ok || !subRows.length) { res.status(404).json({ error: 'ไม่พบรายการนี้' }); return; }
+    const sessionId = subRows[0].session_id;
+
+    const sessRes = await fetch(
+      SUPABASE_URL + '/rest/v1/contract_sessions?id=eq.' + encodeURIComponent(sessionId) + '&select=crm_snapshot',
+      { headers: authHeaders }
+    );
+    const sessRows = await sessRes.json();
+    if (!sessRes.ok || !sessRows.length) { res.status(404).json({ error: 'ไม่พบ session นี้' }); return; }
+    const snapshot = sessRows[0].crm_snapshot || {};
+    const items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
+    const idx = items.findIndex(function (it) { return it.soNumber === soNumber; });
+    if (idx === -1) { res.status(404).json({ error: 'ไม่พบ SO นี้ (' + soNumber + ') ในสัญญา' }); return; }
+    items[idx] = Object.assign({}, items[idx], { deliveryChannel: deliveryChannel });
+    snapshot.items = items;
+
+    const patchSessRes = await fetch(
+      SUPABASE_URL + '/rest/v1/contract_sessions?id=eq.' + encodeURIComponent(sessionId),
+      {
+        method: 'PATCH',
+        headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+        body: JSON.stringify({ crm_snapshot: snapshot }),
+      }
+    );
+    if (!patchSessRes.ok) {
+      const text = await patchSessRes.text();
+      throw new Error('บันทึกช่องทางการจัดส่งไม่สำเร็จ (HTTP ' + patchSessRes.status + '): ' + text.slice(0, 300));
+    }
+  }
+
+  res.status(200).json({ ok: true });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') {
@@ -220,6 +299,10 @@ module.exports = async function handler(req, res) {
     if (action === 'reject') { await doReject(authHeaders, submissionId, staffName, body.rejectedFields, body.note, res); return; }
     if (action === 'confirm') { await doConfirm(authHeaders, submissionId, staffName, res); return; }
     if (action === 'changeSo') { await doChangeSo(authHeaders, submissionId, staffName, body.oldSoNumber, body.newItem, res); return; }
+    if (action === 'updateLogistics') {
+      await doUpdateLogistics(authHeaders, submissionId, staffName, body.soNumber, body.shippingAddress, body.giftItem, body.deliveryChannel, res);
+      return;
+    }
     res.status(400).json({ error: 'ไม่รู้จัก action นี้' });
   } catch (err) {
     res.status(500).json({ error: err.message });

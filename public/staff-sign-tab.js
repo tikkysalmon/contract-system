@@ -13,7 +13,7 @@ function initStaffSignTab(containerId, currentUser) {
   var FULL_ACCESS_DEPARTMENTS = ['บัญชี', 'ผู้จัดการ'];
   var hasFullAccess = FULL_ACCESS_DEPARTMENTS.indexOf(currentUser.department) !== -1;
   if (!hasFullAccess) {
-    initCsStatusView(containerId);
+    initCsStatusView(containerId, currentUser);
     return;
   }
 
@@ -755,9 +755,37 @@ function initStaffSignTab(containerId, currentUser) {
 // และไม่มีปุ่มเซ็น/ปฏิเสธ/ดาวน์โหลดสัญญา (สิทธิ์เต็มเฉพาะแผนกบัญชี/ผู้จัดการ ดู hasFullAccess ใน
 // initStaffSignTab) ใช้ /api/cs-session-list (base contract_sessions ครอบคลุมทั้ง session ที่ยังไม่ส่งฟอร์ม
 // กลับมา = สถานะ 1.1 ด้วย) ----------
-function initCsStatusView(containerId) {
+function initCsStatusView(containerId, currentUser) {
   'use strict';
-  var state = { loading: true, error: null, sessions: [], filter: '' };
+  var state = { loading: true, error: null, sessions: [], filter: '', editingLogisticsFor: null, savingLogistics: false };
+
+  // 2026-09-09 user ขอ: CS แก้ "ที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่ง" ได้เองตรงนี้ (ไม่ต้องผ่านทีมเร่งรัดหนี้สิน)
+  // เพราะ 3 ฟิลด์นี้ไม่ถูกพิมพ์ลงในตัวเอกสารสัญญาที่เซ็นจริงเลย (ยืนยันจากโค้ด preview-contract.js/master
+  // template แล้ว) แก้ได้โดยไม่กระทบสถานะเซ็น/ตรวจสอบ ไม่ต้องให้ลูกค้าเซ็นใหม่ — รายการช่องทาง/ของแถมคัดลอกมา
+  // จาก contracts-tab.js's DELIVERY_CHANNEL_OPTIONS / sign.js's GIFT_OPTIONS (ให้ตรงกันเป๊ะ ไม่ export ไฟล์กลาง
+  // เพราะโปรเจกต์นี้ไม่มีธรรมเนียม share constant ข้ามไฟล์ — ดูตัวอย่างเดียวกันที่ stock-tab.js ก็ก็อปปี้เองเหมือนกัน)
+  var DELIVERY_CHANNEL_OPTIONS = ['ส่งไปรษณีย์', 'ส่งแมส', 'นัดรับสาขาอ่อนนุช', 'นัดรับสาขาพัทยา'];
+  var GIFT_OPTIONS = [
+    { value: 'Set iPhone (พาวเวอร์แบงค์, หูฟัง, เคส, ฟิล์ม, ที่ตั้งโทรศัพท์)', planTag: 'installment' },
+    { value: 'Set iPad (เมาส์ไร้สาย, แป้นพิมพ์, กระเป๋า, ฟิล์ม, เคส, หูฟัง)', planTag: 'installment' },
+    { value: 'Set Android (พาวเวอร์แบงค์, อะแดปเตอร์, สายชาร์จ Type C, ที่ตั้งโทรศัพท์, หูฟัง Type C)', planTag: 'installment' },
+    { value: 'Set iPhone 1 (เคส, ฟิล์ม, ที่ตั้งโทรศัพท์, หูฟัง)', planTag: 'downpayment' },
+    { value: 'Set iPhone 2 (เคส, ฟิล์ม, ที่ตั้งโทรศัพท์, พาวเวอร์แบงค์)', planTag: 'downpayment' },
+    { value: 'Set iPad (เคส, ฟิล์ม, แป้นพิมพ์, เมาส์)', planTag: 'downpayment' },
+    { value: 'Set Android 1 (ที่ตั้งโทรศัพท์, อะแดปเตอร์, หูฟัง)', planTag: 'downpayment' },
+    { value: 'Set Android 2 (ที่ตั้งโทรศัพท์, อะแดปเตอร์, พาวเวอร์แบงค์)', planTag: 'downpayment' },
+    { value: 'Set ของแถมน่ารักๆ โทนฟ้า', planTag: 'both' },
+    { value: 'Set ของแถมน่ารักๆ โทนม่วง', planTag: 'both' },
+    { value: 'Set ของแถมน่ารักๆ โทนชมพู', planTag: 'both' },
+    { value: 'Set ของแถมน่ารักๆ โทนดำ-เทา', planTag: 'both' },
+    { value: 'Set ของแถมน่ารักๆ โทนเหลือง', planTag: 'both' },
+    { value: 'Set ของแถมน่ารักๆ โทนเขียว', planTag: 'both' },
+    { value: 'Set ของแถมน่ารักๆ คละสี', planTag: 'both' },
+    { value: 'ไม่รับของแถม', planTag: 'both' },
+  ];
+  function giftOptionsForPlan(planType) {
+    return GIFT_OPTIONS.filter(function (o) { return o.planTag === 'both' || o.planTag === planType; });
+  }
 
   var STATUS_BADGE_STYLE = {
     awaiting_customer: 'background:#fff3e0;color:#b06a00;',
@@ -809,8 +837,9 @@ function initCsStatusView(containerId) {
       (item.soNumber || '').toLowerCase().indexOf(f) !== -1;
   }
 
-  // 1 แถวต่อ 1 SO ตามสเปกเดียวกับ initStaffSignTab's tableRowsHtml — มุมมองนี้อ่านอย่างเดียว ไม่มีคอลัมน์
-  // การดำเนินการ/แถวขยายข้อมูลส่วนตัว (สิทธิ์เต็มเฉพาะทีมเร่งรัดหนี้สิน/ผู้จัดการ ดู hasFullAccess ด้านบน)
+  // 1 แถวต่อ 1 SO ตามสเปกเดียวกับ initStaffSignTab's tableRowsHtml — มุมมองนี้อ่านอย่างเดียวเป็นหลัก (ไม่มี
+  // คอลัมน์การดำเนินการ/แถวขยายข้อมูลส่วนตัวเต็ม สิทธิ์เต็มเฉพาะทีมเร่งรัดหนี้สิน/ผู้จัดการ ดู hasFullAccess
+  // ด้านบน) ยกเว้นปุ่ม "แก้ไขข้อมูลจัดส่ง" ที่ให้ CS แก้ได้เอง (2026-09-09 — ดู logisticsEditorHtml)
   function rowsHtml() {
     var html = '';
     state.sessions.forEach(function (s) {
@@ -826,10 +855,90 @@ function initCsStatusView(containerId) {
           '<td>' + fmtDateTime(s.submittedAt) + '</td>' +
           '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
           '<td>' + statusBadge(s.shippingStatus) + '</td>' +
+          '<td>' + (s.submissionId
+            ? '<button type="button" class="btn btn-ghost btn-sm csBtnEditLogistics" data-so="' + it.soNumber + '">✏️ แก้ไขข้อมูลจัดส่ง</button>'
+            : '<span style="color:var(--muted);">-</span>') + '</td>' +
           '</tr>';
       });
     });
-    return html || '<tr><td colspan="8" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    return html || '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+  }
+
+  function openLogisticsEditor(soNumber) {
+    var found = null;
+    state.sessions.forEach(function (s) {
+      (s.items || []).forEach(function (it) { if (it.soNumber === soNumber) found = { s: s, it: it }; });
+    });
+    if (!found || !found.s.submissionId) return;
+    state.editingLogisticsFor = {
+      submissionId: found.s.submissionId,
+      soNumber: soNumber,
+      customerName: found.s.customerName,
+      planType: found.it.planType,
+      addr: Object.assign({}, (found.s.logistics && found.s.logistics.shippingAddress) || {}),
+      giftItem: (found.s.logistics && found.s.logistics.giftItem) || '',
+      deliveryChannel: found.it.deliveryChannel || '',
+    };
+    render();
+  }
+
+  function closeLogisticsEditor() {
+    state.editingLogisticsFor = null;
+    render();
+  }
+
+  async function saveLogisticsEdit() {
+    var target = state.editingLogisticsFor;
+    if (!target) return;
+    state.savingLogistics = true;
+    render();
+    try {
+      var res = await fetch('/api/staff-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateLogistics',
+          submissionId: target.submissionId,
+          staffName: currentUser.username,
+          soNumber: target.soNumber,
+          shippingAddress: target.addr,
+          giftItem: target.giftItem,
+          deliveryChannel: target.deliveryChannel,
+        }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+      state.editingLogisticsFor = null;
+      window.alert('บันทึกข้อมูลจัดส่งสำเร็จ');
+      await load();
+      return;
+    } catch (err) {
+      window.alert('บันทึกไม่สำเร็จ: ' + err.message);
+    }
+    state.savingLogistics = false;
+    render();
+  }
+
+  // แผงแก้ไขแยกจากตารางหลัก — โชว์แค่ 3 ฟิลด์นี้เท่านั้น ไม่มีข้อมูลส่วนตัวลูกค้าปนอยู่เลย (ตรงตามที่ user ขอ
+  // ให้ CS เห็นเฉพาะส่วนนี้)
+  function logisticsEditorHtml() {
+    var t = state.editingLogisticsFor;
+    if (!t) return '';
+    var giftOptions = giftOptionsForPlan(t.planType);
+    return '<div class="card"><h2>แก้ไขข้อมูลจัดส่ง — ' + t.soNumber + ' (' + t.customerName + ')</h2>' +
+      '<p class="hint">แก้ได้เฉพาะที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งเท่านั้น ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ไม่ต้องให้ลูกค้าเซ็นใหม่</p>' +
+      window.attachAddressPicker.html('csEditShip', t.addr, { detailLabel: 'บ้านเลขที่ / หมู่บ้าน / ถนน (ที่จัดส่งสินค้า)' }) +
+      '<div class="field"><label>ของแถม</label><select id="csEditGiftItem">' +
+      '<option value=""' + (!t.giftItem ? ' selected' : '') + '>-- ยังไม่ได้เลือก --</option>' +
+      giftOptions.map(function (o) { return '<option value="' + o.value.replace(/"/g, '&quot;') + '"' + (t.giftItem === o.value ? ' selected' : '') + '>' + o.value + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field"><label>ช่องทางการจัดส่ง</label><select id="csEditDeliveryChannel">' +
+      '<option value=""' + (!t.deliveryChannel ? ' selected' : '') + '>-- ยังไม่ได้เลือก --</option>' +
+      DELIVERY_CHANNEL_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (t.deliveryChannel === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
+      '</select></div>' +
+      '<button class="btn btn-primary" id="csBtnSaveLogistics"' + (state.savingLogistics ? ' disabled' : '') + '>' + (state.savingLogistics ? 'กำลังบันทึก...' : 'บันทึก') + '</button> ' +
+      '<button class="btn btn-ghost" id="csBtnCancelLogistics">ยกเลิก</button>' +
+      '</div>';
   }
 
   // ช่องกรองอัปเดตแค่ tbody เอง (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus ทุกครั้งที่พิมพ์ — ตามแพทเทิร์น
@@ -840,7 +949,7 @@ function initCsStatusView(containerId) {
     if (state.error) { app.innerHTML = '<div class="card"><p style="color:var(--danger);">' + state.error + '</p></div>'; return; }
 
     var html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.sessions.length + ' รายการ)</h2>' +
-      '<p class="hint">สถานะการทำสัญญา/สถานะการจัดส่งของลูกค้าแต่ละราย — ดูรายละเอียดเต็ม/แก้ไขข้อมูลได้ที่ทีมเร่งรัดหนี้สินเท่านั้น</p>' +
+      '<p class="hint">สถานะการทำสัญญา/สถานะการจัดส่งของลูกค้าแต่ละราย — ดูรายละเอียดเต็ม/แก้ไขข้อมูลส่วนตัวได้ที่ทีมเร่งรัดหนี้สินเท่านั้น (แก้ที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งได้เองที่นี่)</p>' +
       listToolbarHtml({
         sortId: 'csStatusSortOrder',
         sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
@@ -860,15 +969,31 @@ function initCsStatusView(containerId) {
       '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
       '<th>วันที่จัดส่ง</th>' +
       '<th>สถานะการจัดส่ง</th>' +
+      '<th></th>' +
       '</tr></thead>' +
       '<tbody id="csStatusTbody">' + rowsHtml() + '</tbody></table></div>' +
-      '</div>';
+      '</div>' +
+      logisticsEditorHtml();
 
     app.innerHTML = html;
     document.getElementById('csStatusFilterInput').addEventListener('input', function (e) {
       state.filter = e.target.value;
       document.getElementById('csStatusTbody').innerHTML = rowsHtml();
     });
+    // event delegation บน tbody เอง (ไม่ใช่ปุ่มแต่ละอัน) เพราะช่องค้นหาข้างบนแก้แค่ tbody.innerHTML โดยตรง
+    // ไม่ re-render การ์ดทั้งใบ — ถ้า bind ที่ปุ่มจะหลุดทุกครั้งที่พิมพ์ค้นหา
+    document.getElementById('csStatusTbody').addEventListener('click', function (e) {
+      if (e.target.classList.contains('csBtnEditLogistics')) openLogisticsEditor(e.target.getAttribute('data-so'));
+    });
+
+    if (state.editingLogisticsFor) {
+      var t = state.editingLogisticsFor;
+      window.attachAddressPicker.wire('csEditShip', t.addr, function () { /* mutates t.addr in place */ });
+      document.getElementById('csEditGiftItem').addEventListener('change', function (e) { t.giftItem = e.target.value; });
+      document.getElementById('csEditDeliveryChannel').addEventListener('change', function (e) { t.deliveryChannel = e.target.value; });
+      document.getElementById('csBtnSaveLogistics').addEventListener('click', saveLogisticsEdit);
+      document.getElementById('csBtnCancelLogistics').addEventListener('click', closeLogisticsEditor);
+    }
   }
 
   load();

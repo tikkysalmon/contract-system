@@ -23,9 +23,14 @@ module.exports = async function handler(req, res) {
   try {
     // embed contract_submissions ผ่าน FK (session_id) แค่ดูว่ามีแถวหรือไม่ + submitted_at เอาไปเรียงคิว/แสดงผล
     // จำกัด 200 แถวล่าสุด กันโหลดหนักถ้ามีลิงก์สะสมเยอะมาก (ยังไม่ทำ pagination/ค้นหาฝั่ง server รอบนี้)
+    // 2026-09-09 เพิ่ม contract_submissions.id + customer_data — id ใช้เรียก /api/staff-actions'
+    // updateLogistics (แก้ที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งได้ตรงนี้ ไม่ต้องผ่านทีมเร่งรัดหนี้สิน — ดู
+    // "logistics" ด้านล่าง) customer_data ไม่ส่งทั้งก้อนออกไปให้ client เด็ดขาด (มีข้อมูลส่วนตัวเต็ม เช่น
+    // เลขบัตร ปชช./เบอร์โทร) คัด **เฉพาะ 2 ฟิลด์ที่ CS ควรเห็น** (shippingAddress/giftItem) ออกมาเป็น
+    // "logistics" ก่อนส่งเท่านั้น
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/contract_sessions' +
-        '?select=token,created_at,created_by_name,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number)' +
+        '?select=token,created_at,created_by_name,crm_snapshot,contract_submissions(id,submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number,customer_data)' +
         '&order=created_at.desc&limit=200',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
@@ -60,6 +65,13 @@ module.exports = async function handler(req, res) {
       });
       const submissions = row.contract_submissions || [];
       const sub = submissions[0] || null;
+      const customerData = (sub && sub.customer_data) || {};
+      // เอฟเฟกทีฟที่อยู่จัดส่งปัจจุบัน — สูตรเดียวกับ api/stock-orders.js's fetchCreditOrders (ใช้ shippingAddress
+      // ถ้าลูกค้าระบุไว้ไม่เหมือนที่อยู่ปัจจุบัน ไม่งั้น fallback ไปที่อยู่ปัจจุบัน) ให้ค่าเริ่มต้นของฟอร์มแก้ไขตรงกับ
+      // ที่ระบบอื่นใช้จริงเป๊ะ
+      const effectiveShippingAddress = (customerData.shippingAddress && !customerData.shippingAddress.sameAsCurrent)
+        ? customerData.shippingAddress
+        : (customerData.address || {});
       return {
         token: row.token,
         createdAt: row.created_at,
@@ -71,6 +83,10 @@ module.exports = async function handler(req, res) {
         items: items,
         submitted: submissions.length > 0,
         submittedAt: sub ? sub.submitted_at : null,
+        submissionId: sub ? sub.id : null, // ใช้ยิง /api/staff-actions action:updateLogistics (2026-09-09)
+        // ข้อมูล "โลจิสติกส์" ที่ CS แก้ไขได้เอง (ไม่ต้องผ่านทีมเร่งรัดหนี้สิน) — คัดมาเฉพาะ 2 ฟิลด์นี้ ไม่ส่ง
+        // customer_data ทั้งก้อนออกไปเด็ดขาด (มีข้อมูลส่วนตัวลูกค้าเต็ม เช่น เลขบัตร ปชช./เบอร์โทร ที่ CS ไม่ควรเห็น)
+        logistics: sub ? { shippingAddress: effectiveShippingAddress, giftItem: customerData.giftItem || null } : null,
         // สถานะสรุปสำหรับ CS (2026-09-06) — CS เห็นแค่สถานะ ไม่เห็น/แก้ข้อมูลเต็มของลูกค้า (ดู _lib/contract-status.js)
         contractStatus: computeContractStatus({
           submitted: submissions.length > 0,
