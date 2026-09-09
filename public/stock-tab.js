@@ -26,8 +26,7 @@ function initStockTab(containerId, currentUser) {
     filterRound: 'all',
     filterPrintStatus: 'all',
     showCancelled: false,
-    assignRound: '',
-    assigning: false,
+    assignRound: '', // เลือกไว้แค่ตอนพิมพ์ใบสรุปเบิกประจำวัน (label บนใบ) ไม่ใช่ตัวกำหนดรอบต่อรายการแล้ว
     printing: false,
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
@@ -77,31 +76,22 @@ function initStockTab(containerId, currentUser) {
     return state.orders.filter(function (o) { return state.selected[o.soNumber]; });
   }
 
-  async function assignRoundToSelected() {
-    var orders = selectedOrders();
-    if (!orders.length) { window.alert('กรุณาติ๊กเลือกอย่างน้อย 1 รายการ'); return; }
-    if (!state.assignRound) { window.alert('กรุณาเลือกรอบการเบิก'); return; }
-    state.assigning = true;
-    render();
+  // ตั้งรอบการเบิกทีละรายการทันทีที่เปลี่ยน dropdown ในแถว (2026-09-09 user ขอแทนปุ่มกำหนดแบบเลือกหลายรายการเดิม)
+  async function setRoundForOrder(soNumber, round) {
+    if (!round) return; // ยังไม่รองรับ "ล้างค่ากลับเป็นว่าง" — API ปัจจุบันบังคับต้องมี round เสมอ
     try {
       var res = await fetch('/api/stock-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'setRound',
-          soNumbers: orders.map(function (o) { return o.soNumber; }),
-          round: state.assignRound,
-          staffName: currentUser.username,
-        }),
+        body: JSON.stringify({ action: 'setRound', soNumbers: [soNumber], round: round, staffName: currentUser.username }),
       });
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
       await load();
     } catch (err) {
       window.alert('กำหนดรอบการเบิกไม่สำเร็จ: ' + err.message);
+      render();
     }
-    state.assigning = false;
-    render();
   }
 
   async function markPrintedAndReload(soNumbers) {
@@ -233,6 +223,31 @@ function initStockTab(containerId, currentUser) {
       : '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอสต๊อก (คิวที่ ' + o.queuePosition + ')</span>';
   }
 
+  // สีเดียวกับ initCsStatusView ใน staff-sign-tab.js (เมนู "ข้อมูลลูกค้าทำสัญญา") เพื่อให้พนักงานเห็นสถานะ
+  // เดียวกันแล้วรู้ทันทีว่าตรงกัน ไม่ใช่ระบบนับสถานะแยกกัน
+  var CONTRACT_STATUS_BADGE_STYLE = {
+    awaiting_customer: 'background:#fff3e0;color:#b06a00;',
+    pending_review: 'background:#e0f2fe;color:#075985;',
+    needs_correction: 'background:#fee2e2;color:#b91c1c;',
+    customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
+    awaiting_staff_sign: 'background:#ede9fe;color:#6d28d9;',
+    complete: 'background:#dcfce7;color:#15803d;',
+  };
+  function contractStatusBadge(o) {
+    if (!o.contractStatus) return '<span style="color:var(--muted);">-</span>'; // ฝั่งซื้อสด/ปิดยอดไม่ผ่านระบบทำสัญญา ไม่มีสถานะนี้
+    var style = CONTRACT_STATUS_BADGE_STYLE[o.contractStatus.key] || 'background:#f3f4f6;color:#374151;';
+    return '<span class="badge badge-info" style="' + style + '">' + o.contractStatus.label + '</span>';
+  }
+
+  // รอบการเบิกเป็น dropdown ต่อแถวโดยตรง (2026-09-09 user ขอ — เดิมต้องติ๊กเลือกหลายแถวแล้วกดปุ่มแยกต่างหาก)
+  // เลือกแล้วบันทึกทันที ไม่ต้องกดปุ่มยืนยันอีกชั้น
+  function roundSelectHtml(o) {
+    return '<select class="stkRowRound" data-so="' + o.soNumber + '" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;">' +
+      '<option value=""' + (!o.withdrawalRound ? ' selected' : '') + '>ยังไม่กำหนด</option>' +
+      ROUND_OPTIONS.map(function (r) { return '<option value="' + r + '"' + (o.withdrawalRound === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') +
+      '</select>';
+  }
+
   function syncFreshnessNoticesHtml() {
     var h = '';
     var stockAgeMs = state.stockLastSyncedAt ? (Date.now() - new Date(state.stockLastSyncedAt).getTime()) : null;
@@ -301,15 +316,14 @@ function initStockTab(containerId, currentUser) {
       html += '<div class="card"><h2>รายการออเดอร์ (' + orders.length + ' รายการ)</h2>' +
         '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">' +
         '<select id="stkAssignRound" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;">' +
-        '<option value="">เลือกรอบการเบิก...</option>' +
+        '<option value="">เลือกรอบการเบิก (สำหรับพิมพ์)...</option>' +
         ROUND_OPTIONS.map(function (r) { return '<option value="' + r + '"' + (state.assignRound === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') +
         '</select>' +
-        '<button class="btn btn-secondary" id="stkBtnAssignRound"' + (state.assigning ? ' disabled' : '') + '>' + (state.assigning ? 'กำลังบันทึก...' : 'กำหนดรอบการเบิกให้ที่เลือก') + '</button>' +
         '<button class="btn btn-primary" id="stkBtnPrint"' + (state.printing ? ' disabled' : '') + '>' + (state.printing ? 'กำลังสร้าง PDF...' : '📄 พิมพ์ใบเบิกประจำวัน (PDF)') + '</button>' +
         '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่') + '</span>' +
         '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
-        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th></tr></thead>' +
+        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th></tr></thead>' +
         '<tbody>' + orders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
@@ -321,11 +335,12 @@ function initStockTab(containerId, currentUser) {
             '<td style="text-align:left;">' + o.product + (o.color ? ' (' + o.color + ')' : '') + '</td>' +
             '<td>' + (o.odooAvailableQty != null ? o.odooAvailableQty : '-') + '</td>' +
             '<td>' + stockStatusBadge(o) + '</td>' +
+            '<td>' + contractStatusBadge(o) + '</td>' +
             '<td>' + printBadge(o) + '</td>' +
-            '<td>' + (o.withdrawalRound || '-') + '</td>' +
+            '<td>' + roundSelectHtml(o) + '</td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (orders.length === 0 ? '<tr><td colspan="11" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (orders.length === 0 ? '<tr><td colspan="12" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }
@@ -358,10 +373,11 @@ function initStockTab(containerId, currentUser) {
       Array.prototype.forEach.call(document.querySelectorAll('.stkBtnCancel'), function (btn) {
         btn.addEventListener('click', function () { openCancelBox(btn.getAttribute('data-so')); });
       });
+      Array.prototype.forEach.call(document.querySelectorAll('.stkRowRound'), function (sel) {
+        sel.addEventListener('change', function () { setRoundForOrder(sel.getAttribute('data-so'), sel.value); });
+      });
       var assignRoundSel = document.getElementById('stkAssignRound');
       if (assignRoundSel) assignRoundSel.addEventListener('change', function (e) { state.assignRound = e.target.value; });
-      var btnAssign = document.getElementById('stkBtnAssignRound');
-      if (btnAssign) btnAssign.addEventListener('click', assignRoundToSelected);
       var btnPrint = document.getElementById('stkBtnPrint');
       if (btnPrint) btnPrint.addEventListener('click', printRequisition);
     }

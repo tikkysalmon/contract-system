@@ -6,9 +6,9 @@
 //
 // GET  ?customerType=all|credit|cash&q=&round=&printStatus=all|printed|unprinted&showCancelled=true|false
 //   รวม 2 แหล่งข้อมูล แล้วจับคู่กับสต๊อก Odoo จัดคิวให้ทุกแถวด้วย (ดู _lib/stock-reservation.js):
-//   1. "เครดิตผ่าน/วางดาวน์" — ดึงสดจาก contract_submissions ของระบบนี้เอง เฉพาะที่สถานะการทำสัญญา =
-//      "สัญญาลูกค้าเรียบร้อย" (reviewed_at ไม่ null, rejected_at เป็น null, ยังไม่มี imei+serial ครบ — ตรงตาม
-//      เงื่อนไข customer_ok ใน _lib/contract-status.js) ไม่ copy ข้อมูลซ้ำ อ่านสดทุกครั้ง — เติม orderDate/
+//   1. "เครดิตผ่าน/วางดาวน์" — ดึงสดจาก contract_submissions ของระบบนี้เอง เฉพาะที่สถานะการทำสัญญา (คำนวณด้วย
+//      computeContractStatus() ตัวเดียวกับเมนู "ข้อมูลลูกค้าทำสัญญา" — ดู _lib/contract-status.js) =
+//      "สัญญาลูกค้าเรียบร้อย" (customer_ok) เท่านั้น ถึงจะเบิกสินค้าได้ ไม่ copy ข้อมูลซ้ำ อ่านสดทุกครั้ง — เติม orderDate/
 //      installmentType ที่ contract_submissions ไม่มีเก็บเองด้วยการ join กับ crm_orders_cache ด้วย SO number
 //      (แคชที่ sync ไว้แล้วทุก 15 นาที ไม่ต้องยิง CRM สดเพิ่ม)
 //   2. "ซื้อสด/ปิดยอด" — ต่อกับ crm_orders_cache จริงแล้ว (2026-09-09 — เดิมเป็น TODO คืน [] ตลอด) กรอง
@@ -27,6 +27,7 @@ const {
   splitProductName, normalizeProductName, allocateStock, fetchStockByProduct, fetchCrmCacheSyncedAt,
   enrichWithProductName, crmLoginForStock, MAX_FILTERED_ORDERS,
 } = require('./_lib/stock-reservation');
+const { computeContractStatus } = require('./_lib/contract-status');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -48,12 +49,13 @@ async function fetchCrmCacheFieldsForSoNumbers(authHeaders, soNumbers) {
 }
 
 async function fetchCreditOrders(authHeaders) {
-  // reviewed_at ไม่ null + rejected_at เป็น null ผ่าน PostgREST filter ได้ตรงๆ ส่วน "ยังไม่มี imei+serial ครบ"
-  // (เงื่อนไข customer_ok ข้อสุดท้าย) ต้องกรองต่อฝั่ง JS เพราะ PostgREST filter ข้าม 2 คอลัมน์พร้อมกันแบบ
-  // "ทั้งคู่ไม่ null" ตรงๆ ไม่ได้สะดวกเท่า
+  // reviewed_at ไม่ null + rejected_at เป็น null เป็นแค่ prefilter ฝั่ง server กันดึงข้อมูลเยอะเกินจำเป็น
+  // (ตัด "สัญญาไม่เรียบร้อย"/"รอตรวจสอบ" ออกก่อน) — ตัวตัดสิน "พร้อมเบิกจริง" (customer_ok) ใช้
+  // computeContractStatus() ตัวเดียวกับเมนู "ข้อมูลลูกค้าทำสัญญา" (_lib/contract-status.js) เสมอ ไม่เขียน
+  // เงื่อนไขซ้ำเอง กัน 2 ที่หลุดไม่ตรงกัน (2026-09-09 user ยืนยันให้ใช้แหล่งเดียวกัน)
   const r = await fetch(
     SUPABASE_URL + '/rest/v1/contract_submissions' +
-      '?select=id,customer_data,imei,serial_number,contract_sessions(token,so_number,crm_snapshot)' +
+      '?select=id,customer_data,imei,serial_number,reviewed_at,rejected_at,staff_signed_at,contract_sessions(token,so_number,crm_snapshot)' +
       '&reviewed_at=not.is.null&rejected_at=is.null',
     { headers: authHeaders }
   );
@@ -62,7 +64,11 @@ async function fetchCreditOrders(authHeaders) {
 
   const orders = [];
   rows.forEach(function (row) {
-    if (row.imei && row.serial_number) return; // ผ่าน customer_ok ไปแล้ว (แพ็คกิ้งลง IMEI/Serial แล้ว) ไม่ใช่งานของสต๊อคอีกต่อไป
+    const contractStatus = computeContractStatus({
+      submitted: true, rejectedAt: row.rejected_at, reviewedAt: row.reviewed_at,
+      staffSignedAt: row.staff_signed_at, imei: row.imei, serialNumber: row.serial_number,
+    });
+    if (contractStatus.key !== 'customer_ok') return; // ยังไม่ถึงขั้น "สัญญาลูกค้าเรียบร้อย" เบิกสินค้าไม่ได้
     const session = row.contract_sessions || {};
     const snapshot = session.crm_snapshot || {};
     const items = snapshot.items || [];
@@ -78,6 +84,7 @@ async function fetchCreditOrders(authHeaders) {
         contractNo: item.contractNo || null,
         source: 'credit',
         sourceLabel: 'เครดิตผ่าน/วางดาวน์',
+        contractStatus: contractStatus,
         customerId: item.customerId || null,
         customerName: customer.firstLastName || (snapshot.customer && snapshot.customer.firstLastName) || '-',
         product: item.product,
@@ -148,6 +155,7 @@ async function fetchCashOrders(authHeaders) {
       contractNo: null,
       source: 'cash',
       sourceLabel: 'ซื้อสด/ปิดยอด',
+      contractStatus: null, // ไม่ผ่านระบบทำสัญญา ไม่มีสถานะนี้ให้แสดง (ดู stock-tab.js's contractStatusBadge)
       customerId: null,
       customerName: ((o.customerFirstName || '') + ' ' + (o.customerLastName || '')).trim() || '-',
       product: parts.product,

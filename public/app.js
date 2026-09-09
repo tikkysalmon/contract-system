@@ -77,10 +77,19 @@
     state.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
   } catch (e) { /* เริ่มแบบขยายเต็มถ้าอ่านไม่ได้ */ }
 
+  // 2026-09-09 แก้บั๊กจริง: เดิมเรียก renderApp() ซึ่ง rebuild #root ทั้งก้อนรวมถึง #tabContent ด้วย ทำให้
+  // initStockTab/initXxxTab ของแท็บที่เปิดอยู่ถูกสร้างใหม่และเรียก load() ซ้ำทุกครั้งที่ย่อ/ขยายเมนู (ทั้งที่
+  // เป็นแค่การเปลี่ยน layout ฝั่งซ้าย ไม่เกี่ยวกับข้อมูลแท็บเลย) — แก้เป็นแก้ class/ปุ่มตรงๆ ไม่แตะ #tabContent
   function toggleSidebar() {
     state.sidebarCollapsed = !state.sidebarCollapsed;
     try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(state.sidebarCollapsed)); } catch (e) { /* ไม่ critical */ }
-    renderApp();
+    var sidebarEl = document.querySelector('.sidebar');
+    var btn = document.getElementById('btnToggleSidebar');
+    if (sidebarEl) sidebarEl.classList.toggle('collapsed', state.sidebarCollapsed);
+    if (btn) {
+      btn.title = state.sidebarCollapsed ? 'ขยายเมนู' : 'ย่อเมนู';
+      btn.textContent = state.sidebarCollapsed ? '›' : '‹';
+    }
   }
 
   function renderLogin() {
