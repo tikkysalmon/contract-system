@@ -43,6 +43,7 @@ function initStockTab(containerId, currentUser) {
     cancelReason: '',
     pageSize: 20, // 2026-09-09 user ขอแบ่งหน้าตาราง "รายการออเดอร์" — ทำฝั่ง client (ข้อมูลทั้งหมดโหลดมาแล้ว)
     currentPage: 1, // เริ่มที่ 1 เสมอ
+    sortBy: 'latest', // 'latest' | 'customerName' | 'soNumber' | 'customerId' | 'installmentType'
   };
   var PAGE_SIZE_OPTIONS = [20, 50, 100];
 
@@ -386,17 +387,48 @@ function initStockTab(containerId, currentUser) {
     render();
   }
 
+  // 2026-09-09 user ขอเพิ่มตัวเลือกเรียงลำดับจริง (เดิม dropdown มีแค่ "ล่าสุด" ตัวเดียวและไม่มี logic จริงเลย
+  // เป็นแค่ป้ายตกแต่งของ listToolbarHtml) — เรียงฝั่ง client ทั้งหมด (ข้อมูลโหลด/กรองไว้ครบอยู่แล้ว)
+  function sortOrders(orders) {
+    var sorted = orders.slice();
+    switch (state.sortBy) {
+      case 'customerName':
+        sorted.sort(function (a, b) { return (a.customerName || '').localeCompare(b.customerName || '', 'th'); });
+        break;
+      case 'soNumber':
+        sorted.sort(function (a, b) { return (a.soNumber || '').localeCompare(b.soNumber || ''); });
+        break;
+      case 'customerId':
+        sorted.sort(function (a, b) { return (a.customerId || '').localeCompare(b.customerId || ''); });
+        break;
+      case 'installmentType':
+        sorted.sort(function (a, b) { return (a.installmentTypeLabel || '').localeCompare(b.installmentTypeLabel || '', 'th'); });
+        break;
+      default: // 'latest'
+        sorted.sort(function (a, b) { return new Date(b.orderDate || 0) - new Date(a.orderDate || 0); });
+    }
+    return sorted;
+  }
+
   // กรองส่วนใหญ่ทำฝั่ง server ผ่าน query params ไปแล้วตอน load() — filterChannel กรองฝั่ง client เพิ่ม (ข้อมูล
   // ทั้งหมดโหลดมาอยู่แล้ว ไม่ต้อง round-trip ใหม่)
   function filtered() {
-    if (state.filterChannel === 'all') return state.orders;
-    return state.orders.filter(function (o) { return o.deliveryChannel === state.filterChannel; });
+    var result = state.filterChannel === 'all' ? state.orders : state.orders.filter(function (o) { return o.deliveryChannel === state.filterChannel; });
+    return sortOrders(result);
   }
 
-  function sourceBadge(o) {
-    return o.source === 'credit'
-      ? '<span class="badge badge-info" style="background:#e0f2fe;color:#075985;">เครดิตผ่าน/วางดาวน์</span>'
-      : '<span class="badge badge-info" style="background:#fef3c7;color:#92400e;">ซื้อสด/ปิดยอด</span>';
+  // 2026-09-09 user ขอเปลี่ยนคอลัมน์ "ประเภท" (เดิมแยกแค่ 2 กลุ่มตามแหล่งข้อมูล credit/cash) เป็น "วิธีการผ่อน"
+  // จริงตามที่ CRM ระบุ (4 ค่า: ซื้อสด/วางดาวน์/เครดิตผ่าน/ผ่อนครบรับของ — ดู installmentTypeLabel ที่คำนวณมา
+  // จาก _lib/stock-reservation.js's INSTALLMENT_TYPE_LABELS แล้วในทั้ง 2 ฝั่งอยู่แล้ว ไม่ต้องคำนวณใหม่)
+  var INSTALLMENT_TYPE_BADGE_STYLE = {
+    FULL_PAYMENT: 'background:#fef3c7;color:#92400e;',
+    FULL_PAY_THEN_RECEIVE: 'background:#fde68a;color:#92400e;',
+    DOWN_PAYMENT: 'background:#e0f2fe;color:#075985;',
+    PARTIAL_PAY_THEN_RECEIVE: 'background:#ede9fe;color:#6d28d9;',
+  };
+  function installmentTypeBadge(o) {
+    var style = INSTALLMENT_TYPE_BADGE_STYLE[o.installmentType] || 'background:#f3f4f6;color:#374151;';
+    return '<span class="badge badge-info" style="' + style + '">' + (o.installmentTypeLabel || '-') + '</span>';
   }
   function printBadge(o) {
     if (o.cancelledAt) return '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">ยกเลิก</span>';
@@ -467,8 +499,14 @@ function initStockTab(containerId, currentUser) {
     html += '<div class="card"><h2>รายการออเดอร์</h2>' +
       listToolbarHtml({
         sortId: 'stkSortOrder',
-        sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
-        sortValue: 'latest',
+        sortOptions: [
+          { value: 'latest', label: 'เรียงลำดับ: ล่าสุด' },
+          { value: 'customerName', label: 'เรียงตามลูกค้า' },
+          { value: 'soNumber', label: 'เรียงตามเลขคำสั่งซื้อ' },
+          { value: 'customerId', label: 'เรียงตามรหัสลูกค้า' },
+          { value: 'installmentType', label: 'เรียงตามวิธีการผ่อน' },
+        ],
+        sortValue: state.sortBy,
         searchIconId: 'stkFilterIcon',
         searchInputId: 'stkFilterQuery',
         searchValue: state.filterQuery,
@@ -536,12 +574,12 @@ function initStockTab(containerId, currentUser) {
         '</div>' +
         '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
-        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th><th></th></tr></thead>' +
+        '<thead><tr><th></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th><th></th></tr></thead>' +
         '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
             '<td><input type="checkbox" class="stkRowCheck" data-so="' + o.soNumber + '"' + (checked ? ' checked' : '') + (o.cancelledAt ? ' disabled' : '') + ' /></td>' +
-            '<td>' + sourceBadge(o) + '</td>' +
+            '<td>' + installmentTypeBadge(o) + '</td>' +
             '<td style="text-align:left;">' + o.soNumber + '</td>' +
             '<td>' + (o.customerId || '-') + '</td>' +
             '<td style="text-align:left;">' + o.customerName + '</td>' +
@@ -570,6 +608,7 @@ function initStockTab(containerId, currentUser) {
 
     app.innerHTML = html;
 
+    document.getElementById('stkSortOrder').addEventListener('change', function (e) { state.sortBy = e.target.value; state.currentPage = 1; render(); });
     document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; state.currentPage = 1; load(); });
     document.getElementById('stkFilterQuery').addEventListener('input', function (e) { state.filterQuery = e.target.value; });
     document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.currentPage = 1; load(); } });
