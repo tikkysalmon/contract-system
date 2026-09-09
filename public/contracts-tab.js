@@ -230,6 +230,11 @@ function initContractsTab(containerId, currentUser, options) {
       } else {
         state.nameItems = results.map(function (r) { return r.body.data; });
         state.nameItems.forEach(initItemInput);
+        // 2026-09-09 แก้บั๊กจริง: เดิมไม่เคลียร์ตาราง "รายการสั่งซื้อของ [ลูกค้า]" ทิ้ง ทำให้ค้างโชว์ซ้อนอยู่
+        // เหนือฟอร์ม "CS กรอกยืนยันก่อนสร้างลิงก์" ทั้งที่ผ่านขั้นตอนติ๊กเลือกไปแล้ว
+        state.soListLight = null;
+        state.soListCustomer = null;
+        state.soListChecked = {};
       }
     } catch (err) {
       state.error = 'เรียก API ไม่สำเร็จ: ' + err.message;
