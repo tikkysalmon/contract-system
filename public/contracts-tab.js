@@ -637,10 +637,9 @@ function initContractsTab(containerId, currentUser, options) {
         html += '<div class="card"><h2>รายการสั่งซื้อของ ' + (state.soListCustomer.firstLastName || '-') + '</h2>' +
           '<p class="hint">ติ๊กเลือก SO ที่ต้องการรวมเข้าลิงก์เดียวกัน (กรอกฟอร์ม/เซ็นชื่อครั้งเดียว ได้สัญญาแยกฉบับตาม SO) — หรือกด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO นั้นในแท็บใหม่</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th></th><th style="text-align:left;">เลขที่สั่งซื้อ SO</th><th>สถานะการสั่งซื้อ</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th>เครดิตปัจจุบัน</th><th>สถานะการชำระ</th><th>เลท (วัน)</th><th>หมายเหตุ</th><th></th></tr></thead>' +
+          '<thead><tr><th></th><th style="text-align:left;">เลขที่สั่งซื้อ SO</th><th>สถานะการสั่งซื้อ</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th></th></tr></thead>' +
           '<tbody>' + state.soListLight.map(function (so) {
             var checked = !!state.soListChecked[so.soNumber];
-            var lateStyle = Number(so.overDueDateCount) > 0 ? ' style="color:var(--danger);font-weight:700;"' : '';
             var planLabel = so.planType === 'downpayment' ? 'วางดาวน์' : (so.planType === 'installment' ? 'ผ่อนไปใช้ไป' : '-');
             return '<tr>' +
               '<td><input type="checkbox" class="soListCheck" data-so="' + so.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
@@ -648,10 +647,6 @@ function initContractsTab(containerId, currentUser, options) {
               '<td><span class="badge badge-warn">' + so.statusLabel + '</span></td>' +
               '<td>' + planLabel + '</td>' +
               '<td style="text-align:left;">' + (state.soListCustomer.firstLastName || '-') + '</td>' +
-              '<td>' + (so.percentCredit != null ? so.percentCredit + '%' : '-') + '</td>' +
-              '<td>' + (so.paymentStatus ? '<span class="badge badge-warn">' + so.paymentStatusLabel + '</span>' : '-') + '</td>' +
-              '<td' + lateStyle + '>' + (so.overDueDateCount || '-') + '</td>' +
-              '<td>-</td>' +
               '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(so.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td>' +
               '</tr>';
           }).join('') + '</tbody></table></div>' +

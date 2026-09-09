@@ -200,13 +200,18 @@ async function resolveCustomerSoItems(customerId, token) {
   return resolved.filter(function (item) { return item && !item.unsupported; });
 }
 
-// ป้ายภาษาไทยเท่าที่ยืนยันตรงกับหน้า CRM จริงแล้ว (จากภาพตัวอย่างที่ user ส่งมา 2026-09-04) — ค่าอื่นที่ยังไม่
-// รู้จักโชว์ค่าดิบแทนการเดา (เหมือนแพทเทิร์น TYPE_LABELS ด้านบน)
+// ป้ายภาษาไทย — INSTALLMENT_AFTER_CREDIT_APPROVAL ยืนยันตรงกับหน้า CRM จริงแล้ว (จากภาพตัวอย่างที่ user ส่งมา
+// 2026-09-04) ตัวอื่นอีก 6 ค่ายังไม่เคยเทียบกับหน้า CRM ตรงๆ ใช้ป้ายเดียวกับที่เมนู "สำหรับสต๊อค" ใช้อยู่แล้ว
+// (ดู _lib/stock-reservation.js's ALL_KNOWN_STATUSES) กันโชว์โค้ดดิบ (2026-09-09 user แจ้งว่า MISSED_INSTALLMENTS
+// หลุดโชว์เป็นโค้ดในเมนู "สำหรับ CS")
 var SO_STATUS_LABELS = {
+  CANCELLED: 'ยกเลิก',
+  PENDING_CANCELLATION: 'รอยกเลิก',
+  MISSED_INSTALLMENTS: 'ขาดผ่อน',
+  INSTALLMENT_BEFORE_CREDIT_APPROVAL: 'รอนุมัติเครดิต (ยังไม่อนุมัติ)',
+  COMPLETED: 'ปิดจบ/จ่ายครบแล้ว',
   INSTALLMENT_AFTER_CREDIT_APPROVAL: 'ผ่อนหลังเครดิตผ่าน',
-};
-var SO_PAYMENT_STATUS_LABELS = {
-  PENDING_PAYMENT: 'รอชำระเงิน',
+  INSTALLMENT_PAUSED_BEFORE_APPROVED: 'พักชั่วคราว (ก่อนอนุมัติ)',
 };
 
 // ดึงลิสต์ SO ของลูกค้าคนหนึ่งแบบ "เบา" (ไม่เรียก buildSoData ทีละใบ ไม่ต้องรอนาน) ใช้ตอนค้นหาด้วยชื่อลูกค้า
@@ -220,10 +225,6 @@ async function fetchCustomerSoListLight(customerId, token) {
       status: so.status,
       statusLabel: SO_STATUS_LABELS[so.status] || so.status,
       planType: mapPlanType(so.installmentType), // ใช้โชว์คอลัมน์ "วิธีการผ่อน" ในตารางเบา (2026-09-06)
-      percentCredit: so.percentCredit,
-      paymentStatus: so.paymentStatus,
-      paymentStatusLabel: SO_PAYMENT_STATUS_LABELS[so.paymentStatus] || so.paymentStatus,
-      overDueDateCount: so.overDueDateCount,
       createdAt: so.createdAt,
       productPrice: so.productPrice,
       _debugRawSo: so, // TEMP (2026-09-06) — เช็คว่า field วิธีการผ่อนจริงๆ ชื่ออะไรใน saleOrders[] ของ /crm/customer — ลบทิ้งหลังเช็คเสร็จ
