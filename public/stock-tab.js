@@ -1,7 +1,9 @@
-// "สำหรับสต๊อค" (2026-09-06) — แทนที่ระบบเดิมที่ดึงจาก Lark Base (ดู ระบบจัดการออเดอร์.tsx ที่ user ส่งมา
-// อ้างอิง UI/PDF เดิม) ระบบใหม่ดึงข้อมูลสด 2 แหล่ง: เครดิตผ่าน/วางดาวน์ (จากเมนู "ข้อมูลลูกค้าทำสัญญา" สถานะ
-// "สัญญาลูกค้าเรียบร้อย") + ซื้อสด/ปิดยอด (จาก CRM ตรงๆ — ยังไม่ได้ต่อจริง รอ endpoint list/กรองออเดอร์จาก CRM
-// ดู TODO ใน api/stock-orders.js) ให้สต๊อคกำหนด "รอบการเบิก" แล้วพิมพ์ใบเบิกประจำวันเป็น PDF ก่อนพิมพ์จริง
+// "สำหรับสต๊อค" (2026-09-06, ยุบรวมกับแท็บ "ตรวจสอบสินค้าพร้อมส่ง" เดิมเข้าเป็นแท็บเดียว 2026-09-09 ตามที่
+// user ยืนยัน) — แทนที่ระบบเดิมที่ดึงจาก Lark Base (ดู ระบบจัดการออเดอร์.tsx ที่ user ส่งมาอ้างอิง UI/PDF เดิม)
+// ดึงข้อมูลสด 2 แหล่ง: เครดิตผ่าน/วางดาวน์ (จากเมนู "ข้อมูลลูกค้าทำสัญญา" สถานะ "สัญญาลูกค้าเรียบร้อย") +
+// ซื้อสด/ปิดยอด (จาก crm_orders_cache — ต่อจริงแล้ว) แล้วจับคู่กับสต๊อก Odoo ต่อแถวเลย (คอลัมน์ "สต๊อกคงเหลือ"/
+// "สถานะ" ในตาราง — ตรรกะจัดคิวอยู่ที่ api/_lib/stock-reservation.js) ให้สต๊อคกำหนด "รอบการเบิก" แล้วพิมพ์ใบเบิก
+// ประจำวันเป็น PDF ก่อนพิมพ์จริง
 // ใช้: initStockTab('containerElementId', currentUser)
 function initStockTab(containerId, currentUser) {
   'use strict';
@@ -13,6 +15,11 @@ function initStockTab(containerId, currentUser) {
     error: null,
     orders: [],
     cashSourceReady: true,
+    cashOrdersLookbackDays: null,
+    cashTruncated: false,
+    cashMatchedCount: 0,
+    stockLastSyncedAt: null,
+    crmLastSyncedAt: null,
     selected: {}, // { soNumber: true }
     filterCustomerType: 'all',
     filterQuery: '',
@@ -24,30 +31,6 @@ function initStockTab(containerId, currentUser) {
     printing: false,
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
-    // "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07, ปรับใหม่ 2026-09-08) — มุมมองที่ 2 ของหน้านี้ อ่านจากแคช Supabase
-    // ของคำสั่งขาย CRM + สต๊อก Odoo (ดู _lib/stock-reservation.js) คนละแหล่งข้อมูลกับตาราง "รายการออเดอร์"
-    // ด้านบน — **ต้องเลือกตัวกรองช่วงวันที่คำสั่งซื้อก่อนเสมอถึงจะค้นหาได้** (CRM มีคำสั่งขายสะสม 89,031
-    // รายการ ดึงทั้งหมดมาแสดงทีเดียวไม่ได้ ต้องให้พนักงานแคบขอบเขตลงก่อนตามที่ user ยืนยัน 2026-09-08)
-    activeView: 'orders', // 'orders' | 'readiness'
-    readinessStatuses: [], // โหลดครั้งแรกตอนสลับมาดูมุมมองนี้ (สำหรับ dropdown ตัวกรองสถานะ)
-    readinessMaxFilteredOrders: null,
-    readinessMetaLoading: false,
-    readinessMetaError: null,
-    readinessFilters: { orderDateFrom: '', orderDateTo: '', statuses: [] }, // statuses: [] ว่าง = "ทั้งหมด" (2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน — เดิมเลือกได้ทีละสถานะ)
-    readinessSearching: false,
-    readinessSearchError: null,
-    readinessSearched: false, // เคยกดค้นหาอย่างน้อย 1 ครั้งหรือยัง
-    readinessResult: null, // { orders, shortages, matchedCount, relevantCount, truncated, stockLastSyncedAt, crmLastSyncedAt }
-  };
-
-  var STATUS_LABELS = {
-    CANCELLED: 'ยกเลิก',
-    PENDING_CANCELLATION: 'รอยกเลิก',
-    MISSED_INSTALLMENTS: 'ขาดผ่อน',
-    INSTALLMENT_BEFORE_CREDIT_APPROVAL: 'รอนุมัติเครดิต (ยังไม่อนุมัติ)',
-    COMPLETED: 'ปิดจบ/จ่ายครบแล้ว',
-    INSTALLMENT_AFTER_CREDIT_APPROVAL: 'อนุมัติเครดิตแล้ว (กำลังผ่อน)',
-    INSTALLMENT_PAUSED_BEFORE_APPROVED: 'พักชั่วคราว (ก่อนอนุมัติ)',
   };
 
   function fmtDateTime(iso) {
@@ -74,6 +57,11 @@ function initStockTab(containerId, currentUser) {
       if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
       state.orders = body.orders || [];
       state.cashSourceReady = !!body.cashSourceReady;
+      state.cashOrdersLookbackDays = body.cashOrdersLookbackDays || null;
+      state.cashTruncated = !!body.cashTruncated;
+      state.cashMatchedCount = body.cashMatchedCount || 0;
+      state.stockLastSyncedAt = body.stockLastSyncedAt || null;
+      state.crmLastSyncedAt = body.crmLastSyncedAt || null;
       // ล้าง selection ของ SO ที่หลุดจากรายการปัจจุบันไปแล้ว (เช่น กรองใหม่)
       var stillThere = {};
       state.orders.forEach(function (o) { if (state.selected[o.soNumber]) stillThere[o.soNumber] = true; });
@@ -239,189 +227,39 @@ function initStockTab(containerId, currentUser) {
       : '<span class="badge badge-info" style="background:#fff3e0;color:#b06a00;">รอพิมพ์</span>';
   }
 
-  // ---------- "ตรวจสอบสินค้าพร้อมส่ง" (2026-09-07, ปรับใหม่ 2026-09-08 — ต้องเลือกตัวกรองก่อนค้นหาเสมอ) ----------
-  async function loadReadinessMeta() {
-    state.readinessMetaLoading = true;
-    state.readinessMetaError = null;
-    render();
-    try {
-      var res = await fetch('/api/stock-orders?view=readiness');
-      var body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
-      state.readinessStatuses = body.statuses || [];
-      state.readinessMaxFilteredOrders = body.maxFilteredOrders || null;
-      // ตั้งค่าเริ่มต้นให้ช่วงวันที่ = 30 วันล่าสุด กันพนักงานลืมกรอกแล้วกดค้นหาทั้งหมดโดยไม่ตั้งใจ
-      var today = new Date();
-      var from = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
-      state.readinessFilters.orderDateTo = today.toISOString().slice(0, 10);
-      state.readinessFilters.orderDateFrom = from.toISOString().slice(0, 10);
-    } catch (err) {
-      state.readinessMetaError = 'โหลดตัวเลือกตัวกรองไม่สำเร็จ: ' + err.message;
-    }
-    state.readinessMetaLoading = false;
-    render();
-  }
-
-  async function searchReadiness() {
-    if (!state.readinessFilters.orderDateFrom || !state.readinessFilters.orderDateTo) {
-      window.alert('กรุณาเลือกช่วงวันที่คำสั่งซื้อก่อนค้นหา');
-      return;
-    }
-    state.readinessSearching = true;
-    state.readinessSearchError = null;
-    state.readinessSearched = true;
-    render();
-    try {
-      var params = new URLSearchParams({
-        view: 'readiness',
-        orderDateFrom: state.readinessFilters.orderDateFrom,
-        orderDateTo: state.readinessFilters.orderDateTo,
-      });
-      if (state.readinessFilters.statuses.length) params.set('status', state.readinessFilters.statuses.join(','));
-      var res = await fetch('/api/stock-orders?' + params.toString());
-      var body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error || 'ค้นหาไม่สำเร็จ');
-      state.readinessResult = body;
-    } catch (err) {
-      state.readinessSearchError = 'ค้นหาไม่สำเร็จ: ' + err.message + ' (ต้องตั้งค่า CRM_USERNAME/CRM_PASSWORD และรัน scripts/sync-stock-readiness.js อย่างน้อย 1 ครั้งก่อน)';
-    }
-    state.readinessSearching = false;
-    render();
-  }
-
-  function switchView(view) {
-    state.activeView = view;
-    if (view === 'readiness' && !state.readinessStatuses.length && !state.readinessMetaLoading) loadReadinessMeta();
-    render();
-  }
-
-  function readinessStockBadge(o) {
+  function stockStatusBadge(o) {
     return o.stockReady
       ? '<span class="badge badge-info" style="background:#dcfce7;color:#15803d;">พร้อมส่ง</span>'
       : '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอสต๊อก (คิวที่ ' + o.queuePosition + ')</span>';
   }
 
-  function readinessFilterFormHtml() {
-    return '<div class="card"><h2>ตัวกรอง (บังคับเลือกช่วงวันที่คำสั่งซื้อก่อนค้นหาเสมอ)</h2>' +
-      '<p class="hint">CRM มีคำสั่งขายสะสมกว่า 89,000 รายการ ดึงมาแสดงทั้งหมดพร้อมกันไม่ได้ กรุณาเลือกช่วงวันที่ให้แคบพอ (แนะนำไม่เกิน 1-2 เดือน) — ถ้าผลลัพธ์เกิน ' + (state.readinessMaxFilteredOrders || 300) + ' รายการ ระบบจะขอให้แคบช่วงลงอีก</p>' +
-      '<div class="so-search-filter-row" style="flex-wrap:wrap;align-items:flex-end;">' +
-      '<div class="field"><label>วันที่คำสั่งซื้อ ตั้งแต่</label><input type="date" id="rdFilterFrom" value="' + state.readinessFilters.orderDateFrom + '" /></div>' +
-      '<div class="field"><label>ถึงวันที่</label><input type="date" id="rdFilterTo" value="' + state.readinessFilters.orderDateTo + '" /></div>' +
-      '<button type="button" class="btn btn-primary" id="rdBtnSearch"' + (state.readinessSearching ? ' disabled' : '') + '>' + (state.readinessSearching ? 'กำลังค้นหา...' : '🔍 ค้นหา') + '</button>' +
-      '</div>' +
-      // 2026-09-08 user ขอเลือกได้หลายสถานะพร้อมกัน — เดิมเป็น <select> เลือกได้ทีละสถานะ เปลี่ยนมาเป็นติ๊ก
-      // checkbox หลายอันได้ (ไม่ติ๊กเลย = ทั้งหมด เหมือนเดิม)
-      '<div class="field" style="margin-top:10px;"><label>สถานะ (เลือกได้หลายรายการ — ไม่เลือกเลย = ใช้เงื่อนไข "พร้อมส่ง" อัตโนมัติตามวิธีผ่อน: ซื้อสด/ผ่อนครบรับของ→ปิดยอด, วางดาวน์/เครดิตผ่าน→อนุมัติเครดิตแล้ว)</label>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding:6px 0;">' +
-      state.readinessStatuses.map(function (s) {
-        var checked = state.readinessFilters.statuses.indexOf(s) !== -1;
-        return '<label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;">' +
-          '<input type="checkbox" class="rdStatusCheck" data-status="' + s + '"' + (checked ? ' checked' : '') + ' />' +
-          (STATUS_LABELS[s] || s) + '</label>';
-      }).join('') +
-      '</div></div>' +
-      '<p class="hint" style="margin-top:10px;">⚠️ ยังไม่มีตัวกรอง "วันที่พร้อมส่งจริง" (วันอนุมัติเครดิต/ปิดยอด) — ยืนยันแล้วว่า CRM ไม่มีฟิลด์นี้ใน endpoint แบบ list ที่ใช้ sync เลย (มีแค่ endpoint รายละเอียดทีละใบ) กรองด้วยวันที่คำสั่งซื้อไปก่อน อาจไม่ครอบคลุมรายการที่สั่งซื้อนานแล้วแต่เพิ่งพร้อมส่งช่วงนี้</p>' +
-      '</div>';
-  }
-
-  function readinessSectionHtml() {
+  function syncFreshnessNoticesHtml() {
     var h = '';
-    if (state.readinessMetaLoading) { return '<div class="card">กำลังโหลดตัวเลือกตัวกรอง...</div>'; }
-    if (state.readinessMetaError) { return '<div class="card"><p style="color:var(--danger);">' + state.readinessMetaError + '</p></div>'; }
-
-    h += readinessFilterFormHtml();
-
-    if (state.readinessSearching) { h += '<div class="card">กำลังค้นหา...</div>'; return h; }
-    if (state.readinessSearchError) { h += '<div class="card"><p style="color:var(--danger);">' + state.readinessSearchError + '</p></div>'; return h; }
-    if (!state.readinessSearched || !state.readinessResult) { h += '<div class="card"><p class="hint">เลือกตัวกรองแล้วกดค้นหาเพื่อดูผลลัพธ์</p></div>'; return h; }
-
-    var data = state.readinessResult;
-
-    if (data.truncated) {
-      h += '<div class="card"><p style="color:var(--danger);">⚠️ พบ ' + data.matchedCount + ' รายการ เกินขีดจำกัด ' + data.maxFilteredOrders + ' รายการต่อการค้นหา — กรุณาแคบช่วงวันที่หรือเลือกสถานะให้เจาะจงมากขึ้นแล้วค้นหาใหม่</p></div>';
-      return h;
-    }
-
-    h += '<div class="notice">⚠️ ฟีเจอร์นี้ใหม่ — ถ้าเห็นสถานะที่ดูผิดปกติ (เช่น รายการที่ควรพร้อมส่งแต่ขึ้นรอสต๊อก) แจ้งได้เลย มีจุดที่ยังไม่ยืนยัน 100% กับข้อมูลจริง (การจับคู่ชื่อสินค้า)</div>';
-
-    var stockAgeMs = data.stockLastSyncedAt ? (Date.now() - new Date(data.stockLastSyncedAt).getTime()) : null;
+    var stockAgeMs = state.stockLastSyncedAt ? (Date.now() - new Date(state.stockLastSyncedAt).getTime()) : null;
     var stockStale = stockAgeMs === null || stockAgeMs > 60 * 60 * 1000;
     h += '<div class="notice"' + (stockStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
-      (data.stockLastSyncedAt
-        ? (stockStale ? '⚠️ ' : '✅ ') + 'ข้อมูลสต๊อก Odoo ล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(data.stockLastSyncedAt) + (stockStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
+      (state.stockLastSyncedAt
+        ? (stockStale ? '⚠️ ' : '✅ ') + 'ข้อมูลสต๊อก Odoo ล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(state.stockLastSyncedAt) + (stockStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
         : '⚠️ ยังไม่เคย sync สต๊อกจาก Odoo เข้ามาเลย — รัน scripts/sync-stock-readiness.js ที่พีซีก่อน (ดู README)') +
       '</div>';
 
-    var crmAgeMs = data.crmLastSyncedAt ? (Date.now() - new Date(data.crmLastSyncedAt).getTime()) : null;
+    var crmAgeMs = state.crmLastSyncedAt ? (Date.now() - new Date(state.crmLastSyncedAt).getTime()) : null;
     var crmStale = crmAgeMs === null || crmAgeMs > 60 * 60 * 1000;
     h += '<div class="notice"' + (crmStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
-      (data.crmLastSyncedAt
-        ? (crmStale ? '⚠️ ' : '✅ ') + 'ข้อมูลคำสั่งขาย CRM ล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(data.crmLastSyncedAt) + (crmStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
+      (state.crmLastSyncedAt
+        ? (crmStale ? '⚠️ ' : '✅ ') + 'ข้อมูลคำสั่งขาย CRM (ฝั่งซื้อสด/ปิดยอด) ล่าสุด sync จากพีซีเมื่อ ' + fmtDateTime(state.crmLastSyncedAt) + (crmStale ? ' (นานเกิน 1 ชม. — เช็คว่าพีซีที่รัน sync เปิด/ต่อเน็ตอยู่ไหม)' : '')
         : '⚠️ ยังไม่เคย sync คำสั่งขาย CRM เข้ามาเลย — รัน scripts/sync-stock-readiness.js ที่พีซีก่อน (ดู README)') +
       '</div>';
 
-    if (data.shortages.length) {
-      h += '<div class="card"><h2>🛒 สินค้าที่ขาด ต้องสั่งเพิ่ม (' + data.shortages.length + ' รายการ)</h2>' +
-        '<table class="installment-table"><thead><tr><th style="text-align:left;">สินค้า</th><th>จำนวนที่ขาด (ออเดอร์)</th></tr></thead><tbody>' +
-        data.shortages.map(function (s) {
-          return '<tr><td style="text-align:left;">' + s.productName + '</td><td>' + s.shortCount + '</td></tr>';
-        }).join('') +
-        '</tbody></table>' +
-        '<p class="hint" style="margin-top:10px;">ยังไม่มีเมนู "สำหรับจัดซื้อ" แยกต่างหาก (รอข้อมูลเพิ่มเติม) — ใช้ตารางนี้แจ้งจัดซื้อไปก่อนตอนนี้</p>' +
-        '</div>';
-    } else {
-      h += '<div class="card"><p class="hint">✅ ไม่มีสินค้าขาดสต๊อกในรายการที่ตรวจสอบตอนนี้</p></div>';
+    if (state.cashTruncated) {
+      h += '<div class="notice" style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;">⚠️ ฝั่งซื้อสด/ปิดยอดย้อนหลัง ' + state.cashOrdersLookbackDays + ' วัน พบ ' + state.cashMatchedCount + ' รายการ เกินขีดจำกัดที่ดึงได้ต่อครั้ง — แจ้งผู้ดูแลระบบ (อาจต้องลดช่วงย้อนหลังหรือปรับ cap)</div>';
     }
-
-    h += '<div class="card"><h2>รายการที่ตรวจสอบ (' + data.matchedCount + ' รายการตามตัวกรอง)</h2>' +
-      '<p class="hint">จัดคิวจองสต๊อกตามลำดับ: ซื้อสด/ผ่อนครบรับของ → วางดาวน์ → เครดิตผ่าน (เรียงตามวันที่สั่งซื้อภายในลำดับเดียวกัน)</p>' +
-      '<div style="overflow-x:auto;"><table class="installment-table">' +
-      '<thead><tr><th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">สินค้า</th><th>วิธีการผ่อน</th><th>วันที่สั่งซื้อ</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะ</th></tr></thead>' +
-      '<tbody>' + data.orders.map(function (o) {
-        return '<tr>' +
-          '<td style="text-align:left;">' + o.saleOrderId + '</td>' +
-          '<td style="text-align:left;">' + (o.productName || '-') + '</td>' +
-          '<td>' + (o.installmentTypeLabel || o.installmentType) + '</td>' +
-          '<td>' + fmtDateTime(o.orderDate) + '</td>' +
-          '<td>' + o.odooAvailableQty + '</td>' +
-          '<td>' + readinessStockBadge(o) + '</td>' +
-          '</tr>';
-      }).join('') + (data.orders.length === 0 ? '<tr><td colspan="6" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
-      '</tbody></table></div>' +
-      '</div>';
     return h;
   }
 
   function render() {
     var app = document.getElementById(containerId);
     var html = '';
-
-    html += '<div style="display:flex;gap:8px;margin-bottom:4px;">' +
-      '<button type="button" class="btn ' + (state.activeView === 'orders' ? 'btn-primary' : 'btn-secondary') + '" id="stkViewOrders">รายการออเดอร์</button>' +
-      '<button type="button" class="btn ' + (state.activeView === 'readiness' ? 'btn-primary' : 'btn-secondary') + '" id="stkViewReadiness">ตรวจสอบสินค้าพร้อมส่ง</button>' +
-      '</div>';
-
-    if (state.activeView === 'readiness') {
-      html += readinessSectionHtml();
-      app.innerHTML = html;
-      document.getElementById('stkViewOrders').addEventListener('click', function () { switchView('orders'); });
-      document.getElementById('stkViewReadiness').addEventListener('click', function () { switchView('readiness'); });
-      var rdFrom = document.getElementById('rdFilterFrom');
-      var rdTo = document.getElementById('rdFilterTo');
-      var rdBtn = document.getElementById('rdBtnSearch');
-      if (rdFrom) rdFrom.addEventListener('change', function (e) { state.readinessFilters.orderDateFrom = e.target.value; });
-      if (rdTo) rdTo.addEventListener('change', function (e) { state.readinessFilters.orderDateTo = e.target.value; });
-      Array.prototype.forEach.call(document.querySelectorAll('.rdStatusCheck'), function (cb) {
-        cb.addEventListener('change', function () {
-          var s = cb.getAttribute('data-status');
-          var idx = state.readinessFilters.statuses.indexOf(s);
-          if (cb.checked && idx === -1) state.readinessFilters.statuses.push(s);
-          else if (!cb.checked && idx !== -1) state.readinessFilters.statuses.splice(idx, 1);
-        });
-      });
-      if (rdBtn) rdBtn.addEventListener('click', searchReadiness);
-      return;
-    }
 
     html += '<div class="card"><h2>รายการออเดอร์</h2>' +
       listToolbarHtml({
@@ -452,9 +290,7 @@ function initStockTab(containerId, currentUser) {
       '</div>' +
       '</div>';
 
-    if (!state.cashSourceReady) {
-      html += '<div class="notice">ฝั่ง "ซื้อสด/ปิดยอด" ยังไม่ได้เชื่อมกับ CRM จริง (รอ endpoint list/กรองออเดอร์จาก CRM) — ตอนนี้แสดงได้เฉพาะฝั่งเครดิตผ่าน/วางดาวน์เท่านั้น</div>';
-    }
+    if (!state.loading && !state.error) html += syncFreshnessNoticesHtml();
 
     if (state.loading) {
       html += '<div class="card">กำลังโหลดข้อมูล...</div>';
@@ -473,7 +309,7 @@ function initStockTab(containerId, currentUser) {
         '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่') + '</span>' +
         '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
-        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th></tr></thead>' +
+        '<thead><tr><th></th><th>ประเภท</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th></tr></thead>' +
         '<tbody>' + orders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
@@ -483,11 +319,13 @@ function initStockTab(containerId, currentUser) {
             '<td>' + (o.customerId || '-') + '</td>' +
             '<td style="text-align:left;">' + o.customerName + '</td>' +
             '<td style="text-align:left;">' + o.product + (o.color ? ' (' + o.color + ')' : '') + '</td>' +
+            '<td>' + (o.odooAvailableQty != null ? o.odooAvailableQty : '-') + '</td>' +
+            '<td>' + stockStatusBadge(o) + '</td>' +
             '<td>' + printBadge(o) + '</td>' +
             '<td>' + (o.withdrawalRound || '-') + '</td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (orders.length === 0 ? '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (orders.length === 0 ? '<tr><td colspan="11" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }
@@ -503,8 +341,6 @@ function initStockTab(containerId, currentUser) {
 
     app.innerHTML = html;
 
-    document.getElementById('stkViewOrders').addEventListener('click', function () { switchView('orders'); });
-    document.getElementById('stkViewReadiness').addEventListener('click', function () { switchView('readiness'); });
     document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; load(); });
     document.getElementById('stkFilterQuery').addEventListener('input', function (e) { state.filterQuery = e.target.value; });
     document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
