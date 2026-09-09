@@ -117,6 +117,25 @@ function initStockTab(containerId, currentUser) {
     }
   }
 
+  // แก้ "วันที่เบิกสินค้า" เองทีหลังได้ (2026-09-09 user ขอ) — เผื่อระบบ auto ลงวันที่ผิดตอนกดพิมพ์ใบสรุป
+  // เบิกประจำวัน (ดู markPrinted ฝั่ง api/stock-orders.js ที่ auto ลงวันที่ให้ตอนพิมพ์)
+  async function setWithdrawalDateForOrder(soNumber, withdrawalDate) {
+    if (!withdrawalDate) return;
+    try {
+      var res = await fetch('/api/stock-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setWithdrawalDate', soNumbers: [soNumber], withdrawalDate: withdrawalDate, staffName: currentUser.username }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+      await load();
+    } catch (err) {
+      window.alert('แก้ไขวันที่เบิกสินค้าไม่สำเร็จ: ' + err.message);
+      render();
+    }
+  }
+
   async function markPrintedAndReload(soNumbers) {
     var res = await fetch('/api/stock-orders', {
       method: 'POST',
@@ -468,6 +487,12 @@ function initStockTab(containerId, currentUser) {
       '</select>';
   }
 
+  // "วันที่เบิกสินค้า" — auto ลงให้ตอนกดพิมพ์ใบสรุปเบิกประจำวัน (ดู markPrintedAndReload) แต่แก้ไขเองทีหลังได้
+  // ถ้า auto ผิด (2026-09-09 user ขอ)
+  function withdrawalDateInputHtml(o) {
+    return '<input type="date" class="stkRowWithdrawalDate" data-so="' + o.soNumber + '" value="' + (o.withdrawalDate || '') + '" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;" />';
+  }
+
   function syncFreshnessNoticesHtml() {
     var h = '';
     var stockAgeMs = state.stockLastSyncedAt ? (Date.now() - new Date(state.stockLastSyncedAt).getTime()) : null;
@@ -574,7 +599,7 @@ function initStockTab(containerId, currentUser) {
         '</div>' +
         '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
-        '<thead><tr><th></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th></th><th></th></tr></thead>' +
+        '<thead><tr><th></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>' +
         '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
@@ -589,10 +614,11 @@ function initStockTab(containerId, currentUser) {
             '<td>' + contractStatusBadge(o) + '</td>' +
             '<td>' + printBadge(o) + '</td>' +
             '<td>' + roundSelectHtml(o) + '</td>' +
+            '<td>' + withdrawalDateInputHtml(o) + '</td>' +
             '<td><button type="button" class="btn btn-ghost stkBtnPrintBill" data-so="' + o.soNumber + '"' + (state.printingBillSo === o.soNumber ? ' disabled' : '') + '>' + (state.printingBillSo === o.soNumber ? 'กำลังสร้าง...' : '🖨️ ใบเบิกรายบิล') + '</button></td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="13" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="14" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }
@@ -629,6 +655,9 @@ function initStockTab(containerId, currentUser) {
       });
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowRound'), function (sel) {
         sel.addEventListener('change', function () { setRoundForOrder(sel.getAttribute('data-so'), sel.value); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.stkRowWithdrawalDate'), function (inp) {
+        inp.addEventListener('change', function () { setWithdrawalDateForOrder(inp.getAttribute('data-so'), inp.value); });
       });
       Array.prototype.forEach.call(document.querySelectorAll('.stkBtnPrintBill'), function (btn) {
         btn.addEventListener('click', function () { printSingleBill(btn.getAttribute('data-so')); });

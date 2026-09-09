@@ -18,7 +18,7 @@
 //      แต่เก่ากว่าช่วงนี้จะไม่โผล่ในลิสต์
 //   ทั้ง 2 แหล่ง join กับ stock_order_meta (เมทาดาต้าการเบิกที่ระบบนี้เป็นเจ้าของเอง) ด้วย so_number
 //
-// POST { action: 'setRound'|'markPrinted'|'cancel', ... } อัปเดต stock_order_meta (ดู handler ด้านล่าง)
+// POST { action: 'setRound'|'markPrinted'|'setWithdrawalDate'|'cancel', ... } อัปเดต stock_order_meta (ดู handler ด้านล่าง)
 //
 // ต้องรัน supabase-stock-orders.sql ก่อนใช้งาน (ตาราง stock_order_meta)
 // ต้องตั้งค่าใน Vercel project settings: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRM_USERNAME, CRM_PASSWORD
@@ -242,6 +242,7 @@ async function handleList(req, res, authHeaders) {
       withdrawalRound: meta.withdrawal_round || null,
       printedAt: meta.printed_at || null,
       printedBy: meta.printed_by || null,
+      withdrawalDate: meta.withdrawal_date || null,
       cancelledAt: meta.cancelled_at || null,
       cancelledBy: meta.cancelled_by || null,
       cancelReason: meta.cancel_reason || null,
@@ -308,8 +309,22 @@ async function handleUpdate(req, res, authHeaders) {
   if (action === 'markPrinted') {
     const soNumbers = Array.isArray(body.soNumbers) ? body.soNumbers : [];
     if (!soNumbers.length) { res.status(400).json({ error: 'ไม่มี soNumbers' }); return; }
+    const now = new Date();
     await upsertMeta(authHeaders, soNumbers.map(function (so) {
-      return { so_number: so, printed_at: new Date().toISOString(), printed_by: staffName, updated_at: new Date().toISOString() };
+      // 2026-09-09 user ขอ: ลง "วันที่เบิกสินค้า" อัตโนมัติทุกครั้งที่พิมพ์ใบสรุปเบิกประจำวัน — คนละฟิลด์กับ
+      // printed_at (เวลาที่กดพิมพ์จริง) เป็นแค่วันที่ทางธุรกิจ แก้ไขทีหลังได้ถ้า auto ผิด (ดู setWithdrawalDate)
+      return { so_number: so, printed_at: now.toISOString(), printed_by: staffName, withdrawal_date: now.toISOString().slice(0, 10), updated_at: now.toISOString() };
+    }));
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  if (action === 'setWithdrawalDate') {
+    const soNumbers = Array.isArray(body.soNumbers) ? body.soNumbers : [];
+    const withdrawalDate = String(body.withdrawalDate || '').trim();
+    if (!soNumbers.length || !withdrawalDate) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (soNumbers/withdrawalDate)' }); return; }
+    await upsertMeta(authHeaders, soNumbers.map(function (so) {
+      return { so_number: so, withdrawal_date: withdrawalDate, updated_at: new Date().toISOString() };
     }));
     res.status(200).json({ ok: true });
     return;
