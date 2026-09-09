@@ -155,6 +155,10 @@ async function doChangeSo(authHeaders, submissionId, staffName, oldSoNumber, new
   const items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
   const idx = items.findIndex(function (it) { return it.soNumber === oldSoNumber; });
   if (idx === -1) { res.status(404).json({ error: 'ไม่พบ SO เดิม (' + oldSoNumber + ') ในสัญญานี้ — อาจถูกเปลี่ยนไปแล้วก่อนหน้านี้ ลองรีเฟรชคิว' }); return; }
+  // 2026-09-09 แก้บั๊กจริง: newItem มาจาก staff-sign-tab.js's confirmChangeSo ซึ่งประกอบจากผลลัพธ์ crm-lookup
+  // ตรงๆ ไม่มี deliveryChannel (ฟิลด์นี้ CS เป็นคนเลือกเองตอนสร้างลิงก์ ไม่ได้มาจาก CRM) — ถ้าไม่รักษาค่าเดิมไว้
+  // จะหายไปเงียบๆ ทุกครั้งที่เปลี่ยน SO (กระทบเคส "ผ่อนสะสมยอด" ที่ต้องรู้ช่องทางจัดส่ง/สาขาที่นัดรับตรงๆ)
+  if (newItem.deliveryChannel === undefined) newItem.deliveryChannel = items[idx].deliveryChannel || null;
   items[idx] = newItem;
   snapshot.items = items;
 
