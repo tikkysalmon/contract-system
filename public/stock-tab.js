@@ -488,9 +488,13 @@ function initStockTab(containerId, currentUser) {
   }
 
   // "วันที่เบิกสินค้า" — auto ลงให้ตอนกดพิมพ์ใบสรุปเบิกประจำวัน (ดู markPrintedAndReload) แต่แก้ไขเองทีหลังได้
-  // ถ้า auto ผิด (2026-09-09 user ขอ)
-  function withdrawalDateInputHtml(o) {
-    return '<input type="date" class="stkRowWithdrawalDate" data-so="' + o.soNumber + '" value="' + (o.withdrawalDate || '') + '" style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;" />';
+  // ถ้า auto ผิด (2026-09-09 user ขอ) — ใช้ attachThaiDatePicker ตัวเดียวกับที่อื่นในระบบ (เช่น contracts-tab.js's
+  // วันเริ่มผ่อนงวดแรก) แทน native <input type=date> เพราะ native แสดงเป็น mm/dd/yyyy ตามภาษาเครื่อง/เบราว์เซอร์
+  // ผู้ใช้แต่ละคน คุมรูปแบบไม่ได้ (2026-09-09 user ขอเป็น dd/mm/yyyy คงที่เสมอ)
+  function withdrawalDateWrapHtml(o) {
+    return '<div class="date-field-wrap stkWithdrawalDateWrap" data-so="' + o.soNumber + '" data-value="' + (o.withdrawalDate || '') + '">' +
+      '<div class="date-display" style="padding:4px 6px;font-size:13px;min-width:110px;">' + (o.withdrawalDate ? isoToDDMMYYYY(o.withdrawalDate) : 'เลือกวันที่') + '</div>' +
+      '</div>';
   }
 
   function syncFreshnessNoticesHtml() {
@@ -614,7 +618,7 @@ function initStockTab(containerId, currentUser) {
             '<td>' + contractStatusBadge(o) + '</td>' +
             '<td>' + printBadge(o) + '</td>' +
             '<td>' + roundSelectHtml(o) + '</td>' +
-            '<td>' + withdrawalDateInputHtml(o) + '</td>' +
+            '<td>' + withdrawalDateWrapHtml(o) + '</td>' +
             '<td><button type="button" class="btn btn-ghost stkBtnPrintBill" data-so="' + o.soNumber + '"' + (state.printingBillSo === o.soNumber ? ' disabled' : '') + '>' + (state.printingBillSo === o.soNumber ? 'กำลังสร้าง...' : '🖨️ ใบเบิกรายบิล') + '</button></td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
@@ -656,8 +660,12 @@ function initStockTab(containerId, currentUser) {
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowRound'), function (sel) {
         sel.addEventListener('change', function () { setRoundForOrder(sel.getAttribute('data-so'), sel.value); });
       });
-      Array.prototype.forEach.call(document.querySelectorAll('.stkRowWithdrawalDate'), function (inp) {
-        inp.addEventListener('change', function () { setWithdrawalDateForOrder(inp.getAttribute('data-so'), inp.value); });
+      Array.prototype.forEach.call(document.querySelectorAll('.stkWithdrawalDateWrap'), function (wrap) {
+        var so = wrap.getAttribute('data-so');
+        attachThaiDatePicker(wrap, {
+          value: wrap.getAttribute('data-value') || '',
+          onChange: function (iso) { setWithdrawalDateForOrder(so, iso); },
+        });
       });
       Array.prototype.forEach.call(document.querySelectorAll('.stkBtnPrintBill'), function (btn) {
         btn.addEventListener('click', function () { printSingleBill(btn.getAttribute('data-so')); });
