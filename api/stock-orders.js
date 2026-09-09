@@ -206,6 +206,65 @@ async function fetchCashOrders(authHeaders) {
   return { orders: orders, truncated: truncated, matchedCount: rows.length };
 }
 
+// 2026-09-09 user ถาม: "ถ้าออเดอร์ผ่านทุกทีมแล้ว (พิมพ์ใบเบิกไปแล้ว) แล้วลูกค้ามายกเลิกตอนจะจัดส่งทำอย่างไร" —
+// ถ้าซ่อนเงียบๆ เหมือน SO ที่ยังไม่พิมพ์ (ดู fetchCreditOrders) พนักงานที่ถือใบเบิกกระดาษอยู่แล้วจะไม่รู้เลยว่า
+// ต้องดึงชิ้นนี้ออกก่อนส่ง — user ยืนยันให้ "โชว์แถวเด่นบนหน้าเว็บ" แทนการซ่อน จึงต้องเช็คแยกอีกรอบเฉพาะ SO ที่
+// printed_at ไม่ null (ขอบเขตเล็กกว่าออเดอร์ทั้งหมดมาก) ว่า CRM ยกเลิกไปแล้วหรือยัง ไม่ผ่านการจัดคิวสต๊อกอีก
+// (ถูกยกเลิกแล้วไม่ต้องใช้สต๊อก) แต่ต้องยังโผล่ในลิสต์เสมอไม่ว่าจะกรอง customerType/showCancelled ยังไงก็ตาม
+async function fetchCancelledAfterPrintOrders(authHeaders) {
+  const metaRes = await fetch(
+    SUPABASE_URL + '/rest/v1/stock_order_meta?select=so_number&printed_at=not.is.null',
+    { headers: authHeaders }
+  );
+  if (!metaRes.ok) return [];
+  const metaRows = await metaRes.json();
+  if (!metaRows.length) return [];
+  const soNumbers = metaRows.map(function (m) { return m.so_number; });
+  const inList = soNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
+  const crmRes = await fetch(
+    SUPABASE_URL + '/rest/v1/crm_orders_cache?select=sale_order_id,status,installment_type,order_date,customer_first_name,customer_last_name&sale_order_id=in.(' + inList + ')',
+    { headers: authHeaders }
+  );
+  if (!crmRes.ok) return [];
+  const crmRows = await crmRes.json();
+  const cancelledRows = crmRows.filter(function (r) { return CANCELLED_CRM_STATUSES.indexOf(r.status) !== -1; });
+  if (!cancelledRows.length) return [];
+
+  const token = await crmLoginForStock();
+  const withCamelCase = cancelledRows.map(function (o) {
+    return {
+      saleOrderId: o.sale_order_id, installmentType: o.installment_type, orderDate: o.order_date,
+      customerFirstName: o.customer_first_name, customerLastName: o.customer_last_name, crmStatus: o.status,
+    };
+  });
+  const enriched = await enrichWithProductName(withCamelCase, token);
+
+  return enriched.map(function (o) {
+    const parts = splitProductName(o.productName);
+    return {
+      soNumber: o.saleOrderId,
+      contractNo: null,
+      source: 'cancelled-after-print', // แยกจาก credit/cash ปกติชัดเจน — ไม่ถูกกรองด้วย customerType
+      sourceLabel: 'ยกเลิกหลังพิมพ์ใบเบิก',
+      contractStatus: null,
+      sessionToken: null,
+      customerId: null,
+      customerName: ((o.customerFirstName || '') + ' ' + (o.customerLastName || '')).trim() || '-',
+      product: parts.product,
+      color: parts.color || null,
+      recipientName: null, recipientPhone: null, shippingAddress: null,
+      deliveryChannel: null, giftItem: null,
+      productPrice: null, netPrice: null, downPayment: null, remainingBalance: null,
+      orderDate: o.orderDate,
+      installmentType: o.installmentType,
+      installmentTypeLabel: INSTALLMENT_TYPE_LABELS[o.installmentType] || o.installmentType,
+      crmCancelledAfterPrint: true, // ธงหลักให้ฝั่งหน้าเว็บโชว์แถวเด่น
+      crmStatus: o.crmStatus,
+      stockReady: null, queuePosition: null, odooAvailableQty: null, // ไม่ต้องเข้าคิวสต๊อกแล้ว (ถูกยกเลิก)
+    };
+  });
+}
+
 async function handleList(req, res, authHeaders) {
   const customerType = String((req.query && req.query.customerType) || 'all');
 
@@ -237,6 +296,10 @@ async function handleList(req, res, authHeaders) {
     return c;
   });
   orders = allocated;
+
+  // แถวเตือน "ยกเลิกหลังพิมพ์ใบเบิก" (2026-09-09) — เพิ่มเข้ามาเสมอ ไม่ผ่านการจัดคิวสต๊อกด้านบน (ถูกยกเลิกแล้ว
+  // ไม่ต้องใช้สต๊อก) และไม่ถูกกรองด้วย customerType เพราะต้องเห็นแน่นอนไม่ว่าเลือกตัวกรองไหนอยู่
+  orders = orders.concat(await fetchCancelledAfterPrintOrders(authHeaders));
 
   // ดึงเมทาดาต้าการเบิกของทุก SO ที่เกี่ยวข้องมา join ทีเดียว (กัน N+1 query)
   const soNumbers = orders.map(function (o) { return o.soNumber; }).filter(Boolean);

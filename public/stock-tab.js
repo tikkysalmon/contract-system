@@ -457,6 +457,12 @@ function initStockTab(containerId, currentUser) {
   }
 
   function stockStatusBadge(o) {
+    // 2026-09-09 user ยืนยัน: ออเดอร์ที่พิมพ์ใบเบิกไปแล้วแต่ CRM แสดงว่ายกเลิกทีหลัง ต้องโชว์เด่นเตือนแทนการซ่อน
+    // (พนักงานอาจถือใบเบิกกระดาษอยู่แล้ว ไม่รู้ว่าต้องดึงชิ้นนี้ออกก่อนส่ง) — ดู crmCancelledAfterPrint จาก
+    // api/stock-orders.js's fetchCancelledAfterPrintOrders()
+    if (o.crmCancelledAfterPrint) {
+      return '<span class="badge badge-info" style="background:#b91c1c;color:#fff;font-weight:700;">❌ ลูกค้ายกเลิกแล้ว! ห้ามจัดส่ง</span>';
+    }
     return o.stockReady
       ? '<span class="badge badge-info" style="background:#dcfce7;color:#15803d;">พร้อมส่ง</span>'
       : '<span class="badge badge-info" style="background:#fee2e2;color:#b91c1c;">รอสต๊อก (คิวที่ ' + o.queuePosition + ')</span>';
@@ -499,6 +505,14 @@ function initStockTab(containerId, currentUser) {
 
   function syncFreshnessNoticesHtml() {
     var h = '';
+    // 2026-09-09 user ยืนยัน: ออเดอร์ที่พิมพ์ใบเบิกไปแล้วแต่ CRM แสดงว่ายกเลิกทีหลัง ต้องเตือนเด่นสุด — ขึ้นก่อน
+    // แจ้งเตือนอื่นทั้งหมดเสมอไม่ว่าจะกรอง/เรียงหน้าตารางแบบไหนอยู่ (ดู crmCancelledAfterPrint)
+    var cancelledAfterPrintCount = state.orders.filter(function (o) { return o.crmCancelledAfterPrint; }).length;
+    if (cancelledAfterPrintCount > 0) {
+      h += '<div class="notice" style="background:#b91c1c;border-color:#7f1d1d;color:#fff;font-weight:700;">' +
+        '❌ พบ ' + cancelledAfterPrintCount + ' ออเดอร์ที่พิมพ์ใบเบิกไปแล้วแต่ลูกค้ายกเลิกกับ CRM ทีหลัง — ห้ามจัดส่ง! ดูแถวสีแดงในตารางด้านล่าง' +
+        '</div>';
+    }
     var stockAgeMs = state.stockLastSyncedAt ? (Date.now() - new Date(state.stockLastSyncedAt).getTime()) : null;
     var stockStale = stockAgeMs === null || stockAgeMs > 60 * 60 * 1000;
     h += '<div class="notice"' + (stockStale ? ' style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;"' : ' style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;"') + '>' +
@@ -606,7 +620,8 @@ function initStockTab(containerId, currentUser) {
         '<thead><tr><th></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>' +
         '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
-          return '<tr' + (o.cancelledAt ? ' style="opacity:0.55;"' : '') + '>' +
+          var rowStyle = o.crmCancelledAfterPrint ? ' style="background:#fee2e2;"' : (o.cancelledAt ? ' style="opacity:0.55;"' : '');
+          return '<tr' + rowStyle + '>' +
             '<td><input type="checkbox" class="stkRowCheck" data-so="' + o.soNumber + '"' + (checked ? ' checked' : '') + (o.cancelledAt ? ' disabled' : '') + ' /></td>' +
             '<td>' + installmentTypeBadge(o) + '</td>' +
             '<td style="text-align:left;">' + o.soNumber + '</td>' +
