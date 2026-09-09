@@ -10,7 +10,9 @@
 //      computeContractStatus() ตัวเดียวกับเมนู "ข้อมูลลูกค้าทำสัญญา" — ดู _lib/contract-status.js) =
 //      "สัญญาลูกค้าเรียบร้อย" (customer_ok) เท่านั้น ถึงจะเบิกสินค้าได้ ไม่ copy ข้อมูลซ้ำ อ่านสดทุกครั้ง — เติม orderDate/
 //      installmentType ที่ contract_submissions ไม่มีเก็บเองด้วยการ join กับ crm_orders_cache ด้วย SO number
-//      (แคชที่ sync ไว้แล้วทุก 15 นาที ไม่ต้องยิง CRM สดเพิ่ม)
+//      (แคชที่ sync ไว้แล้วทุก 15 นาที ไม่ต้องยิง CRM สดเพิ่ม) **ตัด SO ที่ CRM ยกเลิกไปแล้วทิ้งด้วย** (status=
+//      CANCELLED/PENDING_CANCELLATION — ลูกค้าอาจยกเลิกกับ CRM ทีหลังจากเซ็นสัญญาผ่านระบบเราไปแล้ว เจอบั๊กจริง
+//      2026-09-09 ว่า SO ที่ยกเลิกแล้วยังโผล่เป็น "พร้อมส่ง" อยู่ ดู CANCELLED_CRM_STATUSES)
 //   2. "ซื้อสด/ปิดยอด" — ต่อกับ crm_orders_cache จริงแล้ว (2026-09-09 — เดิมเป็น TODO คืน [] ตลอด) กรอง
 //      installmentType FULL_PAYMENT/FULL_PAY_THEN_RECEIVE ที่ status=COMPLETED (พร้อมส่งแล้ว) **แต่ไม่มีทาง
 //      รู้ว่า "แพ็คไปแล้วหรือยัง" เหมือนฝั่งเครดิต (ไม่มี imei/serial tracking ให้ฝั่งซื้อสดเลย เพราะไม่ผ่านระบบ
@@ -36,13 +38,15 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // ของ CRM — ใช้ map กลับตอน SO ยังไม่เข้าแคช crm_orders_cache เท่านั้น (ปกติจะได้ installmentType ดิบจากแคชอยู่แล้ว)
 const PLAN_TYPE_TO_INSTALLMENT_TYPE = { downpayment: 'DOWN_PAYMENT', installment: 'PARTIAL_PAY_THEN_RECEIVE' };
 
-// ดึงเฉพาะ order_date/installment_type ของ SO ที่ระบุจากแคช crm_orders_cache (query เดียว ไม่ยิง CRM สด) —
-// ใช้เติมให้ฝั่งเครดิต/วางดาวน์ ที่ item ใน crm_snapshot.items[] ไม่มี 2 ฟิลด์นี้เก็บไว้เอง (ดู create-session.js)
+// ดึง order_date/installment_type/status ของ SO ที่ระบุจากแคช crm_orders_cache (query เดียว ไม่ยิง CRM สด) —
+// ใช้เติมให้ฝั่งเครดิต/วางดาวน์ ที่ item ใน crm_snapshot.items[] ไม่มีฟิลด์พวกนี้เก็บไว้เอง (ดู create-session.js)
+// status เอาไว้ตัดออเดอร์ที่ CRM ยกเลิกไปแล้วทิ้ง (ดู CANCELLED_CRM_STATUSES ด้านล่าง — เพิ่ง 2026-09-09
+// พบบั๊กจริงว่า SO ที่ CRM มาร์ค CANCELLED แล้วยังโผล่ในลิสต์นี้อยู่ เพราะไม่เคยเช็ค status ของฝั่งเครดิตเลย)
 async function fetchCrmCacheFieldsForSoNumbers(authHeaders, soNumbers) {
   if (!soNumbers.length) return {};
   const inList = soNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
   const res = await fetch(
-    SUPABASE_URL + '/rest/v1/crm_orders_cache?select=sale_order_id,order_date,installment_type&sale_order_id=in.(' + inList + ')',
+    SUPABASE_URL + '/rest/v1/crm_orders_cache?select=sale_order_id,order_date,installment_type,status&sale_order_id=in.(' + inList + ')',
     { headers: authHeaders }
   );
   if (!res.ok) throw new Error('อ่านแคชคำสั่งขาย CRM (เติมวันที่สั่งซื้อ) ไม่สำเร็จ (HTTP ' + res.status + ')');
@@ -51,6 +55,10 @@ async function fetchCrmCacheFieldsForSoNumbers(authHeaders, soNumbers) {
   rows.forEach(function (r) { bySo[r.sale_order_id] = r; });
   return bySo;
 }
+
+// สถานะที่แปลว่าออเดอร์นี้ตายแล้วฝั่ง CRM — ไม่ควรไปปรากฏในรายการที่ต้องเบิก/จองสต๊อกอีกต่อไป ไม่ว่าฝั่งระบบ
+// ทำสัญญาของเราจะเห็นว่า "สัญญาลูกค้าเรียบร้อย" อยู่ก็ตาม (ลูกค้าอาจยกเลิกกับ CRM ทีหลังจากเซ็นสัญญาไปแล้ว)
+const CANCELLED_CRM_STATUSES = ['CANCELLED', 'PENDING_CANCELLATION'];
 
 async function fetchCreditOrders(authHeaders) {
   // reviewed_at ไม่ null + rejected_at เป็น null เป็นแค่ prefilter ฝั่ง server กันดึงข้อมูลเยอะเกินจำเป็น
@@ -119,15 +127,24 @@ async function fetchCreditOrders(authHeaders) {
   // DOWN_PAYMENT/PARTIAL_PAY_THEN_RECEIVE ตาม planType ที่มีอยู่แล้วในตัว item ไม่ให้ตกคิวไปเฉยๆ
   const soNumbers = orders.map(function (o) { return o.soNumber; }).filter(Boolean);
   const crmFieldsBySo = await fetchCrmCacheFieldsForSoNumbers(authHeaders, soNumbers);
-  return orders.map(function (o) {
-    const cached = crmFieldsBySo[o.soNumber];
-    const installmentType = cached ? cached.installment_type : (PLAN_TYPE_TO_INSTALLMENT_TYPE[o.planType] || null);
-    return Object.assign({}, o, {
-      orderDate: cached ? cached.order_date : null,
-      installmentType: installmentType,
-      installmentTypeLabel: INSTALLMENT_TYPE_LABELS[installmentType] || installmentType,
+  return orders
+    // 2026-09-09 แก้บั๊กจริง: SO ที่ CRM ยกเลิกไปแล้ว (ลูกค้ายกเลิกทีหลังจากเซ็นสัญญาผ่านระบบเราไปแล้ว) ยังโผล่
+    // ในลิสต์นี้อยู่เดิม เพราะไม่เคยเช็ค status ของ CRM เลยฝั่งเครดิต (เจอจริง: SO-2026090500057 status=
+    // CANCELLED ใน CRM แต่ยังขึ้น "พร้อมส่ง" อยู่) — ถ้า SO ไหนยังไม่เข้าแคช (เพิ่งสร้างใหม่) ให้ผ่านไปก่อน
+    // (ไม่มีข้อมูลจะเช็ค เข้าข้างว่ายังไม่ถูกยกเลิก)
+    .filter(function (o) {
+      const cached = crmFieldsBySo[o.soNumber];
+      return !cached || CANCELLED_CRM_STATUSES.indexOf(cached.status) === -1;
+    })
+    .map(function (o) {
+      const cached = crmFieldsBySo[o.soNumber];
+      const installmentType = cached ? cached.installment_type : (PLAN_TYPE_TO_INSTALLMENT_TYPE[o.planType] || null);
+      return Object.assign({}, o, {
+        orderDate: cached ? cached.order_date : null,
+        installmentType: installmentType,
+        installmentTypeLabel: INSTALLMENT_TYPE_LABELS[installmentType] || installmentType,
+      });
     });
-  });
 }
 
 // ย้อนหลังกี่วันสำหรับดึงฝั่ง "ซื้อสด/ปิดยอด" จาก CRM cache — ไม่มีทางรู้ว่าออเดอร์ไหน "แพ็คไปแล้ว" เหมือนฝั่ง
