@@ -38,6 +38,7 @@ function initStockTab(containerId, currentUser) {
     assignRound: '', // เลือกไว้แค่ตอนพิมพ์ใบสรุปเบิกประจำวัน (label บนใบ) ไม่ใช่ตัวกำหนดรอบต่อรายการแล้ว
     printing: false,
     printingBillSo: null, // SO ที่กำลังพิมพ์ใบเบิกรายบิลอยู่ (กันกดซ้ำ)
+    printingCombined: false, // กำลังพิมพ์ใบเบิกรวมหลายบิลอยู่ (กันกดซ้ำ)
     cancelingSo: null, // SO ที่กำลังเปิดกล่องกรอกเหตุผลยกเลิกอยู่
     cancelReason: '',
     pageSize: 20, // 2026-09-09 user ขอแบ่งหน้าตาราง "รายการออเดอร์" — ทำฝั่ง client (ข้อมูลทั้งหมดโหลดมาแล้ว)
@@ -337,6 +338,54 @@ function initStockTab(containerId, currentUser) {
     render();
   }
 
+  // เติมอุปกรณ์เสริม (SO อื่นใน session เดียวกัน) ที่ยังไม่ได้ติ๊กเข้ามาด้วย — ให้พฤติกรรมตรงกับปุ่ม
+  // "ใบเบิกรายบิล" ต่อแถวเดี่ยว (ติ๊กแค่เครื่องหลัก ก็ได้หน้าอุปกรณ์เสริมมาด้วยอัตโนมัติ ไม่ต้องไปหาติ๊กเพิ่ม)
+  function expandWithSessionAccessories(orders) {
+    var result = orders.slice();
+    var seen = {};
+    orders.forEach(function (o) { seen[o.soNumber] = true; });
+    orders.forEach(function (o) {
+      if (!o.sessionToken) return;
+      state.orders.forEach(function (candidate) {
+        if (candidate.sessionToken === o.sessionToken && !seen[candidate.soNumber]) {
+          seen[candidate.soNumber] = true;
+          result.push(candidate);
+        }
+      });
+    });
+    return result;
+  }
+
+  // ---------- "ใบเบิกรวม" (2026-09-09 user ขอ) — ลูกค้าคนเดียวกันมีหลายบิลที่ไม่ได้อยู่ session เดียวกัน
+  // (เกินขอบเขตที่จับกลุ่มอัตโนมัติด้วย sessionToken ได้) พนักงานติ๊กเลือกเองแล้วกดปุ่มเดียว ได้ PDF ไฟล์เดียว
+  // หน้าเบิกรายบิลต่อกันหลายหน้า (กรุ๊ปด้วย groupForDailySummary ตัวเดียวกับใบสรุปประจำวัน — ตรรกะเดียวกันเป๊ะ
+  // แค่คนละ layout ต่อหน้า) ----------
+  async function printCombinedBills() {
+    var orders = selectedOrders();
+    if (!orders.length) { window.alert('กรุณาติ๊กเลือกอย่างน้อย 1 รายการก่อนพิมพ์ใบเบิกรวม'); return; }
+    state.printingCombined = true;
+    render();
+    try {
+      var groups = groupForDailySummary(expandWithSessionAccessories(orders));
+      var pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      for (var i = 0; i < groups.length; i++) {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'position:fixed;left:-99999px;top:0;';
+        wrap.innerHTML = perBillPageHtml(groups[i].main, groups[i].accessories);
+        document.body.appendChild(wrap);
+        var canvas = await window.html2canvas(wrap.firstChild, { scale: 2, backgroundColor: '#ffffff' });
+        wrap.remove();
+        if (i > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      }
+      pdf.save('ใบเบิกสินค้ารวม_' + new Date().toISOString().slice(0, 10) + '.pdf');
+    } catch (err) {
+      window.alert('พิมพ์ใบเบิกรวมไม่สำเร็จ: ' + err.message);
+    }
+    state.printingCombined = false;
+    render();
+  }
+
   // กรองส่วนใหญ่ทำฝั่ง server ผ่าน query params ไปแล้วตอน load() — filterChannel กรองฝั่ง client เพิ่ม (ข้อมูล
   // ทั้งหมดโหลดมาอยู่แล้ว ไม่ต้อง round-trip ใหม่)
   function filtered() {
@@ -470,7 +519,10 @@ function initStockTab(containerId, currentUser) {
         ROUND_OPTIONS.map(function (r) { return '<option value="' + r + '"' + (state.assignRound === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') +
         '</select>' +
         '<button class="btn btn-primary" id="stkBtnPrint"' + (state.printing ? ' disabled' : '') + '>' + (state.printing ? 'กำลังสร้าง PDF...' : '📄 พิมพ์ใบเบิกประจำวัน (PDF)') + '</button>' +
-        '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่') + '</span>' +
+        (selectedOrders().length > 0
+          ? '<button class="btn btn-secondary" id="stkBtnPrintCombined"' + (state.printingCombined ? ' disabled' : '') + '>' + (state.printingCombined ? 'กำลังสร้าง PDF...' : '🖨️ พิมพ์ใบเบิกรวม (' + selectedOrders().length + ' รายการที่เลือก)') + '</button>'
+          : '') +
+        '<span style="color:var(--muted);font-size:13px;">' + (selectedOrders().length > 0 ? 'เลือกไว้ ' + selectedOrders().length + ' รายการ (ติ๊กหลาย SO ของลูกค้าคนเดียวกันแล้วกด "พิมพ์ใบเบิกรวม" เพื่อรวมเป็น PDF เดียว)' : 'ไม่ได้เลือก = ใช้ทุกรายการที่กรองอยู่ (ตอนพิมพ์ใบเบิกประจำวัน)') + '</span>' +
         '</div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">' +
         '<label style="font-size:13px;color:var(--muted);">แสดง ' +
@@ -552,6 +604,8 @@ function initStockTab(containerId, currentUser) {
       if (assignRoundSel) assignRoundSel.addEventListener('change', function (e) { state.assignRound = e.target.value; });
       var btnPrint = document.getElementById('stkBtnPrint');
       if (btnPrint) btnPrint.addEventListener('click', printRequisition);
+      var btnPrintCombined = document.getElementById('stkBtnPrintCombined');
+      if (btnPrintCombined) btnPrintCombined.addEventListener('click', printCombinedBills);
     }
 
     if (state.cancelingSo) {
