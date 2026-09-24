@@ -94,16 +94,26 @@ async function syncOdooStock(supabaseUrl, authHeaders) {
   // quant_id 11013 quantity=-1 ของ Adapter 20W) ถูกตัดออกจากผลรวมไปเลย แทนที่จะถูกนับหักลบตามจริง (16 ก้อน
   // +1 กับ 1 ก้อน -1 = ยอดจริง 15 แต่ filter ตัด -1 ทิ้งก่อน sum เหลือแค่ 16) — ย้าย filter ไปเช็คหลัง sum แล้ว
   // แทน (เอาเฉพาะสินค้าที่ยอดสุทธิ > 0 ไปแสดง แต่ตัวยอดสุทธิเองต้องรวม quant ติดลบเข้าไปด้วยเสมอ)
+  // 2026-09-24 user แจ้งว่ายอดที่ sync มาแสดง "มากกว่าที่ขายได้จริง" เพราะยอด quantity (on-hand) นับรวม
+  // เครื่อง/ชิ้นที่ถูกจองให้ใบสั่งขายอื่นในระบบ Odoo เอง (reserved_quantity) ไปด้วย ทั้งที่ของนั้นพร้อมอยู่บน
+  // ชั้นจริงแต่ถูก "กันไว้" ให้ลูกค้าคนอื่นแล้ว — เทียบเท่ากับสิ่งที่หน้า "ล็อต/หมายเลขซีเรียล" ของ Odoo
+  // แสดงต่อซีเรียล (พร้อมขาย vs ถูกจอง) แต่ไม่ต้องดึงระดับซีเรียลจริง เพราะสินค้า serial-tracked แต่ละ quant
+  // มี quantity=1 ต่อ 1 ซีเรียลอยู่แล้ว การ sum(quantity) - sum(reserved_quantity) ต่อสินค้า จึงเท่ากับจำนวน
+  // ซีเรียลที่ "พร้อมขายจริง" (reserved_quantity=0) พอดี — ได้แค่ "จำนวน" ตามที่ user ขอ ไม่ต้อง list ซีเรียล
   const groups = await odoo.readGroup(
     'stock.quant',
     [['location_id', 'child_of', stockLocationId]],
-    ['product_id', 'quantity:sum'],
+    ['product_id', 'quantity:sum', 'reserved_quantity:sum'],
     ['product_id']
   );
   const now = new Date().toISOString();
   const rows = groups
-    .filter(function (g) { return g.product_id && Number(g.quantity || 0) > 0; })
-    .map(function (g) { return { product_name: g.product_id[1], quantity: Number(g.quantity || 0), updated_at: now }; });
+    .map(function (g) {
+      const free = Number(g.quantity || 0) - Number(g.reserved_quantity || 0);
+      return { product_id: g.product_id, quantity: free };
+    })
+    .filter(function (g) { return g.product_id && g.quantity > 0; })
+    .map(function (g) { return { product_name: g.product_id[1], quantity: g.quantity, updated_at: now }; });
   log('ดึงจาก Odoo ได้ ' + rows.length + ' รายการสินค้าที่มีสต๊อก');
 
   log('ดึงรายการบริการ (type=service, ไม่ต้องรอสต๊อก) จาก Odoo...');
