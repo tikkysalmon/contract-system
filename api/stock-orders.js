@@ -268,18 +268,17 @@ async function fetchCancelledAfterPrintOrders(authHeaders) {
 async function handleList(req, res, authHeaders) {
   const customerType = String((req.query && req.query.customerType) || 'all');
 
+  // 2026-09-24 แก้บั๊กจริงที่ user เจอ: เดิม customerType ถูกใช้กรอง "ก่อน" ดึงข้อมูล ทำให้ตอนเลือกดูเฉพาะ
+  // "เครดิตผ่าน/วางดาวน์" ออเดอร์ฝั่ง "ซื้อสด/ปิดยอด" ไม่ถูกดึงมาเข้าคิวจัดสรรสต๊อกเลย (allocateStock ด้านล่าง
+  // เห็นแค่ subset ที่กรองแล้ว) ทำให้คิว/สถานะสต๊อกของออเดอร์เครดิตผิดไป (ตัวอย่างจริงที่ตรวจพบ: SO-2026092300073
+  // ควรอยู่คิวที่ 4 ตามลำดับจริง แต่ตอนกรองเหลือแค่เครดิตกลับกลายเป็นคิวที่ 1 เพราะไม่นับออเดอร์ซื้อสดที่ต้องได้
+  // สต๊อกก่อนตามสิทธิ์เดิม) — ต้องดึงมาทั้ง 2 แหล่งเสมอไม่ว่าจะเลือกตัวกรองไหน แล้วจัดคิวจาก "ทุกออเดอร์" ก่อน
+  // ค่อยกรอง customerType ทีหลัง (ย้ายไปกรองพร้อมกับ q/round/printStatus/showCancelled ด้านล่าง)
   let orders = [];
-  let cashTruncated = false;
-  let cashMatchedCount = 0;
-  if (customerType === 'all' || customerType === 'credit') {
-    orders = orders.concat(await fetchCreditOrders(authHeaders));
-  }
-  if (customerType === 'all' || customerType === 'cash') {
-    const cashResult = await fetchCashOrders(authHeaders);
-    orders = orders.concat(cashResult.orders);
-    cashTruncated = cashResult.truncated;
-    cashMatchedCount = cashResult.matchedCount;
-  }
+  const cashResult = await fetchCashOrders(authHeaders);
+  const cashTruncated = cashResult.truncated;
+  const cashMatchedCount = cashResult.matchedCount;
+  orders = orders.concat(await fetchCreditOrders(authHeaders), cashResult.orders);
 
   // จับคู่กับสต๊อก Odoo + จัดคิวตามลำดับความสำคัญ (ดู _lib/stock-reservation.js) — ทำก่อน join
   // stock_order_meta/กรองอื่นๆ เพราะคิวต้องคำนวณจาก "ทุกออเดอร์ที่ต้องใช้สต๊อกจริง" ไม่ใช่แค่ที่กรองแล้ว
@@ -328,6 +327,13 @@ async function handleList(req, res, authHeaders) {
       cancelReason: meta.cancel_reason || null,
     });
   });
+
+  // กรองประเภทลูกค้า (credit/cash) — ทำหลังจัดคิวสต๊อกเสร็จแล้วเสมอ (ดูเหตุผลด้านบน) ไม่กรองแถว
+  // "ยกเลิกหลังพิมพ์ใบเบิก" (source: cancelled-after-print) ทิ้งไม่ว่าจะเลือกตัวกรองไหน (ตามที่ตั้งใจไว้เดิม
+  // ต้องเห็นแน่นอน — ดู fetchCancelledAfterPrintOrders ด้านบน)
+  if (customerType === 'credit' || customerType === 'cash') {
+    orders = orders.filter(function (o) { return o.source === customerType || o.source === 'cancelled-after-print'; });
+  }
 
   // ค้นหาด้วยชื่อ/เลข SO/รหัสลูกค้า (2026-09-06 user ขอ เหมือนระบบ CRM)
   const q = String((req.query && req.query.q) || '').trim().toLowerCase();

@@ -44,6 +44,10 @@ function initStockTab(containerId, currentUser) {
     pageSize: 20, // 2026-09-09 user ขอแบ่งหน้าตาราง "รายการออเดอร์" — ทำฝั่ง client (ข้อมูลทั้งหมดโหลดมาแล้ว)
     currentPage: 1, // เริ่มที่ 1 เสมอ
     sortBy: 'latest', // 'latest' | 'customerName' | 'soNumber' | 'customerId' | 'installmentType'
+    loadSeq: 0, // 2026-09-24 กัน race condition: ยิง load() ถี่ๆ (เช่น สลับตัวกรองเร็วๆ) แล้ว response ของ
+    // คำขอเก่าที่ช้ากว่า (เช่น "ทั้งหมด" ต้องรอ CRM login+enrich ข้อมูลซื้อสดเยอะ) มาถึงทีหลัง response ของ
+    // คำขอใหม่ที่เร็วกว่า (เช่น "เครดิตผ่าน/วางดาวน์" มีแค่ไม่กี่รายการ) แล้วทับ state.orders ด้วยข้อมูลเก่าที่
+    // ไม่ตรงกับตัวกรองที่เลือกอยู่จริง ณ ตอนนั้น (บั๊กจริงที่ user เจอ: เลือกตัวกรองแล้วข้อมูลที่โชว์ไม่ตรง)
   };
   var PAGE_SIZE_OPTIONS = [20, 50, 100];
 
@@ -63,6 +67,7 @@ function initStockTab(containerId, currentUser) {
   }
 
   async function load() {
+    var mySeq = ++state.loadSeq; // ดูหมายเหตุที่ state.loadSeq ด้านบน
     state.loading = true;
     state.error = null;
     render();
@@ -76,6 +81,7 @@ function initStockTab(containerId, currentUser) {
       });
       var res = await fetch('/api/stock-orders?' + params.toString());
       var body = await res.json();
+      if (mySeq !== state.loadSeq) return; // มีคำขอใหม่กว่าเริ่มไปแล้วระหว่างรอ response นี้ ทิ้งผลลัพธ์เก่านี้ไป
       if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
       state.orders = body.orders || [];
       state.cashSourceReady = !!body.cashSourceReady;
@@ -89,8 +95,10 @@ function initStockTab(containerId, currentUser) {
       state.orders.forEach(function (o) { if (state.selected[o.soNumber]) stillThere[o.soNumber] = true; });
       state.selected = stillThere;
     } catch (err) {
+      if (mySeq !== state.loadSeq) return;
       state.error = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้รัน supabase-stock-orders.sql ต้องรันก่อน)';
     }
+    if (mySeq !== state.loadSeq) return;
     state.loading = false;
     render();
   }
