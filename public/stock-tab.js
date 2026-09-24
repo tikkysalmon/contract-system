@@ -542,8 +542,12 @@ function initStockTab(containerId, currentUser) {
   // วันเริ่มผ่อนงวดแรก) แทน native <input type=date> เพราะ native แสดงเป็น mm/dd/yyyy ตามภาษาเครื่อง/เบราว์เซอร์
   // ผู้ใช้แต่ละคน คุมรูปแบบไม่ได้ (2026-09-09 user ขอเป็น dd/mm/yyyy คงที่เสมอ)
   function withdrawalDateWrapHtml(o) {
+    // 2026-09-24 user เจอตัวหนังสือทับกับไอคอนปฏิทิน — .date-display ใน style.css วางไอคอนไว้ที่ "right 12px"
+    // โดยตั้งใจให้มี padding-right 40px เผื่อพื้นที่เสมอ (ดู style.css) แต่ inline style ของช่องนี้ลด padding
+    // ทั้งก้อนเหลือ "4px 6px" ให้พอดีในตารางแคบๆ โดยไม่ได้เผื่อฝั่งขวาไว้ให้ไอคอนเลย ทำให้ไอคอนไปทับตัวเลขวันที่
+    // แก้โดยคงขนาดกะทัดรัดไว้ (padding ซ้าย/บนล่าง 4px/6px เท่าเดิม) แต่เพิ่ม padding ขวาให้พอสำหรับไอคอน
     return '<div class="date-field-wrap stkWithdrawalDateWrap" data-so="' + o.soNumber + '" data-value="' + (o.withdrawalDate || '') + '">' +
-      '<div class="date-display" style="padding:4px 6px;font-size:13px;min-width:110px;">' + (o.withdrawalDate ? isoToDDMMYYYY(o.withdrawalDate) : 'เลือกวันที่') + '</div>' +
+      '<div class="date-display" style="padding:4px 26px 4px 6px;font-size:13px;min-width:110px;background-position:right 6px center;background-size:14px 14px;">' + (o.withdrawalDate ? isoToDDMMYYYY(o.withdrawalDate) : 'เลือกวันที่') + '</div>' +
       '</div>';
   }
 
