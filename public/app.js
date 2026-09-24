@@ -16,6 +16,7 @@
     { username: 'acc1', password: '1234', department: 'บัญชี' },
     { username: 'stock1', password: '1234', department: 'สต๊อค' },
     { username: 'pack1', password: '1234', department: 'แพ็คกิ้ง' },
+    { username: 'purchase1', password: '1234', department: 'จัดซื้อ' }, // 2026-09-24 user ขอเพิ่มเมนู "สำหรับจัดซื้อ"
     { username: 'admin', password: '1234', department: 'ผู้จัดการ' },
   ];
 
@@ -30,6 +31,7 @@
     for_cs: svgIcon('<path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>'),
     stock: svgIcon('<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line>'),
     packing: svgIcon('<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line>'),
+    purchasing: svgIcon('<circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>'),
     report_en: svgIcon('<line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line>'),
     upload: svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>'),
     settings: svgIcon('<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>'),
@@ -45,6 +47,9 @@
     { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
     { key: 'stock', icon: 'stock', label: 'สำหรับสต๊อค', departments: ['สต๊อค'] },
     { key: 'packing', icon: 'packing', label: 'สำหรับแพ็คกิ้ง', departments: ['แพ็คกิ้ง'] },
+    // 2026-09-24 user ขอเพิ่มเมนูนี้ — ยังไม่ได้ระบุขอบเขตงาน/ฟีเจอร์ ปล่อยเป็นหน้า "อยู่ระหว่างการพัฒนา"
+    // ไปก่อนตามแพทเทิร์นเดิมของเมนูอื่นที่เคยเพิ่มไว้ล่วงหน้า (เช่น "รายงาน"/"สำหรับ CS" ตอนยังไม่มีสเปก)
+    { key: 'purchasing', icon: 'purchasing', label: 'สำหรับจัดซื้อ', departments: ['จัดซื้อ'] },
     { key: 'report_en', icon: 'report_en', label: 'Report', departments: ['บัญชี'] },
     { key: 'upload', icon: 'upload', label: 'อัพโหลดข้อมูล', departments: ['บัญชี'] },
     { key: 'settings', icon: 'settings', label: 'การตั้งค่า', departments: [] }, // departments ว่าง = ผู้จัดการเท่านั้น
