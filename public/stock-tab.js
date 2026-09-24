@@ -108,21 +108,30 @@ function initStockTab(containerId, currentUser) {
   }
 
   // ตั้งรอบการเบิกทีละรายการทันทีที่เปลี่ยน dropdown ในแถว (2026-09-09 user ขอแทนปุ่มกำหนดแบบเลือกหลายรายการเดิม)
-  async function setRoundForOrder(soNumber, round) {
+  // 2026-09-24 user ขอไม่ให้โหลดข้อมูลทั้งหน้าใหม่ทุกครั้งที่เปลี่ยนรอบการเบิก (เดิมเรียก load() ยิง
+  // /api/stock-orders ทั้งชุดใหม่ทุกครั้ง หนักและช้าโดยไม่จำเป็นถ้าเปลี่ยนหลายแถวติดกัน) — แก้ค่าใน state.orders
+  // ที่มีอยู่แล้วตรงๆ แทน (รู้ผลลัพธ์แน่นอนอยู่แล้วว่า withdrawal_round จะเป็นค่าที่เพิ่งส่งไป ไม่ต้องถามฐานข้อมูล
+  // ซ้ำ) แล้ว render() เฉยๆ ไม่ต้อง round-trip ใหม่ทั้งชุด
+  function setRoundForOrder(soNumber, round) {
     if (!round) return; // ยังไม่รองรับ "ล้างค่ากลับเป็นว่าง" — API ปัจจุบันบังคับต้องมี round เสมอ
-    try {
-      var res = await fetch('/api/stock-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'setRound', soNumbers: [soNumber], round: round, staffName: currentUser.username }),
+    var prevRound = null;
+    state.orders.forEach(function (o) { if (o.soNumber === soNumber) { prevRound = o.withdrawalRound; o.withdrawalRound = round; } });
+    render();
+    fetch('/api/stock-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setRound', soNumbers: [soNumber], round: round, staffName: currentUser.username }),
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (result) {
+        if (!result.ok || result.body.error) throw new Error((result.body && result.body.error) || 'บันทึกไม่สำเร็จ');
+      })
+      .catch(function (err) {
+        // บันทึกไม่สำเร็จ — ย้อนค่ากลับที่เคยเป็นในจอ กันข้อมูลที่โชว์ไม่ตรงกับที่บันทึกจริงในฐานข้อมูล
+        state.orders.forEach(function (o) { if (o.soNumber === soNumber) o.withdrawalRound = prevRound; });
+        window.alert('กำหนดรอบการเบิกไม่สำเร็จ: ' + err.message);
+        render();
       });
-      var body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
-      await load();
-    } catch (err) {
-      window.alert('กำหนดรอบการเบิกไม่สำเร็จ: ' + err.message);
-      render();
-    }
   }
 
   // แก้ "วันที่เบิกสินค้า" เองทีหลังได้ (2026-09-09 user ขอ) — เผื่อระบบ auto ลงวันที่ผิดตอนกดพิมพ์ใบสรุป
