@@ -47,8 +47,7 @@
     { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
     { key: 'stock', icon: 'stock', label: 'สำหรับสต๊อค', departments: ['สต๊อค'] },
     { key: 'packing', icon: 'packing', label: 'สำหรับแพ็คกิ้ง', departments: ['แพ็คกิ้ง'] },
-    // 2026-09-24 user ขอเพิ่มเมนูนี้ — ยังไม่ได้ระบุขอบเขตงาน/ฟีเจอร์ ปล่อยเป็นหน้า "อยู่ระหว่างการพัฒนา"
-    // ไปก่อนตามแพทเทิร์นเดิมของเมนูอื่นที่เคยเพิ่มไว้ล่วงหน้า (เช่น "รายงาน"/"สำหรับ CS" ตอนยังไม่มีสเปก)
+    // 2026-09-24 user ระบุสเปกแล้ว: สรุปสินค้า "รอสต๊อก" แยกตามประเภทลูกค้าให้ทีมจัดซื้อดู (ดู purchasing-tab.js)
     { key: 'purchasing', icon: 'purchasing', label: 'สำหรับจัดซื้อ', departments: ['จัดซื้อ'] },
     { key: 'report_en', icon: 'report_en', label: 'Report', departments: ['บัญชี'] },
     { key: 'upload', icon: 'upload', label: 'อัพโหลดข้อมูล', departments: ['บัญชี'] },
@@ -211,6 +210,13 @@
       // initPackingTab จริงแล้ว (2026-09-07 — ดู packing-tab.js: ลง IMEI/Serial + export/import MyOrder)
       container.innerHTML = '<div id="packingTabRoot"></div>';
       initPackingTab('packingTabRoot', state.user);
+      return;
+    }
+    if (state.activeTab === 'purchasing') {
+      // 2026-09-24 user ระบุสเปกแล้ว: สรุปสินค้าที่ "รอสต๊อก" ทั้งหมดแยกตามประเภทลูกค้า ให้ทีมจัดซื้อดูจำนวน
+      // ที่ต้องสั่งซื้อเพิ่ม — ใช้ /api/stock-orders ชุดเดียวกับเมนู "สำหรับสต๊อค" (ดู purchasing-tab.js)
+      container.innerHTML = '<div id="purchasingTabRoot"></div>';
+      initPurchasingTab('purchasingTabRoot', state.user);
       return;
     }
     if (state.activeTab === 'upload') {
