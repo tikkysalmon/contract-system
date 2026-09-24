@@ -96,24 +96,43 @@ async function syncOdooStock(supabaseUrl, authHeaders) {
   // แทน (เอาเฉพาะสินค้าที่ยอดสุทธิ > 0 ไปแสดง แต่ตัวยอดสุทธิเองต้องรวม quant ติดลบเข้าไปด้วยเสมอ)
   // 2026-09-24 user แจ้งว่ายอดที่ sync มาแสดง "มากกว่าที่ขายได้จริง" เพราะยอด quantity (on-hand) นับรวม
   // เครื่อง/ชิ้นที่ถูกจองให้ใบสั่งขายอื่นในระบบ Odoo เอง (reserved_quantity) ไปด้วย ทั้งที่ของนั้นพร้อมอยู่บน
-  // ชั้นจริงแต่ถูก "กันไว้" ให้ลูกค้าคนอื่นแล้ว — เทียบเท่ากับสิ่งที่หน้า "ล็อต/หมายเลขซีเรียล" ของ Odoo
-  // แสดงต่อซีเรียล (พร้อมขาย vs ถูกจอง) แต่ไม่ต้องดึงระดับซีเรียลจริง เพราะสินค้า serial-tracked แต่ละ quant
-  // มี quantity=1 ต่อ 1 ซีเรียลอยู่แล้ว การ sum(quantity) - sum(reserved_quantity) ต่อสินค้า จึงเท่ากับจำนวน
-  // ซีเรียลที่ "พร้อมขายจริง" (reserved_quantity=0) พอดี — ได้แค่ "จำนวน" ตามที่ user ขอ ไม่ต้อง list ซีเรียล
-  const groups = await odoo.readGroup(
+  // ชั้นจริงแต่ถูก "กันไว้" ให้ลูกค้าคนอื่นแล้ว — user ขอให้ยึดยอดจริงจากหน้า "ล็อต/หมายเลขซีเรียล" แทน (นับ
+  // เป็นจำนวนเครื่อง ไม่ต้อง list ซีเรียล) ลองสูตร sum(quantity)-sum(reserved_quantity) ต่อสินค้าไปรอบแรก
+  // (readGroup) แล้ว **พบว่าให้ผลลัพธ์ผิดจริงในบางเคส**: ตรวจ Odoo จริงเจอ product "Apple iPhone 15 128GB
+  // (Black)" มี quant ค้าง 5 แถวที่ quantity=0 แต่ reserved_quantity=1/2 (ซีเรียลที่ย้าย/ตัดจ่ายไปแล้วแต่ field
+  // reserved ไม่ถูกเคลียร์) ทำให้ sum(reserved) ที่ระดับสินค้าสูงเกิน sum(quantity) ของสินค้านั้นทั้งก้อน — ถ้ามี
+  // ซีเรียลอื่นของสินค้าเดียวกันที่ว่างจริง (reserved=0) การหักลบแบบรวมยอดจะทำให้ซีเรียลที่ว่างจริงนั้น "หายไป"
+  // ในผลรวมด้วย (เคสทดสอบนี้บังเอิญไม่เกิดเพราะสินค้าตัวนี้ถูกจองครบทุกซีเรียลพอดี แต่ในสินค้าอื่นจะพลาดได้)
+  //
+  // **แก้ให้ถูกต้องจริง**: ดึง quant แบบ row-level (ไม่ group รวม) แล้วคำนวณแยกเป็น 2 กลุ่มตามการ track ของสินค้า:
+  //  - สินค้า track ล็อต/ซีเรียล (`lot_id` ไม่ว่าง): นับอิสระต่อ 1 ซีเรียล free = max(0, quantity-reserved)
+  //    แล้วค่อยรวมของทุกซีเรียลของสินค้านั้น — กันไม่ให้ quant ค้าง (quantity=0,reserved>0) ของซีเรียลหนึ่ง
+  //    ไปหักลบยอดของซีเรียลอื่นที่ว่างจริงในสินค้าเดียวกัน (นี่คือข้อมูลชุดเดียวกับหน้า "ล็อต/หมายเลขซีเรียล")
+  //  - สินค้าไม่ track ล็อต (accessory ทั่วไป): ยังคงรวมยอดสุทธิระดับสินค้าเหมือนเดิม (quantity-reserved รวมกัน
+  //    ทั้งหมดก่อน) เพราะ correction quant ติดลบที่ไม่มี lot (เช่นบั๊ก Adapter 20W เดิมด้านบน) เป็นการปรับยอด
+  //    รวมของสต๊อกกองเดียวกัน ไม่ใช่หน่วยที่แยกจากกันแบบซีเรียล ต้องหักลบกันจึงจะได้ยอดสุทธิถูกต้อง
+  const quants = await odoo.searchRead(
     'stock.quant',
     [['location_id', 'child_of', stockLocationId]],
-    ['product_id', 'quantity:sum', 'reserved_quantity:sum'],
-    ['product_id']
+    ['product_id', 'lot_id', 'quantity', 'reserved_quantity']
   );
+  const freeByProduct = {};
+  quants.forEach(function (q) {
+    if (!q.product_id) return;
+    const pid = q.product_id[0];
+    if (!freeByProduct[pid]) freeByProduct[pid] = { name: q.product_id[1], free: 0 };
+    const qty = Number(q.quantity || 0);
+    const reserved = Number(q.reserved_quantity || 0);
+    if (q.lot_id) {
+      freeByProduct[pid].free += Math.max(0, qty - reserved);
+    } else {
+      freeByProduct[pid].free += (qty - reserved);
+    }
+  });
   const now = new Date().toISOString();
-  const rows = groups
-    .map(function (g) {
-      const free = Number(g.quantity || 0) - Number(g.reserved_quantity || 0);
-      return { product_id: g.product_id, quantity: free };
-    })
-    .filter(function (g) { return g.product_id && g.quantity > 0; })
-    .map(function (g) { return { product_name: g.product_id[1], quantity: g.quantity, updated_at: now }; });
+  const rows = Object.values(freeByProduct)
+    .filter(function (p) { return p.free > 0; })
+    .map(function (p) { return { product_name: p.name, quantity: p.free, updated_at: now }; });
   log('ดึงจาก Odoo ได้ ' + rows.length + ' รายการสินค้าที่มีสต๊อก');
 
   log('ดึงรายการบริการ (type=service, ไม่ต้องรอสต๊อก) จาก Odoo...');
