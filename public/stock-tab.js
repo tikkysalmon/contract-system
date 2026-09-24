@@ -665,7 +665,14 @@ function initStockTab(containerId, currentUser) {
         '</div>' +
         '</div>' +
         '<div style="overflow-x:auto;"><table class="installment-table">' +
-        '<thead><tr><th></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>' +
+        (function () {
+          // 2026-09-24 user ขอช่องติ๊ก "เลือกทั้งหมด" ที่หัวตาราง — นับเฉพาะแถวที่ติ๊กได้จริงในหน้าปัจจุบัน
+          // (ข้ามแถวที่ยกเลิกแล้ว เพราะ checkbox ของแถวนั้น disabled ติ๊กเองไม่ได้อยู่แล้ว)
+          var selectableSoNumbers = pagedOrders.filter(function (o) { return !o.cancelledAt; }).map(function (o) { return o.soNumber; });
+          var allSelected = selectableSoNumbers.length > 0 && selectableSoNumbers.every(function (so) { return !!state.selected[so]; });
+          return '<thead><tr><th><input type="checkbox" id="stkSelectAllRows"' + (allSelected ? ' checked' : '') +
+            (selectableSoNumbers.length === 0 ? ' disabled' : '') + ' /></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>';
+        })() +
         '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
           var rowStyle = o.crmCancelledAfterPrint ? ' style="background:#fee2e2;"' : (o.cancelledAt ? ' style="opacity:0.55;"' : '');
@@ -715,6 +722,17 @@ function initStockTab(containerId, currentUser) {
     document.getElementById('stkShowCancelled').addEventListener('change', function (e) { state.showCancelled = e.target.checked; state.currentPage = 1; pruneSelectionToVisible(); render(); });
 
     if (!state.loading && !state.error) {
+      var selectAllCb = document.getElementById('stkSelectAllRows');
+      if (selectAllCb) {
+        selectAllCb.addEventListener('change', function () {
+          // ติ๊ก/ยกเลิกติ๊กทุกแถวที่ติ๊กได้ "ในหน้าปัจจุบัน" เท่านั้น (ตรงกับที่ checkbox หัวตารางเช็คสถานะไว้)
+          Array.prototype.forEach.call(document.querySelectorAll('.stkRowCheck:not(:disabled)'), function (cb) {
+            var so = cb.getAttribute('data-so');
+            if (selectAllCb.checked) state.selected[so] = true; else delete state.selected[so];
+          });
+          render();
+        });
+      }
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowCheck'), function (cb) {
         cb.addEventListener('change', function () {
           if (cb.checked) state.selected[cb.getAttribute('data-so')] = true; else delete state.selected[cb.getAttribute('data-so')];
