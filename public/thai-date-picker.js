@@ -113,21 +113,41 @@
           selectDay(Number(btn.getAttribute('data-y')), Number(btn.getAttribute('data-m')), Number(btn.getAttribute('data-d')));
         });
       });
+
+      // 2026-09-24 ต้องคำนวณตำแหน่งใหม่ทุกครั้งที่ render เนื้อหาใหม่ (ไม่ใช่แค่ตอนเปิด panel ครั้งแรก) เพราะ
+      // ความสูงปฏิทินเปลี่ยนได้ตามจำนวนแถวของเดือนนั้น (5 หรือ 6 แถว) — เลื่อนเดือนแล้วความสูงเปลี่ยนไปโดยไม่จัด
+      // ตำแหน่งใหม่จะทำให้ปฏิทินเลื่อนหลุดจอได้เหมือนกัน
+      positionPanel();
     }
 
-    // 2026-09-24 user เจอปฏิทินแสดงผลเพี้ยน/โดนตัดในเมนู "สำหรับสต๊อค" — ต้นเหตุคือ .tdp-panel เดิม
+    // 2026-09-24 (รอบแรก) user เจอปฏิทินแสดงผลเพี้ยน/โดนตัดในเมนู "สำหรับสต๊อค" — ต้นเหตุคือ .tdp-panel เดิม
     // position:absolute อ้างอิงกับ .date-field-wrap ที่อยู่ในตาราง "รายการออเดอร์" ซึ่งอยู่ใน div ที่มี
     // overflow-x:auto (ให้เลื่อนตารางแนวนอนได้) — popup ที่ลอยออกนอกกรอบเซลล์เลยถูก container นั้นบัง/ตัดทิ้ง
     // แก้โดยย้าย panel ไปแปะที่ <body> ตรงๆ แล้วคำนวณตำแหน่ง fixed จาก getBoundingClientRect() ของช่องแทน
     // (ไม่ผูกกับ container ที่ตัด overflow อีกต่อไป) ใช้ได้กับทุกที่ที่เรียก attachThaiDatePicker ในเว็บ ไม่ใช่
     // แค่หน้าสต๊อค
+    //
+    // 2026-09-24 (รอบสอง) user เจอปฏิทินโดนตัดอีกจุดหนึ่ง — คราวนี้เป็นแนวตั้ง: ช่อง "วันที่เบิกสินค้า" อยู่ค่อน
+    // ไปทางล่างสุดของตารางที่แสดงอยู่ พอเปิดปฏิทินแล้วเปิดลงด้านล่างเสมอ (top: rect.bottom) ทำให้ปฏิทินยื่นเลย
+    // ขอบล่างของหน้าจอ (viewport) ไป มองไม่เห็นครึ่งล่างของปฏิทิน (แถวที่ 3 ของวันที่เป็นต้นไป) — เดิมคำนวณ
+    // ตำแหน่งก่อน renderPanel() เติมเนื้อหา (panel ยังว่างเปล่า วัดความสูงไม่ได้เลย) แก้โดยย้ายมาเรียกหลัง
+    // renderPanel() เสมอ แล้วเช็คว่าถ้าเปิดลงล่างแล้วจะล้นจอ ให้เปิดขึ้นบนช่องแทน (แพทเทิร์น dropdown/popover
+    // ทั่วไป) ถ้าเปิดขึ้นบนแล้วยังไม่พออีก (ปฏิทินสูงกว่าทั้งจอ) ให้ชิดขอบบนสุดที่พอมองเห็นได้แทน
     function positionPanel() {
       var rect = wrapEl.getBoundingClientRect();
       var panelWidth = 264; // ต้องตรงกับ width ของ .tdp-panel ใน style.css
-      var top = rect.bottom + 6;
+      var panelHeight = panel.offsetHeight || 340; // เผื่อกรณีวัดไม่ได้ (เช่นซ่อนอยู่) ใช้ค่าประมาณสูงสุดไปก่อน
       var left = rect.left;
       if (left + panelWidth > window.innerWidth - 8) left = window.innerWidth - panelWidth - 8;
       if (left < 8) left = 8;
+
+      var top = rect.bottom + 6; // ค่าเริ่มต้น: เปิดลงล่าง
+      var overflowsBottom = top + panelHeight > window.innerHeight - 8;
+      if (overflowsBottom) {
+        var topIfAbove = rect.top - panelHeight - 6; // ลองเปิดขึ้นบนช่องแทน
+        top = topIfAbove >= 8 ? topIfAbove : Math.max(8, window.innerHeight - panelHeight - 8);
+      }
+
       panel.style.position = 'fixed';
       panel.style.top = top + 'px';
       panel.style.left = left + 'px';
@@ -138,9 +158,12 @@
       view = parseValueOrToday();
       panel = document.createElement('div');
       panel.className = 'tdp-panel';
+      // ซ่อนไว้ก่อนระหว่างวัดขนาด/จัดตำแหน่ง กัน panel โผล่วาบที่มุมบนซ้ายจอ (ตำแหน่งเริ่มต้นก่อนคำนวณจริง)
+      // ให้เห็นแวบก่อนย้ายไปตำแหน่งที่ถูกต้อง
+      panel.style.visibility = 'hidden';
       document.body.appendChild(panel);
-      positionPanel();
-      renderPanel();
+      renderPanel(); // ต้อง render เนื้อหาก่อน ถึงจะวัดความสูงจริงเพื่อจัดตำแหน่ง (positionPanel) ได้ถูกต้อง
+      panel.style.visibility = 'visible';
       // setTimeout กันคลิกที่เปิด panel ตัวเดียวกันนี้ไปโดน listener ปิดทันทีใน mousedown เดียวกัน
       setTimeout(function () { document.addEventListener('mousedown', onOutsideMouseDown, true); }, 0);
       window.addEventListener('scroll', onScrollOrResize, true);
