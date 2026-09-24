@@ -551,6 +551,46 @@ function initStockTab(containerId, currentUser) {
       '</div>';
   }
 
+  var DEAL_STATUS_LABEL = {
+    pending: 'รอติดต่อลูกค้า',
+    deal_success: 'ดีลสำเร็จ',
+    cancelled_refund: 'ยกเลิกสัญญาคืนเงิน',
+  };
+
+  // "ดีลเปลี่ยนสินค้า" (2026-09-24) — คอลัมน์นี้แสดงรายการที่จัดซื้อสร้างไว้จากเมนู "สำหรับจัดซื้อ" (สินค้าเดิม
+  // หาซื้อไม่ได้) ให้ทีมสต๊อคติดต่อลูกค้าแล้วปิดสถานะ "ดีลสำเร็จ"/"ยกเลิกสัญญาคืนเงิน" — ไม่มีเลยถ้า SO นั้นไม่
+  // ได้ถูกจัดซื้อ flag ไว้ (ปกติ ไม่ต้องทำอะไร)
+  function dealChangeCellHtml(o) {
+    var d = o.dealChange;
+    if (!d) return '<span style="color:var(--muted);">-</span>';
+    if (d.status === 'pending') {
+      return '<div style="font-size:12.5px;">' +
+        'สินค้าทดแทน: <b>' + d.replacementProduct + '</b>' + (d.note ? '<br>หมายเหตุ: ' + d.note : '') +
+        '<div style="margin-top:6px;display:flex;gap:6px;">' +
+        '<button type="button" class="btn btn-primary btn-sm dealResolveBtn" data-deal-id="' + d.id + '" data-status="deal_success">ดีลสำเร็จ</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm dealResolveBtn" data-deal-id="' + d.id + '" data-status="cancelled_refund" style="color:var(--danger);">ยกเลิกสัญญาคืนเงิน</button>' +
+        '</div></div>';
+    }
+    var color = d.status === 'deal_success' ? 'var(--ok)' : 'var(--danger)';
+    return '<div style="font-size:12.5px;"><span style="color:' + color + ';font-weight:700;">' + (DEAL_STATUS_LABEL[d.status] || d.status) + '</span><br>สินค้าทดแทน: ' + d.replacementProduct + '</div>';
+  }
+
+  async function resolveDealChange(dealId, status) {
+    if (!window.confirm(status === 'deal_success' ? 'ยืนยันว่าดีลเปลี่ยนสินค้ากับลูกค้าสำเร็จแล้ว?' : 'ยืนยันยกเลิกสัญญาและคืนเงินลูกค้า?')) return;
+    try {
+      var res = await fetch('/api/staff-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setDealChangeStatus', staffName: currentUser.username, dealChangeId: dealId, status: status }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+      await load();
+    } catch (err) {
+      window.alert('บันทึกสถานะดีลเปลี่ยนสินค้าไม่สำเร็จ: ' + err.message);
+    }
+  }
+
   function syncFreshnessNoticesHtml() {
     var h = '';
     // 2026-09-09 user ยืนยัน: ออเดอร์ที่พิมพ์ใบเบิกไปแล้วแต่ CRM แสดงว่ายกเลิกทีหลัง ต้องเตือนเด่นสุด — ขึ้นก่อน
@@ -671,7 +711,7 @@ function initStockTab(containerId, currentUser) {
           var selectableSoNumbers = pagedOrders.filter(function (o) { return !o.cancelledAt; }).map(function (o) { return o.soNumber; });
           var allSelected = selectableSoNumbers.length > 0 && selectableSoNumbers.every(function (so) { return !!state.selected[so]; });
           return '<thead><tr><th><input type="checkbox" id="stkSelectAllRows"' + (allSelected ? ' checked' : '') +
-            (selectableSoNumbers.length === 0 ? ' disabled' : '') + ' /></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>';
+            (selectableSoNumbers.length === 0 ? ' disabled' : '') + ' /></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th style="text-align:left;">ดีลเปลี่ยนสินค้า</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>';
         })() +
         '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
@@ -685,6 +725,7 @@ function initStockTab(containerId, currentUser) {
             '<td style="text-align:left;">' + o.product + (o.color ? ' (' + o.color + ')' : '') + '</td>' +
             '<td>' + (o.odooAvailableQty != null ? o.odooAvailableQty : '-') + '</td>' +
             '<td>' + stockStatusBadge(o) + '</td>' +
+            '<td style="text-align:left;">' + dealChangeCellHtml(o) + '</td>' +
             '<td>' + contractStatusBadge(o) + '</td>' +
             '<td>' + printBadge(o) + '</td>' +
             '<td>' + roundSelectHtml(o) + '</td>' +
@@ -692,7 +733,7 @@ function initStockTab(containerId, currentUser) {
             '<td><button type="button" class="btn btn-ghost stkBtnPrintBill" data-so="' + o.soNumber + '"' + (state.printingBillSo === o.soNumber ? ' disabled' : '') + '>' + (state.printingBillSo === o.soNumber ? 'กำลังสร้าง...' : '🖨️ ใบเบิกรายบิล') + '</button></td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="14" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="15" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }
@@ -741,6 +782,9 @@ function initStockTab(containerId, currentUser) {
       });
       Array.prototype.forEach.call(document.querySelectorAll('.stkBtnCancel'), function (btn) {
         btn.addEventListener('click', function () { openCancelBox(btn.getAttribute('data-so')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.dealResolveBtn'), function (btn) {
+        btn.addEventListener('click', function () { resolveDealChange(btn.getAttribute('data-deal-id'), btn.getAttribute('data-status')); });
       });
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowRound'), function (sel) {
         sel.addEventListener('change', function () { setRoundForOrder(sel.getAttribute('data-so'), sel.value); });

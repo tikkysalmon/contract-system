@@ -64,6 +64,22 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // "ดีลเปลี่ยนสินค้า" (2026-09-24) — เอาสถานะล่าสุดต่อ SO มาแสดงในเมนู "ข้อมูลลูกค้าทำสัญญา" ด้วย เฉพาะ
+    // status='deal_success' ถึงจะต้องออกเอกสารแนบท้ายสัญญาเพิ่ม (ดู staff-sign-tab.js/contract-detail.js) —
+    // ข้ามเงียบๆ ถ้ายังไม่เคยรัน supabase-product-deal-changes.sql
+    let dealChangeBySo = {};
+    if (allSoNumbers.length) {
+      const inListDeal = allSoNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
+      const dealRes = await fetch(
+        SUPABASE_URL + '/rest/v1/product_deal_changes?so_number=in.(' + inListDeal + ')&order=created_at.desc',
+        { headers: authHeaders }
+      );
+      if (dealRes.ok) {
+        const dealRows = await dealRes.json();
+        dealRows.forEach(function (d) { if (!dealChangeBySo[d.so_number]) dealChangeBySo[d.so_number] = d; });
+      }
+    }
+
     const FILE_FIELDS = ['idCard', 'selfieWithId', 'guardianId', 'guarantorId', 'signature', 'guardianSignature', 'guarantorSignature', 'staffSignature'];
 
     const queue = rows.map(function (row) {
@@ -94,7 +110,14 @@ module.exports = async function handler(req, res) {
         // shippingDate ต่อ SO (2026-09-08 — จาก packing_records.tracking_imported_at)
         items: items.map(function (it) {
           const pk = packingBySo[it.soNumber];
-          return Object.assign({}, it, { shippingDate: (pk && pk.tracking_imported_at) || null });
+          const deal = dealChangeBySo[it.soNumber];
+          return Object.assign({}, it, {
+            shippingDate: (pk && pk.tracking_imported_at) || null,
+            dealChange: deal ? {
+              status: deal.status, originalProduct: deal.original_product, originalColor: deal.original_color,
+              replacementProduct: deal.replacement_product, note: deal.note, resolvedAt: deal.resolved_at, resolvedBy: deal.resolved_by,
+            } : null,
+          });
         }),
         customer: customer, // ข้อมูลเต็มที่ลูกค้ากรอก (ส่วนตัว/ที่อยู่/บุคคลอ้างอิง/ผู้ปกครอง/ผู้ค้ำ) — ไม่มี base64 รูปปน (อยู่ใน Storage แยกแล้ว ดูผ่าน files) — ว่างเปล่าถ้ายังไม่ส่งฟอร์ม
         files: files,

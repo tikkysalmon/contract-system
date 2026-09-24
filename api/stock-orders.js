@@ -315,8 +315,27 @@ async function handleList(req, res, authHeaders) {
     }
   }
 
+  // "ดีลเปลี่ยนสินค้า" (2026-09-24) — join เข้ากับแต่ละ order ด้วย so_number เดียวกับ stock_order_meta ด้านบน
+  // ให้ทั้งเมนู "สำหรับจัดซื้อ" (สร้างรายการ) และ "สำหรับสต๊อค" (ปิดสถานะ) เห็นข้อมูลชุดเดียวกันเสมอ — ถ้ายังไม่
+  // เคยรัน supabase-product-deal-changes.sql (ตารางไม่มี) ให้ข้ามไปเงียบๆ (คืน dealChange: null ทุกแถว) ไม่ทำให้
+  // เมนูอื่นพังไปด้วย
+  let dealChangeBySo = {};
+  if (soNumbers.length) {
+    const inListDeal = soNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
+    const dealRes = await fetch(
+      SUPABASE_URL + '/rest/v1/product_deal_changes?so_number=in.(' + inListDeal + ')&order=created_at.desc',
+      { headers: authHeaders }
+    );
+    if (dealRes.ok) {
+      const dealRows = await dealRes.json();
+      // เรียง created_at.desc มาแล้ว — เจอ so_number ซ้ำเอาแถวแรก (ล่าสุด) พอ ไม่ทับด้วยแถวเก่ากว่า
+      dealRows.forEach(function (d) { if (!dealChangeBySo[d.so_number]) dealChangeBySo[d.so_number] = d; });
+    }
+  }
+
   orders = orders.map(function (o) {
     const meta = metaBySo[o.soNumber] || {};
+    const deal = dealChangeBySo[o.soNumber] || null;
     return Object.assign({}, o, {
       withdrawalRound: meta.withdrawal_round || null,
       printedAt: meta.printed_at || null,
@@ -325,6 +344,10 @@ async function handleList(req, res, authHeaders) {
       cancelledAt: meta.cancelled_at || null,
       cancelledBy: meta.cancelled_by || null,
       cancelReason: meta.cancel_reason || null,
+      dealChange: deal ? {
+        id: deal.id, replacementProduct: deal.replacement_product, note: deal.note, status: deal.status,
+        createdBy: deal.created_by, createdAt: deal.created_at, resolvedBy: deal.resolved_by, resolvedAt: deal.resolved_at,
+      } : null,
     });
   });
 

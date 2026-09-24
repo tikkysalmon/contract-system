@@ -111,6 +111,29 @@ function initContractDetailView(containerId) {
       '<button type="button" class="btn btn-secondary btn-sm" id="btnCopyRejectLink" data-token="' + item.sessionToken + '" style="white-space:nowrap;margin-top:6px;">📋 คัดลอกลิงก์ให้ลูกค้าแก้ไข</button>';
   }
 
+  // "ดีลเปลี่ยนสินค้า" (2026-09-24) — แสดงเฉพาะ SO ที่มีการดีลเปลี่ยนสินค้าจริง (จัดซื้อ flag ไว้จากเมนู
+  // "สำหรับจัดซื้อ" แล้วสต๊อคปิดสถานะแล้ว) status='deal_success' คือเงื่อนไขที่ต้องออกเอกสารแนบท้ายสัญญาเพิ่ม —
+  // ยังไม่มีไฟล์ตัวอย่างเทมเพลตเอกสารแนบท้ายสัญญาจริงให้สร้างเอกสารอัตโนมัติในรอบนี้ (user บอกว่า "มีไฟล์ตัวอย่าง
+  // อยู่แล้ว" แต่ยังไม่ได้ส่งไฟล์มา) จึงแสดงแค่ข้อมูลให้เห็น + ปุ่มปิดใช้งานพร้อมคำอธิบายไปก่อน
+  function dealChangeSectionHtml(item) {
+    var dealItems = (item.items || []).filter(function (it) { return it.dealChange; });
+    if (!dealItems.length) return '';
+    return '<div class="notice" style="margin-bottom:12px;">' +
+      dealItems.map(function (it) {
+        var d = it.dealChange;
+        var statusLabel = d.status === 'deal_success' ? 'ดีลสำเร็จ' : (d.status === 'cancelled_refund' ? 'ยกเลิกสัญญาคืนเงิน' : 'รอสต๊อคติดต่อลูกค้า');
+        var html = '<div style="margin-bottom:6px;"><b>ดีลเปลี่ยนสินค้า (' + it.soNumber + '):</b> ' + statusLabel + '<br>' +
+          'สินค้าเดิม: ' + d.originalProduct + (d.originalColor ? ' (' + d.originalColor + ')' : '') + ' → สินค้าทดแทน: <b>' + d.replacementProduct + '</b>' +
+          (d.note ? '<br>หมายเหตุ: ' + d.note : '') + '</div>';
+        if (d.status === 'deal_success') {
+          html += '<button type="button" class="btn btn-ghost btn-sm" disabled title="รอไฟล์ตัวอย่างเอกสารแนบท้ายสัญญาจริงก่อน ถึงจะสร้างเอกสารอัตโนมัติได้">' +
+            '📄 ออกเอกสารแนบท้ายสัญญา (รอไฟล์ตัวอย่างเทมเพลต)</button>';
+        }
+        return html;
+      }).join('<hr style="margin:8px 0;border-color:var(--border);">') +
+      '</div>';
+  }
+
   function openRejectPanel() {
     state.rejecting = true;
     state.rejectChecked = {};
@@ -313,6 +336,7 @@ function initContractDetailView(containerId) {
       (hg.hasGuardian ? infoRow('ผู้ปกครอง', (guardian.title || '') + guardian.firstLastName + ' โทร ' + (guardian.phone || '-') + ' บัตร ' + (guardian.citizenId || '-')) : '') +
       (hg.hasGuarantor ? infoRow('ผู้ค้ำประกัน', (guarantor.title || '') + guarantor.firstLastName + ' อายุ ' + (guarantor.age || '-') + ' ปี โทร ' + (guarantor.phone || '-') + ' บัตร ' + (guarantor.citizenId || '-')) : '') +
       '</table>' +
+      dealChangeSectionHtml(item) +
       '<div style="margin-bottom:4px;color:var(--muted);font-size:13px;">เอกสารแนบ (คลิกเพื่อดูเต็ม)</div>' +
       fileThumbHtml(item.files.idCard, 'บัตร ปชช. ลูกค้า') +
       fileThumbHtml(item.files.selfieWithId, 'คู่บัตร ลูกค้า') +

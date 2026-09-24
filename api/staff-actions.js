@@ -277,6 +277,49 @@ async function doUpdateLogistics(authHeaders, submissionId, staffName, soNumber,
   res.status(200).json({ ok: true });
 }
 
+// 2026-09-24 "ดีลเปลี่ยนสินค้า" — จัดซื้อสร้างรายการนี้จากเมนู "สำหรับจัดซื้อ" ตอนหาสินค้าเดิมไม่ได้แล้ว (ต้อง
+// รันสคริปต์ supabase-product-deal-changes.sql ก่อนใช้งาน) — ไม่เพิ่ม endpoint ใหม่ (ชนโควต้า 12 ฟังก์ชันของ
+// Vercel Hobby plan พอดีอยู่แล้ว) รวมไว้ในไฟล์นี้เหมือน action อื่นๆ ผลลัพธ์ที่บันทึกอ่านออกมาแสดงผ่าน
+// api/stock-orders.js (join เข้ากับแต่ละ order ด้วย so_number ให้ทั้งเมนู "สำหรับจัดซื้อ"/"สำหรับสต๊อค" เห็นตรงกัน)
+async function doCreateDealChange(authHeaders, staffName, soNumber, originalProduct, originalColor, replacementProduct, note, res) {
+  if (!soNumber || !originalProduct || !replacementProduct) {
+    res.status(400).json({ error: 'ข้อมูลไม่ครบ (soNumber/originalProduct/replacementProduct)' });
+    return;
+  }
+  const insertRes = await fetch(SUPABASE_URL + '/rest/v1/product_deal_changes', {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+    body: JSON.stringify({
+      so_number: soNumber, original_product: originalProduct, original_color: originalColor || null,
+      replacement_product: replacementProduct, note: note || null, status: 'pending', created_by: staffName,
+    }),
+  });
+  if (!insertRes.ok) {
+    const text = await insertRes.text();
+    throw new Error('สร้างรายการดีลเปลี่ยนสินค้าไม่สำเร็จ (HTTP ' + insertRes.status + '): ' + text.slice(0, 300) +
+      ' — ตรวจว่ารัน supabase-product-deal-changes.sql แล้วหรือยัง');
+  }
+  res.status(200).json({ ok: true });
+}
+
+// สต๊อคติดต่อลูกค้าแล้วปิดสถานะ — 'deal_success' (ดีลสำเร็จ) หรือ 'cancelled_refund' (ยกเลิกสัญญาคืนเงิน)
+async function doSetDealChangeStatus(authHeaders, staffName, dealChangeId, status, res) {
+  if (!dealChangeId || ['deal_success', 'cancelled_refund'].indexOf(status) === -1) {
+    res.status(400).json({ error: 'ข้อมูลไม่ครบ/สถานะไม่ถูกต้อง (dealChangeId/status)' });
+    return;
+  }
+  const patchRes = await fetch(SUPABASE_URL + '/rest/v1/product_deal_changes?id=eq.' + encodeURIComponent(dealChangeId), {
+    method: 'PATCH',
+    headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+    body: JSON.stringify({ status: status, resolved_by: staffName, resolved_at: new Date().toISOString() }),
+  });
+  if (!patchRes.ok) {
+    const text = await patchRes.text();
+    throw new Error('บันทึกสถานะดีลเปลี่ยนสินค้าไม่สำเร็จ (HTTP ' + patchRes.status + '): ' + text.slice(0, 300));
+  }
+  res.status(200).json({ ok: true });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') {
@@ -290,10 +333,22 @@ module.exports = async function handler(req, res) {
   try {
     const body = req.body || {};
     const action = String(body.action || '');
-    const submissionId = String(body.submissionId || '').trim();
     const staffName = String(body.staffName || '').trim();
-    if (!submissionId || !staffName) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (submissionId/staffName)' }); return; }
+    if (!staffName) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (staffName)' }); return; }
     const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
+
+    // "ดีลเปลี่ยนสินค้า" ไม่ผูกกับ submissionId (ผูกกับ so_number ตรงๆ) — เช็คแยกจาก action อื่นด้านล่างที่ต้องมี
+    if (action === 'createDealChange') {
+      await doCreateDealChange(authHeaders, staffName, body.soNumber, body.originalProduct, body.originalColor, body.replacementProduct, body.note, res);
+      return;
+    }
+    if (action === 'setDealChangeStatus') {
+      await doSetDealChangeStatus(authHeaders, staffName, body.dealChangeId, body.status, res);
+      return;
+    }
+
+    const submissionId = String(body.submissionId || '').trim();
+    if (!submissionId) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (submissionId)' }); return; }
 
     if (action === 'sign') { await doSign(authHeaders, submissionId, staffName, body.signatureDataUrl, res); return; }
     if (action === 'reject') { await doReject(authHeaders, submissionId, staffName, body.rejectedFields, body.note, res); return; }
