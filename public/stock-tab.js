@@ -66,20 +66,21 @@ function initStockTab(containerId, currentUser) {
     return parts.length ? parts.join(' ') : '-';
   }
 
+  // 2026-09-24 user ขอไม่ให้หน้าเว็บโหลดข้อมูลใหม่ (ยิง API ซ้ำ) ทุกครั้งที่กดตัวกรองในเมนูนี้ — เดิมตัวกรอง
+  // customerType/q/round/printStatus/showCancelled ส่งเป็น query param ไปกรองที่ server ทุกครั้งที่เปลี่ยน
+  // ทำให้ต้องรอ round-trip ใหม่ (รวม CRM login+enrich ข้อมูลฝั่งซื้อสดที่ค่อนข้างช้า) ทุกครั้ง — แต่ตั้งแต่แก้
+  // บั๊กลำดับคิวจองสต๊อกไปก่อนหน้านี้ (ดู api/stock-orders.js) server คำนวณคิว/สต๊อกจาก "ทุกออเดอร์" อยู่แล้ว
+  // เสมอไม่ว่าจะส่ง filter ไหนมา แล้วค่อยกรอง customerType/q/round/printStatus/showCancelled ทีหลังฝั่ง server
+  // เอง — เท่ากับว่า client ดึงข้อมูลชุดเดียวกันทุกครั้งอยู่แล้วไม่ว่าจะตั้งตัวกรองอะไร จึงย้ายตัวกรองทั้งหมดนี้
+  // มากรองฝั่ง client แทน (แพทเทิร์นเดียวกับ filterChannel ที่ทำแบบนี้อยู่แล้ว) โหลดจาก server แค่ครั้งเดียว
+  // ตอนเปิดหน้า ไม่ส่ง query param ตัวกรองไปอีกต่อไป (ให้ server คืนข้อมูลเต็มชุดเสมอ)
   async function load() {
     var mySeq = ++state.loadSeq; // ดูหมายเหตุที่ state.loadSeq ด้านบน
     state.loading = true;
     state.error = null;
     render();
     try {
-      var params = new URLSearchParams({
-        customerType: state.filterCustomerType,
-        q: state.filterQuery,
-        round: state.filterRound,
-        printStatus: state.filterPrintStatus,
-        showCancelled: String(state.showCancelled),
-      });
-      var res = await fetch('/api/stock-orders?' + params.toString());
+      var res = await fetch('/api/stock-orders');
       var body = await res.json();
       if (mySeq !== state.loadSeq) return; // มีคำขอใหม่กว่าเริ่มไปแล้วระหว่างรอ response นี้ ทิ้งผลลัพธ์เก่านี้ไป
       if (!res.ok || body.error) throw new Error(body.error || 'โหลดข้อมูลไม่สำเร็จ');
@@ -90,10 +91,7 @@ function initStockTab(containerId, currentUser) {
       state.cashMatchedCount = body.cashMatchedCount || 0;
       state.stockLastSyncedAt = body.stockLastSyncedAt || null;
       state.crmLastSyncedAt = body.crmLastSyncedAt || null;
-      // ล้าง selection ของ SO ที่หลุดจากรายการปัจจุบันไปแล้ว (เช่น กรองใหม่)
-      var stillThere = {};
-      state.orders.forEach(function (o) { if (state.selected[o.soNumber]) stillThere[o.soNumber] = true; });
-      state.selected = stillThere;
+      pruneSelectionToVisible();
     } catch (err) {
       if (mySeq !== state.loadSeq) return;
       state.error = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message + ' (ถ้ายังไม่ได้รัน supabase-stock-orders.sql ต้องรันก่อน)';
@@ -101,6 +99,16 @@ function initStockTab(containerId, currentUser) {
     if (mySeq !== state.loadSeq) return;
     state.loading = false;
     render();
+  }
+
+  // ล้าง selection ของ SO ที่หลุดจากรายการที่กรองอยู่ตอนนี้ไปแล้ว (เช่น เปลี่ยนตัวกรองแล้วไม่โชว์แถวนั้นอีก) —
+  // เดิมทำตอน load() เสร็จเท่านั้น (เพราะกรองที่ server) ตอนนี้ต้องเรียกทุกครั้งที่เปลี่ยนตัวกรองฝั่ง client ด้วย
+  function pruneSelectionToVisible() {
+    var visible = {};
+    filtered().forEach(function (o) { visible[o.soNumber] = true; });
+    var stillThere = {};
+    Object.keys(state.selected).forEach(function (so) { if (state.selected[so] && visible[so]) stillThere[so] = true; });
+    state.selected = stillThere;
   }
 
   function selectedOrders() {
@@ -446,10 +454,29 @@ function initStockTab(containerId, currentUser) {
     return sorted;
   }
 
-  // กรองส่วนใหญ่ทำฝั่ง server ผ่าน query params ไปแล้วตอน load() — filterChannel กรองฝั่ง client เพิ่ม (ข้อมูล
-  // ทั้งหมดโหลดมาอยู่แล้ว ไม่ต้อง round-trip ใหม่)
+  // 2026-09-24 ย้ายตัวกรองทั้งหมดมาทำฝั่ง client (เดิมมีแค่ filterChannel ที่ทำแบบนี้ ตัวอื่นกรองที่ server
+  // ผ่าน query param ตอน load() — ดูหมายเหตุที่ load() ด้านบนว่าทำไมย้ายมาได้โดยไม่กระทบผลลัพธ์) ข้อมูลทั้งหมด
+  // (state.orders) โหลดมาครบทุกรายการจาก server ครั้งเดียวตั้งแต่เปิดหน้าแล้ว ไม่ต้อง round-trip ใหม่อีกเลย
+  // ไม่ว่าจะเปลี่ยนตัวกรองไหน — แถว "ยกเลิกหลังพิมพ์ใบเบิก" (source: cancelled-after-print) ยังต้องเห็นเสมอไม่
+  // ว่าจะเลือกตัวกรอง customerType ไหนอยู่ (ตามที่ตั้งใจไว้เดิม ดู api/stock-orders.js's fetchCancelledAfterPrintOrders)
   function filtered() {
-    var result = state.filterChannel === 'all' ? state.orders : state.orders.filter(function (o) { return o.deliveryChannel === state.filterChannel; });
+    var result = state.orders;
+    if (state.filterCustomerType === 'credit' || state.filterCustomerType === 'cash') {
+      result = result.filter(function (o) { return o.source === state.filterCustomerType || o.source === 'cancelled-after-print'; });
+    }
+    var q = state.filterQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(function (o) {
+        return (o.customerName || '').toLowerCase().indexOf(q) !== -1 ||
+          (o.soNumber || '').toLowerCase().indexOf(q) !== -1 ||
+          (o.customerId || '').toLowerCase().indexOf(q) !== -1;
+      });
+    }
+    if (state.filterRound !== 'all') result = result.filter(function (o) { return o.withdrawalRound === state.filterRound; });
+    if (state.filterPrintStatus === 'printed') result = result.filter(function (o) { return !!o.printedAt; });
+    if (state.filterPrintStatus === 'unprinted') result = result.filter(function (o) { return !o.printedAt; });
+    if (!state.showCancelled) result = result.filter(function (o) { return !o.cancelledAt; });
+    if (state.filterChannel !== 'all') result = result.filter(function (o) { return o.deliveryChannel === state.filterChannel; });
     return sortOrders(result);
   }
 
@@ -671,13 +698,17 @@ function initStockTab(containerId, currentUser) {
     app.innerHTML = html;
 
     document.getElementById('stkSortOrder').addEventListener('change', function (e) { state.sortBy = e.target.value; state.currentPage = 1; render(); });
-    document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; state.currentPage = 1; load(); });
+    // 2026-09-24 ตัวกรองทั้งหมดกรองฝั่ง client แล้ว (ดูหมายเหตุที่ filtered()/load() ด้านบน) เปลี่ยนจากเรียก
+    // load() (ยิง API ใหม่ทุกครั้ง) เป็น pruneSelectionToVisible() + render() เฉยๆ ไม่มี round-trip ใหม่อีกเลย
+    document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; state.currentPage = 1; pruneSelectionToVisible(); render(); });
+    // stkFilterQuery: เก็บค่าตอนพิมพ์เฉยๆ ไม่ render ทุกตัวอักษร (render() ใหม่ทั้งก้อนจะทำให้ช่องพิมพ์เสีย
+    // focus/ตำแหน่ง cursor ทุกครั้ง) กรองจริงตอนกด Enter เหมือนเดิม แค่ไม่ต้องยิง API ใหม่แล้ว
     document.getElementById('stkFilterQuery').addEventListener('input', function (e) { state.filterQuery = e.target.value; });
-    document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.currentPage = 1; load(); } });
-    document.getElementById('stkFilterRound').addEventListener('change', function (e) { state.filterRound = e.target.value; state.currentPage = 1; load(); });
-    document.getElementById('stkFilterPrintStatus').addEventListener('change', function (e) { state.filterPrintStatus = e.target.value; state.currentPage = 1; load(); });
-    document.getElementById('stkFilterChannel').addEventListener('change', function (e) { state.filterChannel = e.target.value; state.currentPage = 1; render(); });
-    document.getElementById('stkShowCancelled').addEventListener('change', function (e) { state.showCancelled = e.target.checked; state.currentPage = 1; load(); });
+    document.getElementById('stkFilterQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.currentPage = 1; pruneSelectionToVisible(); render(); } });
+    document.getElementById('stkFilterRound').addEventListener('change', function (e) { state.filterRound = e.target.value; state.currentPage = 1; pruneSelectionToVisible(); render(); });
+    document.getElementById('stkFilterPrintStatus').addEventListener('change', function (e) { state.filterPrintStatus = e.target.value; state.currentPage = 1; pruneSelectionToVisible(); render(); });
+    document.getElementById('stkFilterChannel').addEventListener('change', function (e) { state.filterChannel = e.target.value; state.currentPage = 1; pruneSelectionToVisible(); render(); });
+    document.getElementById('stkShowCancelled').addEventListener('change', function (e) { state.showCancelled = e.target.checked; state.currentPage = 1; pruneSelectionToVisible(); render(); });
 
     if (!state.loading && !state.error) {
       Array.prototype.forEach.call(document.querySelectorAll('.stkRowCheck'), function (cb) {
