@@ -864,26 +864,25 @@
     showInlineError('guardianSig_err', ''); // showInlineError เองก็เช็ค null อยู่แล้วถ้าไม่มี element นี้ในหน้า
     showInlineError('guarantorSig_err', '');
 
-    var viewed = state.data.viewedContracts || {};
-    var allViewed = session.items.every(function (s) { return viewed[s.soNumber]; });
-    if (!allViewed) {
-      errors.hasViewedContract = true;
-      showInlineError('contractPdfErr', session.items.length > 1
-        ? 'กรุณากดอ่านสัญญาฉบับเต็มให้ครบทุกรายการก่อนดำเนินการต่อ'
-        : 'กรุณากดอ่านสัญญาฉบับเต็มก่อนดำเนินการต่อ');
-    }
+    // 2026-09-24 user ขอให้ "กดส่งข้อมูลได้เลย ไม่บังคับว่าต้องกดอ่านสัญญาก่อน" — เอาเงื่อนไข hasViewedContract
+    // ออก (เดิมบังคับกดปุ่ม "อ่านสัญญาฉบับเต็ม (PDF)" ให้ครบทุกรายการก่อนถึงจะกดส่งข้อมูลได้)
     if (!state.data.agreeContract) {
       errors.agree = true;
       showInlineError('agree_err', 'กรุณาติ๊กยอมรับเงื่อนไขก่อนดำเนินการต่อ');
     }
-    if (!state.data.signature) { errors.signature = true; markSigError(true); }
-    if (requiresGuardianNow() && !state.data.guardianSignature) {
-      errors.guardianSignature = true;
-      showInlineError('guardianSig_err', 'กรุณาแนบรูปลายเซ็นผู้ปกครองก่อนดำเนินการต่อ');
-    }
-    if (requiresGuarantorNow() && !state.data.guarantorSignature) {
-      errors.guarantorSignature = true;
-      showInlineError('guarantorSig_err', 'กรุณาแนบรูปลายเซ็นผู้ค้ำประกันก่อนดำเนินการต่อ');
+    // 2026-09-24 user ขอให้ตอนแก้ไขข้อมูลหลังพนักงานปฏิเสธ (correction) ไม่ต้องลงลายเซ็นใหม่ — ลายเซ็นเดิมที่
+    // เคยส่งไว้ (ไฟล์เดิมใน Storage) ยังใช้ต่อได้เลย เพราะ submit-contract.js เก็บ path เดิมไว้อยู่แล้วถ้ารอบนี้
+    // ไม่ได้ส่งลายเซ็นใหม่มา (ดู filePaths merge ใน submit-contract.js) — บังคับเซ็นใหม่เฉพาะตอนส่งฟอร์มครั้งแรก
+    if (!state.correctionGroups) {
+      if (!state.data.signature) { errors.signature = true; markSigError(true); }
+      if (requiresGuardianNow() && !state.data.guardianSignature) {
+        errors.guardianSignature = true;
+        showInlineError('guardianSig_err', 'กรุณาแนบรูปลายเซ็นผู้ปกครองก่อนดำเนินการต่อ');
+      }
+      if (requiresGuarantorNow() && !state.data.guarantorSignature) {
+        errors.guarantorSignature = true;
+        showInlineError('guarantorSig_err', 'กรุณาแนบรูปลายเซ็นผู้ค้ำประกันก่อนดำเนินการต่อ');
+      }
     }
     return errors;
   }

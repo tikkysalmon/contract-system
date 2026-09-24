@@ -99,6 +99,7 @@ async function fetchAllPaymentTransactions(soNumber, token) {
 var TYPE_LABELS = {
   INSTALLMENT: 'ค่าผ่อน',
   CHANGE_INSTALLMENT_TYPE: 'ค่าธรรมเนียมเปลี่ยนการผ่อน', // ยืนยันตรงกับป้ายที่ CRM แสดงจริง
+  CHANGE_PRODUCT: 'ค่าธรรมเนียมเปลี่ยนสินค้า', // 2026-09-24 ยืนยันตรงกับป้ายที่ CRM แสดงจริง (เดิม fallback โชว์ raw "CHANGE_PRODUCT")
 };
 
 // ดึง+แปลง SO หนึ่งใบให้เป็นรูปแบบข้อมูลที่หน้า CS ใช้ได้ตรงๆ (ราคา/ยอดผ่อน/ประวัติชำระ) — แยกเป็นฟังก์ชันเดียว
