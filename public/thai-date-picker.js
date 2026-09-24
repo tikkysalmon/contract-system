@@ -38,11 +38,17 @@
       if (panel && !panel.contains(e.target) && e.target !== displayEl) closePanel();
     }
 
+    // เลื่อนตาราง (เช่น scroll แนวนอนในตาราง "รายการออเดอร์") หรือ resize หน้าจอระหว่างเปิดปฏิทินอยู่ ต้อง
+    // คำนวณตำแหน่งใหม่ตาม (เพราะย้ายไปแปะที่ <body> แล้ว ไม่ได้ขยับตามช่องอัตโนมัติเหมือนตอนอยู่ใต้ wrapEl เดิม)
+    function onScrollOrResize() { if (panel) positionPanel(); }
+
     function closePanel() {
       if (!panel) return;
       panel.remove();
       panel = null;
       document.removeEventListener('mousedown', onOutsideMouseDown, true);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
     }
 
     function selectDay(y, m, d) {
@@ -109,15 +115,36 @@
       });
     }
 
+    // 2026-09-24 user เจอปฏิทินแสดงผลเพี้ยน/โดนตัดในเมนู "สำหรับสต๊อค" — ต้นเหตุคือ .tdp-panel เดิม
+    // position:absolute อ้างอิงกับ .date-field-wrap ที่อยู่ในตาราง "รายการออเดอร์" ซึ่งอยู่ใน div ที่มี
+    // overflow-x:auto (ให้เลื่อนตารางแนวนอนได้) — popup ที่ลอยออกนอกกรอบเซลล์เลยถูก container นั้นบัง/ตัดทิ้ง
+    // แก้โดยย้าย panel ไปแปะที่ <body> ตรงๆ แล้วคำนวณตำแหน่ง fixed จาก getBoundingClientRect() ของช่องแทน
+    // (ไม่ผูกกับ container ที่ตัด overflow อีกต่อไป) ใช้ได้กับทุกที่ที่เรียก attachThaiDatePicker ในเว็บ ไม่ใช่
+    // แค่หน้าสต๊อค
+    function positionPanel() {
+      var rect = wrapEl.getBoundingClientRect();
+      var panelWidth = 264; // ต้องตรงกับ width ของ .tdp-panel ใน style.css
+      var top = rect.bottom + 6;
+      var left = rect.left;
+      if (left + panelWidth > window.innerWidth - 8) left = window.innerWidth - panelWidth - 8;
+      if (left < 8) left = 8;
+      panel.style.position = 'fixed';
+      panel.style.top = top + 'px';
+      panel.style.left = left + 'px';
+    }
+
     function openPanel() {
       if (panel) { closePanel(); return; }
       view = parseValueOrToday();
       panel = document.createElement('div');
       panel.className = 'tdp-panel';
-      wrapEl.appendChild(panel);
+      document.body.appendChild(panel);
+      positionPanel();
       renderPanel();
       // setTimeout กันคลิกที่เปิด panel ตัวเดียวกันนี้ไปโดน listener ปิดทันทีใน mousedown เดียวกัน
       setTimeout(function () { document.addEventListener('mousedown', onOutsideMouseDown, true); }, 0);
+      window.addEventListener('scroll', onScrollOrResize, true);
+      window.addEventListener('resize', onScrollOrResize);
     }
 
     updateDisplay();
