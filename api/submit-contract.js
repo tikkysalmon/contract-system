@@ -70,9 +70,10 @@ async function handleOcrIdCard(req, res) {
       body: form,
     });
     const body = await iappRes.json();
-    // 2026-09-25 เจอจริงตอนทดสอบว่า iApp ไม่ได้ใส่ error ไว้ที่ .message/.error เสมอไป (เจอ HTTP 427 ที่ทั้ง 2
-    // ฟิลด์ไม่มีค่า) — แนบ body ดิบ (ตัดสั้น) ไปด้วยเสมอกันเห็นแค่ "HTTP 427" เฉยๆ ไม่รู้สาเหตุจริง
-    if (!iappRes.ok) throw new Error((body.message || body.error || ('HTTP ' + iappRes.status)) + ' — ' + JSON.stringify(body).slice(0, 300));
+    // 2026-09-25 เจอจริงตอนทดสอบว่า error จริงของ iApp อยู่ที่ .error_message (ไม่ใช่ .message/.error ที่เดาไว้
+    // แต่แรก) เช่น "LONG_TIME_TO_PROCESS" ตอนส่งรูปที่ไม่ใช่บัตรจริง — ยังคงแนบ body ดิบ (ตัดสั้น) ไว้ด้วยเสมอ
+    // เผื่อเจอ error code ใหม่ที่ยังไม่รู้จักในอนาคต
+    if (!iappRes.ok) throw new Error((body.error_message || body.message || body.error || ('HTTP ' + iappRes.status)) + ' — ' + JSON.stringify(body).slice(0, 300));
 
     const firstLastName = [body.th_fname, body.th_lname].filter(Boolean).join(' ') || null;
     const addressParts = [body.address, body.sub_district, body.district, body.province].filter(Boolean);
