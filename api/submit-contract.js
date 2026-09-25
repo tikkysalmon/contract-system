@@ -15,6 +15,7 @@ const { randomUUID } = require('crypto');
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const IAPP_API_KEY = process.env.IAPP_API_KEY;
 
 // 2026-09-25 "อ่านข้อมูลจากบัตรประชาชนอัตโนมัติ" (ส่วนที่ 1 ของ flow ใหม่ที่ user ขอ — ถ่ายบัตร -> OCR ->
 // เติมข้อมูลให้ลูกค้าตรวจสอบ ก่อนเข้าขั้นตอนกรอกข้อมูลส่วนตัว/ที่อยู่ตามปกติ) ส่วนที่ 2 (ยืนยันใบหน้า/active
@@ -108,6 +109,45 @@ function parseDataUrl(dataUrl) {
   return { mime: mime, ext: ext, bytes: Buffer.from(m[2], 'base64') };
 }
 
+// 2026-09-25 "ตรวจสอบใบหน้ารูปคู่บัตรตรงกับรูปบนบัตรประชาชนไหม" (ตัดสินใจแล้วว่าไม่ทำ active liveness เต็มรูปแบบ
+// — ใช้ iApp Technology's Face Comparison API เทียบรูปนิ่ง 2 รูปแทน ถูกกว่า/ง่ายกว่า liveness เต็มรูปแบบมาก
+// และตอบโจทย์ที่ต้องการจริงๆ คือเช็คว่าคนถ่ายคู่บัตรเป็นคนเดียวกับรูปบนบัตรหรือไม่ — ดู
+// https://iapp.co.th/docs/ekyc/face-recognition, ราคา 0.3 IC/ครั้ง (~0.4 บาท)) ผลลัพธ์เป็นแค่ "ค่าความเหมือน"
+// ให้พนักงานตรวจสอบประกอบการพิจารณา ไม่ได้บล็อกลูกค้าส่งฟอร์มไม่ให้ผ่านถ้าค่าต่ำ (กันเคส false-negative จากรูป
+// คุณภาพต่ำ/แสงไม่ดี ปิดกั้นลูกค้าจริงเกินจำเป็น) — รวมไว้ในไฟล์นี้เหมือน ocrIdCard ด้านบน ไม่เพิ่ม endpoint ใหม่
+async function handleCompareFaces(req, res) {
+  if (!IAPP_API_KEY) {
+    res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า IAPP_API_KEY บน server' });
+    return;
+  }
+  const idCardParsed = parseDataUrl(req.body && req.body.idCardImage);
+  const selfieParsed = parseDataUrl(req.body && req.body.selfieImage);
+  if (!idCardParsed || !selfieParsed) {
+    res.status(400).json({ error: 'ไม่มีรูปบัตรประชาชนหรือรูปคู่บัตรให้เปรียบเทียบ' });
+    return;
+  }
+  try {
+    const form = new FormData();
+    form.append('file1', new Blob([idCardParsed.bytes], { type: idCardParsed.mime }), 'idcard.' + idCardParsed.ext);
+    form.append('file2', new Blob([selfieParsed.bytes], { type: selfieParsed.mime }), 'selfie.' + selfieParsed.ext);
+    const iappRes = await fetch('https://api.iapp.co.th/v3/store/ekyc/face-comparison', {
+      method: 'POST',
+      headers: { apikey: IAPP_API_KEY },
+      body: form,
+    });
+    const iappBody = await iappRes.json();
+    if (!iappRes.ok) throw new Error(iappBody.message || iappBody.error || ('iApp API error HTTP ' + iappRes.status));
+    res.status(200).json({
+      similarityScore: iappBody.similarity_score != null ? iappBody.similarity_score : null,
+      match: iappBody.match != null ? iappBody.match : null,
+      face1Detected: iappBody.status ? iappBody.status.face1_detected : null,
+      face2Detected: iappBody.status ? iappBody.status.face2_detected : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'เปรียบเทียบใบหน้าไม่สำเร็จ: ' + err.message });
+  }
+}
+
 async function uploadFile(path, parsed) {
   const r = await fetch(SUPABASE_URL + '/storage/v1/object/contract-files/' + path, {
     method: 'POST',
@@ -132,8 +172,9 @@ module.exports = async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
-  // OCR บัตรประชาชน (2026-09-25) ไม่ต้องมี token/Supabase — แยกออกก่อนเช็ค SUPABASE_URL/KEY ด้านล่าง
+  // OCR บัตรประชาชน / เปรียบเทียบใบหน้า (2026-09-25) ไม่ต้องมี token/Supabase — แยกออกก่อนเช็ค SUPABASE_URL/KEY ด้านล่าง
   if (req.body && req.body.action === 'ocrIdCard') { await handleOcrIdCard(req, res); return; }
+  if (req.body && req.body.action === 'compareFaces') { await handleCompareFaces(req, res); return; }
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server' });
     return;

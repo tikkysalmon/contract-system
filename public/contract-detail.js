@@ -134,6 +134,25 @@ function initContractDetailView(containerId) {
       '</div>';
   }
 
+  // "ตรวจสอบใบหน้ารูปคู่บัตรตรงกับบัตรประชาชนไหม" (2026-09-25) — ผลจาก iApp Face Comparison ที่ sign.js เช็คไว้
+  // ตอนลูกค้าอัปโหลดรูปคู่บัตร (state.data.faceMatch เก็บลง customer_data ตรงๆ ไม่มีคอลัมน์แยก) แสดงเป็นแถบเตือน
+  // เด่นให้พนักงานเห็นก่อนกดยืนยัน — ไม่ได้บล็อกอะไรอัตโนมัติ แค่ช่วยพนักงานตัดสินใจ (มาตรการเดียวกับที่เคยคุยไว้
+  // ตอนพบเคสลูกค้าผู้เยาว์ใช้เอกสารผู้ปกครองทำสัญญาเองโดยไม่ยินยอม)
+  function faceMatchBannerHtml(faceMatch) {
+    if (!faceMatch) return '';
+    var pct = faceMatch.similarityScore != null ? Math.round(faceMatch.similarityScore * 100) : null;
+    if (faceMatch.match === true) {
+      return '<div class="notice" style="background:#e3f5ec;border-color:#bbf7d0;color:#1f7a4d;margin-bottom:12px;">' +
+        '✅ ตรวจสอบใบหน้ารูปคู่บัตรแล้ว ตรงกับบัตรประชาชน' + (pct != null ? ' (ความเหมือน ' + pct + '%)' : '') + '</div>';
+    }
+    if (faceMatch.match === false) {
+      return '<div class="notice" style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;margin-bottom:12px;font-weight:700;">' +
+        '⚠️ ใบหน้ารูปคู่บัตรอาจไม่ตรงกับบัตรประชาชน' + (pct != null ? ' (ความเหมือน ' + pct + '%)' : '') +
+        ' — กรุณาเปิดดูรูปเอกสารด้านล่างเทียบด้วยตาก่อนยืนยัน</div>';
+    }
+    return '<div class="notice" style="margin-bottom:12px;">⚠️ ระบบตรวจสอบใบหน้ารูปคู่บัตรไม่สำเร็จ (ไม่พบใบหน้าชัดเจนพอในรูป) — กรุณาเปิดดูรูปเอกสารด้านล่างเทียบด้วยตาเอง</div>';
+  }
+
   function openRejectPanel() {
     state.rejecting = true;
     state.rejectChecked = {};
@@ -321,7 +340,8 @@ function initContractDetailView(containerId) {
     var guardian = c.guardian || {};
     var guarantor = c.guarantor || {};
 
-    html = '<div class="card">' +
+    html = faceMatchBannerHtml(c.faceMatch) +
+      '<div class="card">' +
       '<h2>ข้อมูลลูกค้า — ' + item.customerName + '</h2>' +
       '<p class="hint">' + (item.items || []).map(function (it) { return it.soNumber + ' (' + it.product + ')'; }).join(', ') + ' — ลูกค้าส่งฟอร์มเมื่อ ' + fmtDateTime(item.submittedAt) + '</p>' +
       '<table class="installment-table" style="margin-bottom:12px;">' +

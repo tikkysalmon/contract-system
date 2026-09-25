@@ -649,14 +649,54 @@
     var needGuarantor = requiresGuarantorNow();
     var html = '<div class="card"><h2>อัปโหลดรูปเอกสาร</h2><p class="hint">ต้องเห็นข้อมูลบนบัตรชัดเจน ไม่เบลอ ไม่มีแสงสะท้อนบัง</p>';
     html += uploadBoxHtml('u_selfie', 'รูปถ่ายคู่กับบัตรประชาชน (ถือบัตรคู่ใบหน้า)', EXAMPLE_SVG_SELFIE);
+    html += '<div id="faceMatchStatus" style="margin:-8px 0 14px;font-size:13.5px;"></div>';
     if (needGuardian) html += uploadBoxHtml('u_guardianId', 'รูปถ่ายบัตรประชาชนผู้ปกครอง', EXAMPLE_SVG_ID_CARD);
     if (needGuarantor) html += uploadBoxHtml('u_guarantorId', 'รูปถ่ายบัตรประชาชนผู้ค้ำประกัน', EXAMPLE_SVG_ID_CARD);
     html += '</div>';
     container.innerHTML = html;
 
-    wireUploadBox('u_selfie', function (dataUrl) { state.data.files.selfieWithId = dataUrl; });
+    wireUploadBox('u_selfie', function (dataUrl) {
+      state.data.files.selfieWithId = dataUrl;
+      runFaceComparison();
+    });
     if (needGuardian) wireUploadBox('u_guardianId', function (dataUrl) { state.data.files.guardianId = dataUrl; });
     if (needGuarantor) wireUploadBox('u_guarantorId', function (dataUrl) { state.data.files.guarantorId = dataUrl; });
+  }
+
+  // 2026-09-25 "ตรวจสอบใบหน้ารูปคู่บัตรตรงกับบัตรประชาชนไหม" — เทียบรูปคู่บัตรที่เพิ่งอัปโหลด (state.data.files.
+  // selfieWithId) กับรูปบัตรที่ถ่ายไว้ในขั้นตอน "idcard" ก่อนหน้า (state.data.files.idCard) ด้วย iApp Face
+  // Comparison API — เก็บผลไว้ใน state.data.faceMatch ส่งไปพร้อม customer_data ตอนบันทึกให้พนักงานตรวจสอบ
+  // ประกอบการพิจารณาที่เมนู "ข้อมูลลูกค้าทำสัญญา" **ไม่บล็อกลูกค้าส่งฟอร์มไม่ให้ผ่านแม้ผลไม่ตรง** (กันเคสรูปภาพ
+  // คุณภาพต่ำ/มุมกล้อง/แสงทำให้ค่าความเหมือนต่ำทั้งที่เป็นคนเดียวกันจริง ให้พนักงานเป็นคนตัดสินใจสุดท้ายแทน)
+  function runFaceComparison() {
+    var statusEl = document.getElementById('faceMatchStatus');
+    if (!state.data.files.idCard) return; // ไม่มีรูปบัตรให้เทียบ (ไม่ควรเกิดเพราะ step ก่อนหน้าบังคับถ่ายแล้ว)
+    if (statusEl) statusEl.innerHTML = '⏳ กำลังตรวจสอบว่าใบหน้าตรงกับบัตรประชาชนไหม...';
+    fetch('/api/submit-contract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'compareFaces', idCardImage: state.data.files.idCard, selfieImage: state.data.files.selfieWithId }),
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (result) {
+        statusEl = document.getElementById('faceMatchStatus');
+        if (!statusEl) return;
+        if (!result.ok) throw new Error(result.body.error || 'ตรวจสอบไม่สำเร็จ');
+        state.data.faceMatch = result.body;
+        var pct = result.body.similarityScore != null ? Math.round(result.body.similarityScore * 100) : null;
+        if (result.body.match === true) {
+          statusEl.innerHTML = '✅ ใบหน้าตรงกับบัตรประชาชน' + (pct != null ? ' (ความเหมือน ' + pct + '%)' : '');
+        } else if (result.body.match === false) {
+          statusEl.innerHTML = '⚠️ ใบหน้าอาจไม่ตรงกับบัตรประชาชน' + (pct != null ? ' (ความเหมือน ' + pct + '%)' : '') +
+            ' — ตรวจสอบว่าถ่ายรูปชัดเจน/แสงพอไหม ถ้าแน่ใจว่าเป็นคนเดียวกันแล้ว ส่งข้อมูลต่อได้เลย พนักงานจะตรวจสอบอีกครั้ง';
+        } else {
+          statusEl.innerHTML = '⚠️ ตรวจสอบไม่สำเร็จ ไม่พบใบหน้าในรูปที่ชัดเจนพอ — ส่งข้อมูลต่อได้ พนักงานจะตรวจสอบเอง';
+        }
+      })
+      .catch(function (err) {
+        statusEl = document.getElementById('faceMatchStatus');
+        if (statusEl) statusEl.innerHTML = '⚠️ ' + err.message + ' — ไม่เป็นไร ส่งข้อมูลต่อได้เลย พนักงานจะตรวจสอบเอง';
+      });
   }
   function validateUploads() {
     var errors = {};
