@@ -70,7 +70,9 @@ async function handleOcrIdCard(req, res) {
       body: form,
     });
     const body = await iappRes.json();
-    if (!iappRes.ok) throw new Error(body.message || body.error || ('iApp API error HTTP ' + iappRes.status));
+    // 2026-09-25 เจอจริงตอนทดสอบว่า iApp ไม่ได้ใส่ error ไว้ที่ .message/.error เสมอไป (เจอ HTTP 427 ที่ทั้ง 2
+    // ฟิลด์ไม่มีค่า) — แนบ body ดิบ (ตัดสั้น) ไปด้วยเสมอกันเห็นแค่ "HTTP 427" เฉยๆ ไม่รู้สาเหตุจริง
+    if (!iappRes.ok) throw new Error((body.message || body.error || ('HTTP ' + iappRes.status)) + ' — ' + JSON.stringify(body).slice(0, 300));
 
     const firstLastName = [body.th_fname, body.th_lname].filter(Boolean).join(' ') || null;
     const addressParts = [body.address, body.sub_district, body.district, body.province].filter(Boolean);
