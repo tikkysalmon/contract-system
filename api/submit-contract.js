@@ -14,86 +14,73 @@ const { randomUUID } = require('crypto');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const IAPP_API_KEY = process.env.IAPP_API_KEY;
 
 // 2026-09-25 "อ่านข้อมูลจากบัตรประชาชนอัตโนมัติ" (ส่วนที่ 1 ของ flow ใหม่ที่ user ขอ — ถ่ายบัตร -> OCR ->
-// เติมข้อมูลให้ลูกค้าตรวจสอบ ก่อนเข้าขั้นตอนกรอกข้อมูลส่วนตัว/ที่อยู่ตามปกติ) ส่วนที่ 2 (ยืนยันใบหน้า/active
-// liveness) ยังไม่ทำในรอบนี้ — ต้องใช้ผู้ให้บริการ biometric แยกต่างหาก ไม่ใช่แค่ vision LLM ธรรมดา
+// เติมข้อมูลให้ลูกค้าตรวจสอบ ก่อนเข้าขั้นตอนกรอกข้อมูลส่วนตัว/ที่อยู่ตามปกติ) ส่วนที่ 2 เปลี่ยนจาก active liveness
+// เป็นเทียบใบหน้าธรรมดาแทน (ดู handleCompareFaces ด้านล่าง)
+//
+// **รอบแรกทำด้วย Claude vision (ANTHROPIC_API_KEY) ไปก่อน — เปลี่ยนมาใช้ iApp Technology's Thai National ID
+// Card OCR แทนแล้ว (2026-09-25 user ขอทดลอง iApp ตัวเดียวกับที่ตั้งค่า IAPP_API_KEY ไว้แล้วสำหรับเทียบใบหน้า
+// อยู่แล้ว ไม่ต้องสมัคร Anthropic เพิ่มอีกเจ้า)** เป็นโมเดลเฉพาะทางสำหรับบัตรไทยโดยตรง แม่นกว่า/มีฟิลด์แยกชัดเจน
+// กว่าให้ vision LLM ทั่วไปอ่านเอง (ราคา 1.25 IC/ครั้ง แพงกว่า Claude แต่ยังถูกมาก และไม่ต้องมี vendor 2 เจ้า)
+// ดู https://iapp.co.th/docs/ekyc/thai-national-id-card — **ยังไม่เคยทดสอบกับบัตรจริง/API key จริง** เพราะยัง
+// ไม่มี key ให้ทดสอบตอนเขียนโค้ดนี้ ทดสอบกับบัตรจริงครั้งแรกก่อนเชื่อผลลัพธ์ทั้งหมด
 //
 // รวมไว้ในไฟล์นี้แทนที่จะสร้าง endpoint ใหม่ (api/submit-contract.js เป็น endpoint สาธารณะที่ลูกค้าเรียกได้
 // โดยไม่ต้องล็อกอินอยู่แล้ว ตรงกับ use case นี้พอดี) — Vercel Hobby plan จำกัด 12 ฟังก์ชัน/deployment เต็มโควต้า
 // อยู่แล้ว (ดู staff-actions.js ที่ทำแบบเดียวกัน)
 //
-// ต้องตั้งค่าใน Vercel project settings: ANTHROPIC_API_KEY (แยกจาก SUPABASE_*/CRM_* เดิม)
+// ต้องตั้งค่าใน Vercel project settings: IAPP_API_KEY (ตัวเดียวกับ handleCompareFaces ด้านล่าง)
+
+// en_dob จาก iApp เป็นรูปแบบ "15 Mar. 1957" (วัน + เดือนย่อภาษาอังกฤษมีจุด ยกเว้น May ไม่มีจุด + ปี ค.ศ.) —
+// แปลงเองแทนใช้ new Date(string) ตรงๆ เพราะรูปแบบนี้ไม่ใช่มาตรฐานที่ JS Date รับประกันว่า parse ถูกทุกเอนจิน
+const EN_MONTH_MAP = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+function computeAgeFromEnDob(enDob) {
+  if (!enDob) return null;
+  const m = /^(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})$/.exec(String(enDob).trim());
+  if (!m) return null;
+  const monthIdx = EN_MONTH_MAP[m[2].slice(0, 3).toLowerCase()];
+  if (monthIdx == null) return null;
+  const dobDate = new Date(Number(m[3]), monthIdx, Number(m[1]));
+  if (isNaN(dobDate)) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dobDate.getFullYear();
+  const notYetBirthday = today.getMonth() < dobDate.getMonth() ||
+    (today.getMonth() === dobDate.getMonth() && today.getDate() < dobDate.getDate());
+  if (notYetBirthday) age--;
+  return age;
+}
+
 async function handleOcrIdCard(req, res) {
-  if (!ANTHROPIC_API_KEY) {
-    res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บน server' });
+  if (!IAPP_API_KEY) {
+    res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า IAPP_API_KEY บน server' });
     return;
   }
-  const imageDataUrl = req.body && req.body.imageDataUrl;
-  const parsed = imageDataUrl && /^data:([\w.-]+\/[\w.+-]+);base64,(.+)$/.exec(imageDataUrl);
+  const parsed = parseDataUrl(req.body && req.body.imageDataUrl);
   if (!parsed) { res.status(400).json({ error: 'ไม่มีรูปบัตรประชาชน หรือรูปแบบไฟล์ไม่ถูกต้อง' }); return; }
-  const mediaType = parsed[1];
-  const base64Data = parsed[2];
-
-  const prompt = 'นี่คือรูปถ่ายด้านหน้าบัตรประจำตัวประชาชนไทย อ่านข้อมูลต่อไปนี้จากรูปแล้วตอบกลับเป็น JSON ' +
-    'ล้วนๆ เท่านั้น (ห้ามมีข้อความอื่น ห้ามใส่ ```json) ตามรูปแบบนี้เป๊ะ:\n' +
-    '{"title": "นาย|นาง|นางสาว หรือ null ถ้าอ่านไม่ได้", "firstName": "ชื่อภาษาไทย หรือ null", ' +
-    '"lastName": "นามสกุลภาษาไทย หรือ null", "citizenId": "เลขประจำตัวประชาชน 13 หลักติดกัน ไม่มีขีด หรือ null", ' +
-    '"dob": "วันเกิด แปลงเป็น ค.ศ. รูปแบบ YYYY-MM-DD หรือ null (บัตรระบุเป็น พ.ศ. ต้องลบ 543 จากปีก่อนแปลง)", ' +
-    '"address": "ที่อยู่ตามบัตรแบบเต็มบรรทัดเดียว หรือ null"}\n' +
-    'ถ้าอ่านตัวเลข/ตัวอักษรจุดไหนไม่ชัดหรือไม่แน่ใจ ให้ใส่ null ในฟิลด์นั้นแทนการเดา';
-
   try {
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    const form = new FormData();
+    form.append('file', new Blob([parsed.bytes], { type: parsed.mime }), 'idcard.' + parsed.ext);
+    const iappRes = await fetch('https://api.iapp.co.th/v3/store/ekyc/thai-national-id-card/front', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 1024,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-            { type: 'text', text: prompt },
-          ],
-        }],
-      }),
+      headers: { apikey: IAPP_API_KEY },
+      body: form,
     });
-    const aiBody = await aiRes.json();
-    if (!aiRes.ok) throw new Error((aiBody.error && aiBody.error.message) || ('Anthropic API error HTTP ' + aiRes.status));
-    const rawText = (aiBody.content && aiBody.content[0] && aiBody.content[0].text) || '';
-    let fields;
-    try {
-      fields = JSON.parse(rawText.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, ''));
-    } catch (e) {
-      throw new Error('อ่านผลลัพธ์จาก AI ไม่ได้ (รูปแบบไม่ใช่ JSON ตามที่คาด)');
-    }
+    const body = await iappRes.json();
+    if (!iappRes.ok) throw new Error(body.message || body.error || ('iApp API error HTTP ' + iappRes.status));
 
-    let age = null;
-    if (fields.dob) {
-      const dobDate = new Date(fields.dob);
-      if (!isNaN(dobDate)) {
-        const today = new Date();
-        age = today.getFullYear() - dobDate.getFullYear();
-        const notYetBirthday = today.getMonth() < dobDate.getMonth() ||
-          (today.getMonth() === dobDate.getMonth() && today.getDate() < dobDate.getDate());
-        if (notYetBirthday) age--;
-      }
-    }
-    const firstLastName = [fields.firstName, fields.lastName].filter(Boolean).join(' ') || null;
+    const firstLastName = [body.th_fname, body.th_lname].filter(Boolean).join(' ') || null;
+    const addressParts = [body.address, body.sub_district, body.district, body.province].filter(Boolean);
 
     res.status(200).json({
-      title: fields.title || null,
+      title: body.th_init || null,
       firstLastName: firstLastName,
-      citizenId: fields.citizenId || null,
-      age: age,
-      address: fields.address || null,
+      citizenId: body.id_number || null,
+      age: computeAgeFromEnDob(body.en_dob),
+      address: addressParts.length ? addressParts.join(' ') : null,
     });
   } catch (err) {
     res.status(500).json({ error: 'อ่านข้อมูลจากบัตรไม่สำเร็จ: ' + err.message });
