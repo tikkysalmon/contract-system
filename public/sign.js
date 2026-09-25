@@ -83,6 +83,9 @@
   var STEP_DEFS = [
     { key: 'order', title: 'รายการที่ทำสัญญา', visible: function () { return true; }, render: renderOrderSummary, validate: function () { return {}; } },
     { key: 'gift', title: 'เลือกของแถม', visible: function () { return true; }, render: renderGiftSelection, validate: validateGiftSelection },
+    // 2026-09-25 user ขอ "ส่วนที่ 1" ของ flow ใหม่: ถ่ายบัตรประชาชน -> OCR อ่านข้อมูลอัตโนมัติ -> เติมให้ในขั้นตอน
+    // ถัดไปให้ตรวจสอบ/แก้ไขได้ตามปกติ (ส่วนที่ 2 ยืนยันใบหน้า/liveness ยังไม่ทำ — ต้องหาผู้ให้บริการ biometric ก่อน)
+    { key: 'idcard', title: 'ถ่ายบัตรประชาชน', visible: function () { return true; }, render: renderIdCardOcr, validate: validateIdCardOcr },
     { key: 'personal', title: 'ข้อมูลส่วนตัว', visible: function () { return true; }, render: renderPersonal, validate: validatePersonal },
     { key: 'address', title: 'ที่อยู่และบุคคลอ้างอิง', visible: function () { return true; }, render: renderAddressStep, validate: validateAddressStep },
     { key: 'guardian', title: 'ข้อมูลผู้ปกครอง', visible: requiresGuardianNow, render: renderGuardian, validate: validateGuardian },
@@ -99,8 +102,13 @@
   function visibleSteps() {
     var defs = STEP_DEFS.filter(function (s) { return s.visible(); });
     if (!state.correctionGroups) return defs;
+    // 2026-09-25 พนักงานติ๊ก "uploads" (รูปเอกสารที่แนบ บัตร/เซลฟี่) ตัวเดียวครอบคลุมทั้งรูปบัตรประชาชนด้วย
+    // (ไม่ได้แยก checkbox ใหม่ให้ยุ่งฝั่งพนักงาน) แต่ตอนนี้รูปบัตรอยู่คนละ step key ('idcard') จาก 'uploads' —
+    // ต้องโชว์คู่กันเสมอถ้า correctionGroups มี 'uploads' ไม่งั้นลูกค้าจะถ่ายบัตรใหม่ไม่ได้เลยตอนแก้ไข
+    var groups = state.correctionGroups.indexOf('uploads') !== -1
+      ? state.correctionGroups.concat(['idcard']) : state.correctionGroups;
     return defs.filter(function (s) {
-      return CORRECTION_ALWAYS_STEPS.indexOf(s.key) !== -1 || state.correctionGroups.indexOf(s.key) !== -1;
+      return CORRECTION_ALWAYS_STEPS.indexOf(s.key) !== -1 || groups.indexOf(s.key) !== -1;
     });
   }
   function currentDef() { return visibleSteps()[state.stepIndex]; }
@@ -257,6 +265,79 @@
   }
 
   // ---------- Step: personal ----------
+  // ---------- Step: idcard (ถ่ายบัตร -> OCR อัตโนมัติ, 2026-09-25) ----------
+  // ใช้ field เดียวกับที่ renderUploads เคยขอ (state.data.files.idCard) เลย ไม่ต้องเก็บซ้ำ — renderUploads
+  // เอากล่องอัปโหลดรูปบัตรออกไปแล้วเพราะย้ายมาที่นี่แทน (ดู validateUploads ด้านล่างที่ตัด u_idCard ออกด้วย)
+  function renderIdCardOcr(container) {
+    var d = state.data;
+    container.innerHTML =
+      '<div class="card">' +
+      '<h2>ถ่ายรูปบัตรประชาชน (ด้านหน้า)</h2>' +
+      '<p class="hint">ระบบจะลองอ่านข้อมูลบนบัตรให้อัตโนมัติ เพื่อช่วยกรอกข้อมูลในขั้นตอนถัดไป — อ่านผิด/ไม่ครบก็ไม่เป็นไร แก้ไขเองได้เสมอในขั้นตอนถัดไป</p>' +
+      uploadBoxHtml('u_idCardOcr', 'รูปถ่ายบัตรประชาชนของลูกค้า', EXAMPLE_SVG_ID_CARD) +
+      '<div id="idCardOcrStatus" style="margin-top:8px;font-size:13.5px;"></div>' +
+      '</div>';
+
+    // กลับมาหน้านี้ซ้ำ (เช่น กดย้อนกลับ) — โชว์รูปที่เคยอัปโหลดไว้แล้ว
+    if (d.files.idCard) {
+      document.getElementById('u_idCardOcr_box').classList.add('has-file');
+      document.getElementById('u_idCardOcr_msg').textContent = 'อัปโหลดแล้ว (แตะเพื่อเปลี่ยนรูป)';
+      var prevImg = document.getElementById('u_idCardOcr_preview');
+      prevImg.src = d.files.idCard;
+      prevImg.style.display = 'block';
+    }
+
+    wireUploadBox('u_idCardOcr', function (dataUrl) {
+      d.files.idCard = dataUrl;
+      runIdCardOcr(dataUrl);
+    });
+  }
+
+  function runIdCardOcr(dataUrl) {
+    var statusEl = document.getElementById('idCardOcrStatus');
+    if (statusEl) statusEl.innerHTML = '⏳ กำลังอ่านข้อมูลจากบัตร...';
+    fetch('/api/submit-contract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ocrIdCard', imageDataUrl: dataUrl }),
+    })
+      .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+      .then(function (result) {
+        statusEl = document.getElementById('idCardOcrStatus'); // เผื่อผู้ใช้เปลี่ยนหน้าไปแล้วก่อน response กลับมา
+        if (!statusEl) return;
+        if (!result.ok) throw new Error(result.body.error || 'อ่านข้อมูลไม่สำเร็จ');
+        var f = result.body;
+        var d = state.data;
+        if (f.title) d.title = f.title;
+        if (f.firstLastName) d.firstLastName = f.firstLastName;
+        if (f.citizenId) d.citizenId = f.citizenId;
+        if (f.age) d.age = String(f.age);
+        if (f.address) d.address.detail = f.address;
+        var lines = [];
+        if (f.firstLastName) lines.push('ชื่อ: ' + (f.title || '') + f.firstLastName);
+        if (f.citizenId) lines.push('เลขบัตร: ' + f.citizenId);
+        if (f.age) lines.push('อายุ: ' + f.age + ' ปี');
+        if (f.address) lines.push('ที่อยู่: ' + f.address);
+        statusEl.innerHTML = lines.length
+          ? '✅ อ่านข้อมูลได้แล้ว (ตรวจสอบความถูกต้องอีกครั้งในขั้นตอนถัดไป):<br>' + lines.join('<br>')
+          : '⚠️ อ่านข้อมูลจากบัตรไม่ได้เลย ไม่เป็นไร กรอกข้อมูลเองในขั้นตอนถัดไปได้เลย';
+      })
+      .catch(function (err) {
+        statusEl = document.getElementById('idCardOcrStatus');
+        if (statusEl) statusEl.innerHTML = '⚠️ ' + err.message + ' — ไม่เป็นไร กรอกข้อมูลเองในขั้นตอนถัดไปได้เลย';
+      });
+  }
+
+  function validateIdCardOcr() {
+    var errors = {};
+    if (!state.data.files.idCard) {
+      errors.u_idCardOcr = true;
+      var errEl = document.getElementById('u_idCardOcr_err');
+      if (errEl) errEl.textContent = 'กรุณาถ่ายรูปบัตรประชาชนก่อนไปขั้นตอนถัดไป';
+    }
+    return errors;
+  }
+
   function renderPersonal(container) {
     var d = state.data;
     container.innerHTML =
@@ -560,21 +641,19 @@
       reader.readAsDataURL(file);
     });
   }
-  // TODO (2026-09-03, ยังไม่ได้ทำ): user ขอให้ตรวจสอบอายุที่กรอก (state.data.age) กับวันเกิดบนรูปบัตร
-  // ประชาชนที่อัปโหลดตรงนี้ว่าตรงกันหรือไม่ (เหมือนบอท Lark ตัวอย่างที่ user ส่งมา) — ต้องใช้ OCR/vision LLM
-  // อ่านตัวเลขบนรูปบัตร ยังไม่ได้เริ่มสร้างเพราะรอตัดสินใจเรื่อง ANTHROPIC_API_KEY (ดู README ข้อ 6)
+  // 2026-09-25 รูปบัตรประชาชนของลูกค้าย้ายไปถ่าย/OCR ในขั้นตอน "idcard" ก่อนหน้านี้แล้ว (ดู renderIdCardOcr)
+  // ไม่ต้องขอซ้ำที่นี่อีก — เดิมมี TODO ค้างเรื่องเทียบอายุกับวันเกิดบนบัตรผ่าน OCR ไว้ตรงนี้ (2026-09-03)
+  // ตอนนี้เริ่มทำ OCR แล้วแต่ย้ายไปทำที่ขั้นตอน idcard แทนเพราะต้องใช้ผลอ่านเติมข้อมูลก่อนขั้นตอน personal
   function renderUploads(container) {
     var needGuardian = requiresGuardianNow();
     var needGuarantor = requiresGuarantorNow();
     var html = '<div class="card"><h2>อัปโหลดรูปเอกสาร</h2><p class="hint">ต้องเห็นข้อมูลบนบัตรชัดเจน ไม่เบลอ ไม่มีแสงสะท้อนบัง</p>';
-    html += uploadBoxHtml('u_idCard', 'รูปถ่ายบัตรประชาชนของลูกค้า', EXAMPLE_SVG_ID_CARD);
     html += uploadBoxHtml('u_selfie', 'รูปถ่ายคู่กับบัตรประชาชน (ถือบัตรคู่ใบหน้า)', EXAMPLE_SVG_SELFIE);
     if (needGuardian) html += uploadBoxHtml('u_guardianId', 'รูปถ่ายบัตรประชาชนผู้ปกครอง', EXAMPLE_SVG_ID_CARD);
     if (needGuarantor) html += uploadBoxHtml('u_guarantorId', 'รูปถ่ายบัตรประชาชนผู้ค้ำประกัน', EXAMPLE_SVG_ID_CARD);
     html += '</div>';
     container.innerHTML = html;
 
-    wireUploadBox('u_idCard', function (dataUrl) { state.data.files.idCard = dataUrl; });
     wireUploadBox('u_selfie', function (dataUrl) { state.data.files.selfieWithId = dataUrl; });
     if (needGuardian) wireUploadBox('u_guardianId', function (dataUrl) { state.data.files.guardianId = dataUrl; });
     if (needGuarantor) wireUploadBox('u_guarantorId', function (dataUrl) { state.data.files.guarantorId = dataUrl; });
@@ -582,7 +661,6 @@
   function validateUploads() {
     var errors = {};
     var f = state.data.files;
-    if (!f.idCard) errors.u_idCard = true;
     if (!f.selfieWithId) errors.u_selfie = true;
     if (requiresGuardianNow() && !f.guardianId) errors.u_guardianId = true;
     if (requiresGuarantorNow() && !f.guarantorId) errors.u_guarantorId = true;

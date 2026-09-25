@@ -14,6 +14,90 @@ const { randomUUID } = require('crypto');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+// 2026-09-25 "อ่านข้อมูลจากบัตรประชาชนอัตโนมัติ" (ส่วนที่ 1 ของ flow ใหม่ที่ user ขอ — ถ่ายบัตร -> OCR ->
+// เติมข้อมูลให้ลูกค้าตรวจสอบ ก่อนเข้าขั้นตอนกรอกข้อมูลส่วนตัว/ที่อยู่ตามปกติ) ส่วนที่ 2 (ยืนยันใบหน้า/active
+// liveness) ยังไม่ทำในรอบนี้ — ต้องใช้ผู้ให้บริการ biometric แยกต่างหาก ไม่ใช่แค่ vision LLM ธรรมดา
+//
+// รวมไว้ในไฟล์นี้แทนที่จะสร้าง endpoint ใหม่ (api/submit-contract.js เป็น endpoint สาธารณะที่ลูกค้าเรียกได้
+// โดยไม่ต้องล็อกอินอยู่แล้ว ตรงกับ use case นี้พอดี) — Vercel Hobby plan จำกัด 12 ฟังก์ชัน/deployment เต็มโควต้า
+// อยู่แล้ว (ดู staff-actions.js ที่ทำแบบเดียวกัน)
+//
+// ต้องตั้งค่าใน Vercel project settings: ANTHROPIC_API_KEY (แยกจาก SUPABASE_*/CRM_* เดิม)
+async function handleOcrIdCard(req, res) {
+  if (!ANTHROPIC_API_KEY) {
+    res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บน server' });
+    return;
+  }
+  const imageDataUrl = req.body && req.body.imageDataUrl;
+  const parsed = imageDataUrl && /^data:([\w.-]+\/[\w.+-]+);base64,(.+)$/.exec(imageDataUrl);
+  if (!parsed) { res.status(400).json({ error: 'ไม่มีรูปบัตรประชาชน หรือรูปแบบไฟล์ไม่ถูกต้อง' }); return; }
+  const mediaType = parsed[1];
+  const base64Data = parsed[2];
+
+  const prompt = 'นี่คือรูปถ่ายด้านหน้าบัตรประจำตัวประชาชนไทย อ่านข้อมูลต่อไปนี้จากรูปแล้วตอบกลับเป็น JSON ' +
+    'ล้วนๆ เท่านั้น (ห้ามมีข้อความอื่น ห้ามใส่ ```json) ตามรูปแบบนี้เป๊ะ:\n' +
+    '{"title": "นาย|นาง|นางสาว หรือ null ถ้าอ่านไม่ได้", "firstName": "ชื่อภาษาไทย หรือ null", ' +
+    '"lastName": "นามสกุลภาษาไทย หรือ null", "citizenId": "เลขประจำตัวประชาชน 13 หลักติดกัน ไม่มีขีด หรือ null", ' +
+    '"dob": "วันเกิด แปลงเป็น ค.ศ. รูปแบบ YYYY-MM-DD หรือ null (บัตรระบุเป็น พ.ศ. ต้องลบ 543 จากปีก่อนแปลง)", ' +
+    '"address": "ที่อยู่ตามบัตรแบบเต็มบรรทัดเดียว หรือ null"}\n' +
+    'ถ้าอ่านตัวเลข/ตัวอักษรจุดไหนไม่ชัดหรือไม่แน่ใจ ให้ใส่ null ในฟิลด์นั้นแทนการเดา';
+
+  try {
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      }),
+    });
+    const aiBody = await aiRes.json();
+    if (!aiRes.ok) throw new Error((aiBody.error && aiBody.error.message) || ('Anthropic API error HTTP ' + aiRes.status));
+    const rawText = (aiBody.content && aiBody.content[0] && aiBody.content[0].text) || '';
+    let fields;
+    try {
+      fields = JSON.parse(rawText.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, ''));
+    } catch (e) {
+      throw new Error('อ่านผลลัพธ์จาก AI ไม่ได้ (รูปแบบไม่ใช่ JSON ตามที่คาด)');
+    }
+
+    let age = null;
+    if (fields.dob) {
+      const dobDate = new Date(fields.dob);
+      if (!isNaN(dobDate)) {
+        const today = new Date();
+        age = today.getFullYear() - dobDate.getFullYear();
+        const notYetBirthday = today.getMonth() < dobDate.getMonth() ||
+          (today.getMonth() === dobDate.getMonth() && today.getDate() < dobDate.getDate());
+        if (notYetBirthday) age--;
+      }
+    }
+    const firstLastName = [fields.firstName, fields.lastName].filter(Boolean).join(' ') || null;
+
+    res.status(200).json({
+      title: fields.title || null,
+      firstLastName: firstLastName,
+      citizenId: fields.citizenId || null,
+      age: age,
+      address: fields.address || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'อ่านข้อมูลจากบัตรไม่สำเร็จ: ' + err.message });
+  }
+}
 
 function parseDataUrl(dataUrl) {
   if (!dataUrl) return null;
@@ -48,6 +132,8 @@ module.exports = async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
+  // OCR บัตรประชาชน (2026-09-25) ไม่ต้องมี token/Supabase — แยกออกก่อนเช็ค SUPABASE_URL/KEY ด้านล่าง
+  if (req.body && req.body.action === 'ocrIdCard') { await handleOcrIdCard(req, res); return; }
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server' });
     return;
