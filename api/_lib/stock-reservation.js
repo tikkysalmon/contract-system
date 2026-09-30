@@ -111,6 +111,10 @@ async function fetchAllSaleOrdersForSync(token) {
 
 // เติม productName ให้แต่ละ order ที่ผ่านตัวกรองแล้ว (list ไม่มี field นี้ให้ตรงๆ) จำกัดจำนวนพร้อมกัน กันยิง
 // CRM ถี่เกินไป
+// 2026-09-30 user แจ้งว่าเมนู "สำหรับสต๊อค" ไม่แสดงรหัสลูกค้า (CUS-...) ของออเดอร์ฝั่งซื้อสด/ปิดยอดเลย ทั้งที่
+// CRM มีข้อมูลนี้จริง — พบว่า endpoint รายละเอียดที่เรียกอยู่แล้วตรงนี้ (/crm/sale-order/{id}) มี customerId
+// ติดมาด้วยอยู่แล้ว (ยืนยันจาก CRM-API-NOTES.md) แค่ไม่เคยดึงออกมาใช้ (ดึงแค่ productName ทิ้ง field อื่นไปหมด)
+// เพิ่มดึง customerId มาด้วยเลย ไม่ต้องยิง CRM เพิ่มรอบ
 async function enrichWithProductName(orders, token) {
   const CONCURRENCY = 8;
   const out = orders.slice();
@@ -120,9 +124,9 @@ async function enrichWithProductName(orders, token) {
       const i = idx++;
       try {
         const detail = await crmGetForStock('/crm/sale-order/' + encodeURIComponent(out[i].saleOrderId), token);
-        out[i] = Object.assign({}, out[i], { productName: detail.productName || null });
+        out[i] = Object.assign({}, out[i], { productName: detail.productName || null, customerId: detail.customerId || null });
       } catch (e) {
-        out[i] = Object.assign({}, out[i], { productName: null, _detailFetchError: e.message });
+        out[i] = Object.assign({}, out[i], { productName: null, customerId: null, _detailFetchError: e.message });
       }
     }
   }

@@ -187,7 +187,7 @@ async function fetchCashOrders(authHeaders) {
       source: 'cash',
       sourceLabel: 'ซื้อสด/ปิดยอด',
       contractStatus: null, // ไม่ผ่านระบบทำสัญญา ไม่มีสถานะนี้ให้แสดง (ดู stock-tab.js's contractStatusBadge)
-      customerId: null,
+      customerId: o.customerId || null, // 2026-09-30 ดึงมาจาก enrichWithProductName แล้ว (เดิม hardcode null)
       customerName: ((o.customerFirstName || '') + ' ' + (o.customerLastName || '')).trim() || '-',
       product: parts.product,
       color: parts.color || null,
@@ -248,7 +248,7 @@ async function fetchCancelledAfterPrintOrders(authHeaders) {
       sourceLabel: 'ยกเลิกหลังพิมพ์ใบเบิก',
       contractStatus: null,
       sessionToken: null,
-      customerId: null,
+      customerId: o.customerId || null, // 2026-09-30 ดึงมาจาก enrichWithProductName แล้ว (เดิม hardcode null)
       customerName: ((o.customerFirstName || '') + ' ' + (o.customerLastName || '')).trim() || '-',
       product: parts.product,
       color: parts.color || null,

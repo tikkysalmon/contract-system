@@ -167,7 +167,9 @@ async function buildSoData(soNumber, token) {
     paymentHistory: paymentHistory,
     customer: {
       // วันเกิด/เบอร์โทร ไม่ดึงจาก CRM แล้ว (user แจ้ง 2026-09-03) ให้ลูกค้ากรอกเองในฟอร์มทั้งหมด
-      firstLastName: (saleOrder.customerFirstName + ' ' + saleOrder.customerLastName).trim(),
+      // 2026-09-30 เดิมถ้าไม่มีชื่อใน CRM เลย (ลูกค้า "ยังไม่สมัคร") จะได้ค่าง่ายๆ '' (ช่องว่าง trim แล้วหาย)
+      // ทำให้หน้า "สำหรับ CS" โชว์ชื่อว่างเปล่า ไม่ตรงกับที่ CRM เองแสดง "-" ไว้ชัดเจน — fallback เป็น '-' ให้ตรงกัน
+      firstLastName: ((saleOrder.customerFirstName || '') + ' ' + (saleOrder.customerLastName || '')).trim() || '-',
       dob: '',
       phone: '',
       nationality: '',
