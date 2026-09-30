@@ -79,6 +79,8 @@ function initContractsTab(containerId, currentUser, options) {
       installmentCount: item.installmentCountFromCrm || 12,
       firstDueDate: firstDueDate,
       deliveryChannel: DELIVERY_CHANNEL_OPTIONS[0],
+      pickupDate: '', // 2026-09-30 วัน/เวลาที่นัดรับ — ใช้เฉพาะตอนเลือกช่องทาง "นัดรับสาขา..." (ทุกประเภทลูกค้า)
+      pickupTime: '',
     };
   }
 
@@ -322,6 +324,10 @@ function initContractsTab(containerId, currentUser, options) {
         installmentCount: cfg.installmentCount,
         firstDueDate: cfg.firstDueDate,
         deliveryChannel: cfg.deliveryChannel, // 2026-09-09 user ขอเพิ่ม — ใช้โชว์ในใบเบิกสินค้า/ใบสรุปเบิกประจำวันของเมนู "สำหรับสต๊อค"
+        // 2026-09-30 วัน/เวลาที่นัดรับ (มีค่าเฉพาะตอนเลือกช่องทางเป็น "นัดรับสาขา...") — เก็บไว้เฉยๆ ก่อน ยังไม่มี
+        // จุดแสดงผลอื่นอ่านค่านี้ต่อ (ไม่ได้ขอให้ทำเพิ่ม แค่ต้องบันทึกค่าที่ CS กรอกไว้ ไม่ให้หายไปเฉยๆ)
+        pickupDate: cfg.pickupDate || null,
+        pickupTime: cfg.pickupTime || null,
       };
     });
     var session = {
@@ -537,25 +543,39 @@ function initContractsTab(containerId, currentUser, options) {
         '</div>';
     }
 
+    // 2026-09-30 user ขอ: ลูกค้า "ซื้อสด/ปิดยอด" ไม่มีตารางผ่อนจริง (ไม่ต้องทำสัญญา) ให้ CS กรอกแค่ "ช่องทางการ
+    // จัดส่ง" อย่างเดียว ไม่ต้องกรอกจำนวนงวด/วันเริ่มผ่อน/เห็นยอดผ่อนต่องวดที่ไม่มีความหมายสำหรับกลุ่มนี้เลย —
+    // ส่วน "วัน/เวลาที่นัดรับ" (โชว์เมื่อเลือกช่องทางเป็น "นัดรับสาขา...") ใช้กับลูกค้าทุกประเภทเหมือนกัน
+    function isPickupChannel(channel) { return String(channel || '').indexOf('นัดรับสาขา') === 0; }
     function confirmBlockHtml(r) {
       var cfg = state.itemInputs[r.soNumber];
       var suffix = '__' + r.soNumber;
+      var isCash = r.planType === 'cash';
+      var showPickup = isPickupChannel(cfg.deliveryChannel);
       // 2026-09-08 user ขอ: หัวข้อนี้เคยใส่ชื่อสินค้า (ข้อมูลจาก CRM) กำกับไว้ — ตอนนี้ข้อมูลสินค้าดูได้จาก
       // ลิงก์ "ดูข้อมูล CRM" อยู่แล้ว ไม่ต้องโชว์ซ้ำตรงนี้ ใช้เลข SO แทน (ไม่ใช่ข้อมูลจาก CRM แค่เลขอ้างอิงที่
       // CS เห็นจากตารางเลือกด้านบนอยู่แล้ว) แยกบล็อกกันเวลามีหลาย SO ที่เลือกรวมเข้าลิงก์เดียวกัน
       return '<div class="card"><h2>CS กรอกยืนยันก่อนสร้างลิงก์ — ' + r.soNumber + '</h2>' +
         '<p class="hint">ตัวเลขจาก CRM เป็นแค่ค่าเริ่มต้น กรุณาตรวจสอบ/แก้ไขให้ตรงกับที่ตกลงกับลูกค้าจริงก่อนกดสร้างลิงก์</p>' +
-        '<div class="row2">' +
-        '<div class="field"><label>จำนวนงวดที่ผ่อน</label><input type="text" id="installmentCountInput' + suffix + '" data-so="' + r.soNumber + '" value="' + cfg.installmentCount + '" /></div>' +
-        '<div class="field"><label>วันเริ่มผ่อนงวดแรก</label>' +
-        '<div class="date-field-wrap" id="firstDueDateWrap' + suffix + '">' +
-        '<div class="date-display">' + (isoToDDMMYYYY(cfg.firstDueDate) || 'เลือกวันที่') + '</div>' +
-        '</div></div>' +
-        '</div>' +
+        (isCash ? '' :
+          '<div class="row2">' +
+          '<div class="field"><label>จำนวนงวดที่ผ่อน</label><input type="text" id="installmentCountInput' + suffix + '" data-so="' + r.soNumber + '" value="' + cfg.installmentCount + '" /></div>' +
+          '<div class="field"><label>วันเริ่มผ่อนงวดแรก</label>' +
+          '<div class="date-field-wrap" id="firstDueDateWrap' + suffix + '">' +
+          '<div class="date-display">' + (isoToDDMMYYYY(cfg.firstDueDate) || 'เลือกวันที่') + '</div>' +
+          '</div></div>' +
+          '</div>') +
         '<div class="field"><label>ช่องทางการจัดส่ง</label><select id="deliveryChannelInput' + suffix + '" data-so="' + r.soNumber + '">' +
         DELIVERY_CHANNEL_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (cfg.deliveryChannel === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
         '</select></div>' +
-        '<p>ยอดผ่อนต่องวดที่คำนวณได้: <b id="computedInstallmentAmount' + suffix + '">' + fmtMoney(computeInstallmentAmountFor(r)) + ' บาท</b></p>' +
+        '<div class="row2" id="pickupWrap' + suffix + '" style="' + (showPickup ? '' : 'display:none;') + '">' +
+        '<div class="field"><label>วันที่นัดรับ</label>' +
+        '<div class="date-field-wrap" id="pickupDateWrap' + suffix + '">' +
+        '<div class="date-display">' + (isoToDDMMYYYY(cfg.pickupDate) || 'เลือกวันที่') + '</div>' +
+        '</div></div>' +
+        '<div class="field"><label>เวลาที่นัดรับ</label><input type="time" id="pickupTimeInput' + suffix + '" data-so="' + r.soNumber + '" value="' + (cfg.pickupTime || '') + '" /></div>' +
+        '</div>' +
+        (isCash ? '' : '<p>ยอดผ่อนต่องวดที่คำนวณได้: <b id="computedInstallmentAmount' + suffix + '">' + fmtMoney(computeInstallmentAmountFor(r)) + ' บาท</b></p>') +
         '</div>';
     }
 
@@ -736,18 +756,44 @@ function initContractsTab(containerId, currentUser, options) {
     if (currentItems.length > 0) {
       currentItems.forEach(function (r) {
         var suffix = '__' + r.soNumber;
+        // 2026-09-30 เดิม "return" ตรงนี้ถ้าไม่มี countInput (กันแค่ตอนยังหา element ไม่เจอ) แต่ตอนนี้ลูกค้า
+        // ประเภท "ซื้อสด" ไม่มีช่องนี้เลยตามที่ user ขอ (ดู confirmBlockHtml) — return ทิ้งเลยจะพลาดผูก event
+        // ของ "ช่องทางการจัดส่ง"/"วัน-เวลานัดรับ" ไปด้วย จึงเปลี่ยนเป็นเช็ค null ทีละช่องแทน ไม่ return ทั้งก้อน
         var countInput = document.getElementById('installmentCountInput' + suffix);
-        if (!countInput) return;
-        countInput.addEventListener('input', function (e) {
-          state.itemInputs[r.soNumber].installmentCount = Number(e.target.value) || 0;
-          document.getElementById('computedInstallmentAmount' + suffix).textContent = fmtMoney(computeInstallmentAmountFor(r)) + ' บาท';
-        });
-        attachThaiDatePicker(document.getElementById('firstDueDateWrap' + suffix), {
-          value: state.itemInputs[r.soNumber].firstDueDate,
-          onChange: function (iso) { state.itemInputs[r.soNumber].firstDueDate = iso; },
-        });
+        if (countInput) {
+          countInput.addEventListener('input', function (e) {
+            state.itemInputs[r.soNumber].installmentCount = Number(e.target.value) || 0;
+            document.getElementById('computedInstallmentAmount' + suffix).textContent = fmtMoney(computeInstallmentAmountFor(r)) + ' บาท';
+          });
+        }
+        var firstDueDateWrap = document.getElementById('firstDueDateWrap' + suffix);
+        if (firstDueDateWrap) {
+          attachThaiDatePicker(firstDueDateWrap, {
+            value: state.itemInputs[r.soNumber].firstDueDate,
+            onChange: function (iso) { state.itemInputs[r.soNumber].firstDueDate = iso; },
+          });
+        }
+        // "วัน/เวลาที่นัดรับ" (2026-09-30) — ใช้กับลูกค้าทุกประเภท โชว์/ซ่อนตาม "ช่องทางการจัดส่ง" ที่เลือก
+        // (toggle ตรงๆ ไม่เรียก render() ทั้งหน้าใหม่ กันเสียตำแหน่ง scroll/ค่าที่กรอกช่องอื่นค้างอยู่)
+        var pickupWrap = document.getElementById('pickupWrap' + suffix);
+        var pickupDateWrap = document.getElementById('pickupDateWrap' + suffix);
+        if (pickupDateWrap) {
+          attachThaiDatePicker(pickupDateWrap, {
+            value: state.itemInputs[r.soNumber].pickupDate,
+            onChange: function (iso) { state.itemInputs[r.soNumber].pickupDate = iso; },
+          });
+        }
+        var pickupTimeInput = document.getElementById('pickupTimeInput' + suffix);
+        if (pickupTimeInput) {
+          pickupTimeInput.addEventListener('input', function (e) { state.itemInputs[r.soNumber].pickupTime = e.target.value; });
+        }
         var channelInput = document.getElementById('deliveryChannelInput' + suffix);
-        if (channelInput) channelInput.addEventListener('change', function (e) { state.itemInputs[r.soNumber].deliveryChannel = e.target.value; });
+        if (channelInput) {
+          channelInput.addEventListener('change', function (e) {
+            state.itemInputs[r.soNumber].deliveryChannel = e.target.value;
+            if (pickupWrap) pickupWrap.style.display = isPickupChannel(e.target.value) ? '' : 'none';
+          });
+        }
       });
       var btnCreateLink = document.getElementById('btnCreateLink');
       if (btnCreateLink) btnCreateLink.addEventListener('click', createLink);
