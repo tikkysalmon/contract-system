@@ -382,7 +382,10 @@ function initContractsTab(containerId, currentUser, options) {
   }
 
   function planLabelOf(planType) {
-    return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
+    if (planType === 'downpayment') return 'วางดาวน์';
+    if (planType === 'installment') return 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
+    if (planType === 'cash') return 'ซื้อสด/ปิดยอด';
+    return '-';
   }
 
   function filteredSessionList() {
@@ -508,9 +511,17 @@ function initContractsTab(containerId, currentUser, options) {
       return '<tr><td style="text-align:left">' + label + '</td><td' + (bold ? ' style="font-weight:700"' : '') + '>' + value + '</td></tr>';
     }
 
+    // 2026-09-30 แก้บั๊กจริงที่ user เจอ: การ์ด "ข้อมูลจาก CRM" ขึ้น "เครดิตผ่าน (ผ่อนไปใช้ไป)" ให้ทุก SO ที่ไม่ใช่
+    // "วางดาวน์" มาตลอด (ไม่เคยเช็ค planType==='installment' จริงๆ) ตอนนี้ planType 'cash' (ซื้อสด/ปิดยอด) เป็นไป
+    // ได้จริงแล้ว (ตั้งแต่เปิดให้ CS สร้างลิงก์ให้กลุ่มนี้ได้) จึงโชว์ป้ายผิดชัดเจน — เพิ่มเงื่อนไขให้ครบทั้ง 3 แบบ
+    function planLabelForItem(planType) {
+      if (planType === 'downpayment') return 'วางดาวน์';
+      if (planType === 'cash') return 'ซื้อสด/ปิดยอด (ผ่อนครบรับของ)';
+      return 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
+    }
     function itemSummaryHtml(r, title) {
-      var planLabel = r.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
-      var accumulatedLabel = r.planType === 'downpayment' ? 'ยอดวางดาวน์' : 'ยอดผ่อนสะสม';
+      var planLabel = planLabelForItem(r.planType);
+      var accumulatedLabel = r.planType === 'downpayment' ? 'ยอดวางดาวน์' : (r.planType === 'cash' ? 'ยอดที่ชำระแล้ว' : 'ยอดผ่อนสะสม');
       return '<div class="card"><h2>' + title + '</h2><span class="badge badge-info">' + planLabel + '</span>' +
         '<table class="installment-table" style="margin-top:10px;">' +
         row('วิธีการผ่อน', planLabel) +
@@ -645,7 +656,7 @@ function initContractsTab(containerId, currentUser, options) {
           '<thead><tr><th></th><th style="text-align:left;">เลขที่สั่งซื้อ SO</th><th>สถานะการสั่งซื้อ</th><th>วิธีการผ่อน</th><th style="text-align:left;">ลูกค้า</th><th></th></tr></thead>' +
           '<tbody>' + state.soListLight.map(function (so) {
             var checked = !!state.soListChecked[so.soNumber];
-            var planLabel = so.planType === 'downpayment' ? 'วางดาวน์' : (so.planType === 'installment' ? 'ผ่อนไปใช้ไป' : '-');
+            var planLabel = so.planType === 'downpayment' ? 'วางดาวน์' : (so.planType === 'installment' ? 'ผ่อนไปใช้ไป' : (so.planType === 'cash' ? 'ซื้อสด/ปิดยอด' : '-'));
             return '<tr>' +
               '<td><input type="checkbox" class="soListCheck" data-so="' + so.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
               '<td style="text-align:left;">' + so.soNumber + '</td>' +
