@@ -177,9 +177,11 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // หา session_id จริงจาก token (contract_submissions.session_id อ้างถึง uuid ไม่ใช่ token เอง)
+    // หา session_id จริงจาก token (contract_submissions.session_id อ้างถึง uuid ไม่ใช่ token เอง) — ดึง
+    // crm_snapshot มาด้วย (2026-09-30) เพื่อเช็คว่าเป็นลูกค้า "ซื้อสด/ปิดยอด" (planType 'cash') ไหม เช็คจาก
+    // ฝั่ง server เอง ไม่เชื่อ flag ที่ client ส่งมา (sign.js ก็รู้ planType จาก session เดียวกันนี้อยู่แล้ว)
     const sessRes = await fetch(
-      SUPABASE_URL + '/rest/v1/contract_sessions?token=eq.' + encodeURIComponent(token) + '&select=id',
+      SUPABASE_URL + '/rest/v1/contract_sessions?token=eq.' + encodeURIComponent(token) + '&select=id,crm_snapshot',
       { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY } }
     );
     const sessRows = await sessRes.json();
@@ -188,6 +190,15 @@ module.exports = async function handler(req, res) {
       return;
     }
     const sessionId = sessRows[0].id;
+    const snapshotItems = (sessRows[0].crm_snapshot && sessRows[0].crm_snapshot.items) || [];
+    // ลูกค้า "ซื้อสด/ปิดยอด" ไม่ต้องทำสัญญา (ไม่มีข้อมูลให้พนักงานตรวจสอบ/เซ็นเลย) — user ยืนยันว่าให้ถือว่า
+    // เสร็จสมบูรณ์ทันทีที่ส่งข้อมูล ไม่ต้องรอ "ยืนยัน" แบบกลุ่มเครดิตผ่าน/วางดาวน์ — ทำโดยเติม reviewed_at/
+    // reviewed_by อัตโนมัติแทนการรอพนักงานกดเอง (ใช้ตรรกะคำนวณสถานะเดิมของ _lib/contract-status.js ตรงๆ ไม่ต้อง
+    // แก้ไฟล์นั้นเลย — ได้สถานะ "สัญญาลูกค้าเรียบร้อย" อัตโนมัติ)
+    const isCashOrder = snapshotItems.length > 0 && snapshotItems[0].planType === 'cash';
+    const autoReviewFields = isCashOrder
+      ? { reviewed_at: new Date().toISOString(), reviewed_by: 'ระบบอัตโนมัติ (ซื้อสด/ปิดยอด ไม่ต้องตรวจสอบ)' }
+      : {};
     const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
 
     // ส่งซ้ำหลังพนักงานปฏิเสธ/ขอแก้ไข (2026-09-06) — มีแถว contract_submissions เดิมของ session นี้อยู่แล้ว
@@ -229,10 +240,12 @@ module.exports = async function handler(req, res) {
 
     if (existing) {
       // อัปเดตแถวเดิม + เคลียร์สถานะปฏิเสธ/เซ็นของพนักงานทิ้ง (ต้องให้พนักงานตรวจ/เซ็นใหม่จากข้อมูลที่แก้แล้ว)
+      // — ยกเว้นลูกค้าซื้อสด/ปิดยอด (isCashOrder) ที่ auto ยืนยันให้ทันทีเสมอ (autoReviewFields ทับ reviewed_at/
+      // reviewed_by ที่ตั้ง null ไว้ก่อนหน้านี้ในก้อนเดียวกัน — ใส่ไว้ท้ายสุดให้แน่ใจว่าค่านี้ชนะเสมอ)
       const updateRes = await fetch(SUPABASE_URL + '/rest/v1/contract_submissions?id=eq.' + encodeURIComponent(existing.id), {
         method: 'PATCH',
         headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
-        body: JSON.stringify({
+        body: JSON.stringify(Object.assign({
           customer_data: customerData,
           file_paths: filePaths,
           submitted_at: new Date().toISOString(),
@@ -245,7 +258,7 @@ module.exports = async function handler(req, res) {
           staff_signed_at: null,
           reviewed_at: null, // ข้อมูลแก้ไขใหม่แล้ว การยืนยันตรวจสอบเดิม (ถ้ามี) เป็นโมฆะ ต้องยืนยันใหม่
           reviewed_by: null,
-        }),
+        }, autoReviewFields)),
       });
       if (!updateRes.ok) {
         const text = await updateRes.text();
@@ -255,7 +268,7 @@ module.exports = async function handler(req, res) {
       const insertRes = await fetch(SUPABASE_URL + '/rest/v1/contract_submissions', {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
-        body: JSON.stringify({ session_id: sessionId, customer_data: customerData, file_paths: filePaths }),
+        body: JSON.stringify(Object.assign({ session_id: sessionId, customer_data: customerData, file_paths: filePaths }, autoReviewFields)),
       });
       if (!insertRes.ok) {
         const text = await insertRes.text();

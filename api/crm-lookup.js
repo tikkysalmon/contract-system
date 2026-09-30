@@ -65,10 +65,14 @@ async function crmGet(path, token) {
 }
 
 // installmentType จาก CRM -> plan_type ของระบบนี้ (ยืนยันค่าจริงแล้ว ดู CRM-API-NOTES.md)
+// 2026-09-30 user ขอเพิ่มเงื่อนไขกรอกฟอร์มสำหรับลูกค้า "ซื้อสด/ปิดยอด" (ไม่ต้องทำสัญญา แค่กรอกของแถม+ที่อยู่
+// จัดส่ง — ดู sign.js's isCashPlan()) เดิม FULL_PAYMENT/FULL_PAY_THEN_RECEIVE คืน null ทำให้ CS สร้างลิงก์ให้
+// ลูกค้ากลุ่มนี้ไม่ได้เลย (buildSoData ด้านล่างตอบ "unsupported" ทันที) เปลี่ยนเป็น 'cash' ให้ทั้งคู่ (form
+// ที่ต้องกรอกเหมือนกันทุกประการสำหรับ 2 ประเภทนี้ ไม่ต้องแยก planType ย่อยเพิ่ม)
 function mapPlanType(installmentType) {
   if (installmentType === 'DOWN_PAYMENT') return 'downpayment';
   if (installmentType === 'PARTIAL_PAY_THEN_RECEIVE') return 'installment';
-  if (installmentType === 'FULL_PAYMENT') return null; // ซื้อสด ไม่ต้องทำสัญญาผ่อน
+  if (installmentType === 'FULL_PAYMENT' || installmentType === 'FULL_PAY_THEN_RECEIVE') return 'cash';
   return null;
 }
 

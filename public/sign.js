@@ -80,19 +80,27 @@
 
   // ---------- step definitions ----------
   // 'order' (สรุปรายการที่ผ่อน) อยู่ก่อนข้อมูลส่วนตัวเสมอ — ให้ลูกค้าเห็นว่ากำลังทำสัญญาอะไรก่อนเริ่มกรอกข้อมูล
+  // 2026-09-30 user ขอ: ลูกค้าประเภท "ซื้อสด/ปิดยอด (ผ่อนครบรับของ)" ไม่ต้องทำสัญญาเลย (planType 'cash' —
+  // เพิ่งเปิดให้ mapPlanType ใน crm-lookup.js รองรับ FULL_PAYMENT/FULL_PAY_THEN_RECEIVE รอบนี้ด้วย เดิม CRM 2
+  // ประเภทนี้สร้างลิงก์ไม่ได้เลย) ให้กรอกแค่ "ของแถม" + "ที่อยู่จัดส่ง" เท่านั้น ข้าม idcard/personal/ที่อยู่ปัจจุบัน/
+  // บุคคลอ้างอิง/guardian/guarantor/uploads/ตารางผ่อน/เซ็นสัญญาไปทั้งหมด (ไม่มีอะไรให้เซ็น) ดู renderShippingOnly
+  // ด้านล่าง — ส่งข้อมูลแล้วถือว่าเสร็จสมบูรณ์ทันที ไม่ต้องรอพนักงานตรวจสอบ (ดู handleSubmitContract ฝั่ง server)
+  function isCashPlan() { return session.items[0].planType === 'cash'; }
+
   var STEP_DEFS = [
     { key: 'order', title: 'รายการที่ทำสัญญา', visible: function () { return true; }, render: renderOrderSummary, validate: function () { return {}; } },
     { key: 'gift', title: 'เลือกของแถม', visible: function () { return true; }, render: renderGiftSelection, validate: validateGiftSelection },
     // 2026-09-25 user ขอ "ส่วนที่ 1" ของ flow ใหม่: ถ่ายบัตรประชาชน -> OCR อ่านข้อมูลอัตโนมัติ -> เติมให้ในขั้นตอน
     // ถัดไปให้ตรวจสอบ/แก้ไขได้ตามปกติ (ส่วนที่ 2 ยืนยันใบหน้า/liveness ยังไม่ทำ — ต้องหาผู้ให้บริการ biometric ก่อน)
-    { key: 'idcard', title: 'ถ่ายบัตรประชาชน', visible: function () { return true; }, render: renderIdCardOcr, validate: validateIdCardOcr },
-    { key: 'personal', title: 'ข้อมูลส่วนตัว', visible: function () { return true; }, render: renderPersonal, validate: validatePersonal },
-    { key: 'address', title: 'ที่อยู่และบุคคลอ้างอิง', visible: function () { return true; }, render: renderAddressStep, validate: validateAddressStep },
-    { key: 'guardian', title: 'ข้อมูลผู้ปกครอง', visible: requiresGuardianNow, render: renderGuardian, validate: validateGuardian },
-    { key: 'guarantor', title: 'ข้อมูลผู้ค้ำประกัน', visible: requiresGuarantorNow, render: renderGuarantor, validate: validateGuarantor },
-    { key: 'uploads', title: 'อัปโหลดเอกสาร', visible: function () { return true; }, render: renderUploads, validate: validateUploads },
-    { key: 'review', title: 'ตารางผ่อนชำระ', visible: function () { return true; }, render: renderReview, validate: function () { return {}; } },
-    { key: 'sign', title: 'อ่านสัญญาและลงลายมือชื่อ', visible: function () { return true; }, render: renderSign, validate: validateSign },
+    { key: 'idcard', title: 'ถ่ายบัตรประชาชน', visible: function () { return !isCashPlan(); }, render: renderIdCardOcr, validate: validateIdCardOcr },
+    { key: 'personal', title: 'ข้อมูลส่วนตัว', visible: function () { return !isCashPlan(); }, render: renderPersonal, validate: validatePersonal },
+    { key: 'address', title: 'ที่อยู่และบุคคลอ้างอิง', visible: function () { return !isCashPlan(); }, render: renderAddressStep, validate: validateAddressStep },
+    { key: 'shipping', title: 'ที่อยู่ในการจัดส่งสินค้า', visible: isCashPlan, render: renderShippingOnly, validate: validateShippingOnly },
+    { key: 'guardian', title: 'ข้อมูลผู้ปกครอง', visible: function () { return !isCashPlan() && requiresGuardianNow(); }, render: renderGuardian, validate: validateGuardian },
+    { key: 'guarantor', title: 'ข้อมูลผู้ค้ำประกัน', visible: function () { return !isCashPlan() && requiresGuarantorNow(); }, render: renderGuarantor, validate: validateGuarantor },
+    { key: 'uploads', title: 'อัปโหลดเอกสาร', visible: function () { return !isCashPlan(); }, render: renderUploads, validate: validateUploads },
+    { key: 'review', title: 'ตารางผ่อนชำระ', visible: function () { return !isCashPlan(); }, render: renderReview, validate: function () { return {}; } },
+    { key: 'sign', title: 'อ่านสัญญาและลงลายมือชื่อ', visible: function () { return !isCashPlan(); }, render: renderSign, validate: validateSign },
   ];
 
   // ขั้นตอนที่โชว์เสมอตอนแก้ไขหลังถูกปฏิเสธ (2026-09-06) — ไม่ว่าจะแก้ไขกลุ่มไหน ต้องดูตารางผ่อน/เซ็นชื่อใหม่
@@ -161,13 +169,30 @@
   // session.items[] อาจมีมากกว่า 1 รายการ (2026-09-04 — ข้อจำกัด CRM: วางดาวน์เครื่อง + อุปกรณ์เสริมพร้อมกัน
   // ต้องเปิดแยกเป็นคนละ SO แต่ user ต้องการให้ลูกค้ากรอกฟอร์ม/เซ็นครั้งเดียว) แสดงเป็นตารางแยกทีละ SO
   function renderOrderSummary(container) {
+    var multiItemNote = session.items.length > 1
+      ? (' (รายการนี้มี ' + session.items.length + ' รายการ กรอกข้อมูล' + (isCashPlan() ? '' : '/เซ็นชื่อ') + 'ครั้งเดียวใช้ได้กับทุกรายการ)')
+      : '';
     var html = '<div class="card">' +
-      '<h2>รายการที่ทำสัญญา</h2>' +
-      '<p class="hint">กรุณาตรวจสอบยอดให้ถูกต้องก่อนเริ่มกรอกข้อมูล หากพบว่าไม่ตรงกับที่ตกลงไว้ กรุณาติดต่อพนักงานก่อนดำเนินการต่อ' +
-      (session.items.length > 1 ? ' (สัญญาชุดนี้มี ' + session.items.length + ' รายการ กรอกข้อมูล/เซ็นชื่อครั้งเดียวใช้ได้กับทุกรายการ)' : '') + '</p>' +
+      '<h2>' + (isCashPlan() ? 'รายการที่สั่งซื้อ' : 'รายการที่ทำสัญญา') + '</h2>' +
+      '<p class="hint">กรุณาตรวจสอบยอดให้ถูกต้องก่อนเริ่มกรอกข้อมูล หากพบว่าไม่ตรงกับที่ตกลงไว้ กรุณาติดต่อพนักงานก่อนดำเนินการต่อ' + multiItemNote + '</p>' +
       '</div>';
 
     session.items.forEach(function (s) {
+      // 2026-09-30 planType 'cash' (ซื้อสด/ปิดยอด) ไม่มีตารางผ่อน/งวดจริง — โชว์สรุปแบบย่อแทน ไม่งั้นจะเห็น
+      // "เครดิตผ่าน"/จำนวนงวด/วันครบกำหนดผ่อนที่ไม่เกี่ยวข้องเลย (ค่าที่คำนวณมาจาก buildSoData ยังคงมีอยู่แต่
+      // ไม่มีความหมายสำหรับแผนนี้ เพราะจ่ายเต็มจำนวนไปแล้ว ไม่ใช่เพราะข้อมูลผิด)
+      if (s.planType === 'cash') {
+        html += '<div class="card">' +
+          '<h2>' + s.product + (s.color ? ' (' + s.color + ')' : '') + '</h2>' +
+          '<p><span class="badge badge-info">ซื้อสด/ปิดยอด (ผ่อนครบรับของ)</span></p>' +
+          '<table class="installment-table">' +
+          row('ราคาสินค้า', fmtMoney(s.productPrice) + ' บาท') +
+          row('ส่วนลดรวม', fmtMoney(s.totalDiscount) + ' บาท') +
+          row('ยอดสุทธิที่ชำระแล้ว', fmtMoney(s.netPrice) + ' บาท', true) +
+          '</table>' +
+          '</div>';
+        return;
+      }
       var planLabel = s.planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน (ผ่อนไปใช้ไป)'; // ป้ายที่ user ยืนยันแล้ว 2026-09-03
       var accumulatedLabel = s.planType === 'downpayment' ? 'ยอดวางดาวน์' : 'ยอดผ่อนสะสม';
       var installmentAmount = s.installmentCount ? s.remainingBalance / s.installmentCount : 0;
@@ -230,19 +255,24 @@
   ];
   // ใช้แผนของรายการแรกตัดสินของแถมที่เลือกได้ (2026-09-04) — สมมติทุก SO ที่รวมในลิงก์เดียวกันเป็นแผนเดียวกัน
   // ตรงตามสเปกจริง (ซื้อพร้อมกันครั้งเดียว แค่ CRM บังคับแยก SO เท่านั้น)
+  // 2026-09-30 planType 'cash' (ซื้อสด/ปิดยอด ใหม่) ใช้ของแถมชุดเดียวกับ 'downpayment' เพราะโปสเตอร์จริงเขียนไว้
+  // ตรงๆ ว่า "สำหรับลูกค้าซื้อสด และวางดาวน์" (ดูคอมเมนต์ GIFT_OPTIONS ด้านบน — ของแถมชุดนี้ตั้งใจให้ 2 กลุ่มนี้
+  // ใช้ร่วมกันอยู่แล้วตั้งแต่แรก แค่ตอนนั้นยังไม่มี planType 'cash' จริงในระบบ)
+  function giftPlanTag() { return session.items[0].planType === 'cash' ? 'downpayment' : session.items[0].planType; }
   function giftOptionsForCurrentPlan() {
-    return GIFT_OPTIONS.filter(function (o) { return o.planTag === 'both' || o.planTag === session.items[0].planType; });
+    var tag = giftPlanTag();
+    return GIFT_OPTIONS.filter(function (o) { return o.planTag === 'both' || o.planTag === tag; });
   }
   // โปสเตอร์ของแถมจริง (2026-09-03) — ไฟล์ตั้งชื่อโดย user เองตอนเซฟไว้ใน 15_ระบบทำสัญญา แล้วคัดลอกเข้า assets/
-  // "ซื้อสด_วางดาวน์" = แผนวางดาวน์, "เครดิตผ่าน_ผ่อนครบรับของ_ปิดยอด" = แผนเครดิตผ่าน (ผ่อนไปใช้ไป)
-  var GIFT_POSTER_SRC = session.items[0].planType === 'downpayment' ? 'assets/gift-downpayment.jpeg' : 'assets/gift-installment.jpeg';
+  // "ซื้อสด_วางดาวน์" = แผนวางดาวน์ (และซื้อสด/ปิดยอด), "เครดิตผ่าน_ผ่อนครบรับของ_ปิดยอด" = แผนเครดิตผ่าน (ผ่อนไปใช้ไป)
+  var GIFT_POSTER_SRC = giftPlanTag() === 'downpayment' ? 'assets/gift-downpayment.jpeg' : 'assets/gift-installment.jpeg';
 
   function renderGiftSelection(container) {
     var options = giftOptionsForCurrentPlan();
     container.innerHTML =
       '<div class="card">' +
       '<h2>เลือกของแถม</h2>' +
-      '<p class="hint">เลือกของแถมที่ต้องการรับพร้อมสัญญานี้ (แสดงเฉพาะรายการที่ใช้ได้กับแผน' + (session.items[0].planType === 'downpayment' ? 'วางดาวน์' : 'เครดิตผ่าน') + ' ของท่าน) ดูรูปตัวอย่างของแถมแต่ละ Set ด้านล่าง</p>' +
+      '<p class="hint">เลือกของแถมที่ต้องการรับพร้อมสัญญานี้ (แสดงเฉพาะรายการที่ใช้ได้กับแผน' + (giftPlanTag() === 'downpayment' ? 'วางดาวน์/ซื้อสด' : 'เครดิตผ่าน') + ' ของท่าน) ดูรูปตัวอย่างของแถมแต่ละ Set ด้านล่าง</p>' +
       '<img src="' + GIFT_POSTER_SRC + '" alt="ตัวอย่างของแถม" style="width:100%;border-radius:10px;border:1px solid var(--border);margin-bottom:14px;cursor:zoom-in;" id="giftPosterImg" />' +
       fieldHtml({ id: 'giftItem', label: 'รายการของแถม', required: true, type: 'select', value: state.data.giftItem,
         options: [{ value: '', label: '— เลือก —' }].concat(options.map(function (o) { return { value: o.value, label: o.value }; })) }) +
@@ -474,6 +504,35 @@
       'ref_firstLastName', 'ref_phone', 'ref_relation', 'ref_relationOther'];
     allIds.forEach(function (id) {
       if (!document.getElementById(id + '_field')) return;
+      if (errors[id]) markField(id, false, errors[id]);
+      else markField(id, true);
+    });
+    return errors;
+  }
+
+  // ---------- Step: shipping (เฉพาะลูกค้า "ซื้อสด/ปิดยอด" — planType 'cash', 2026-09-30) ----------
+  // ลูกค้ากลุ่มนี้ไม่ต้องทำสัญญาเลย (ดู isCashPlan()) จึงถามแค่ที่อยู่จัดส่งอย่างเดียว ไม่มี "ที่อยู่ปัจจุบัน"/
+  // "ใช้ที่อยู่เดียวกับที่อยู่ปัจจุบัน" ให้เทียบ (ไม่ได้เก็บที่อยู่ปัจจุบันเลยสำหรับกลุ่มนี้) เขียนลง
+  // state.data.shippingAddress ตรงๆ (field เดียวกับที่กลุ่มทำสัญญาปกติใช้ — ฝั่ง server/staff เห็นที่อยู่จัดส่ง
+  // จากช่องนี้เหมือนกันทุกกลุ่ม ไม่ต้องแก้โค้ดฝั่งอ่านข้อมูลเพิ่ม)
+  function renderShippingOnly(container) {
+    var ship = state.data.shippingAddress;
+    ship.sameAsCurrent = false; // ไม่มีที่อยู่ปัจจุบันให้เทียบสำหรับกลุ่มนี้ กันเผลอส่ง shippingAddress ว่างเปล่า
+    container.innerHTML =
+      '<div class="card">' +
+      '<h2>ที่อยู่ในการจัดส่งสินค้า</h2>' +
+      '<p class="hint">กรอกที่อยู่ที่ต้องการให้จัดส่งสินค้าไปถึง ระบบจะตรวจสอบว่าตำบล/อำเภอ/จังหวัดที่เลือกตรงกันจริง</p>' +
+      window.attachAddressPicker.html('ship', ship) +
+      '</div>';
+    window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
+  }
+  function validateShippingOnly() {
+    var ship = state.data.shippingAddress, errors = {};
+    if (!ship.detail || !ship.detail.trim()) errors.ship_detail = 'กรุณากรอกที่อยู่';
+    if (!ship.provinceId) errors.ship_province = 'กรุณาเลือกจังหวัด';
+    if (!ship.districtId) errors.ship_district = 'กรุณาเลือกอำเภอ/เขต';
+    if (!ship.subdistrictId) errors.ship_subdistrict = 'กรุณาเลือกตำบล/แขวง';
+    ['ship_detail', 'ship_province', 'ship_district', 'ship_subdistrict'].forEach(function (id) {
       if (errors[id]) markField(id, false, errors[id]);
       else markField(id, true);
     });
