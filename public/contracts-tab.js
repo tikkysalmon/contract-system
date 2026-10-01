@@ -630,7 +630,12 @@ function initContractsTab(containerId, currentUser, options) {
                 '<input type="checkbox" class="otherSoCheck" data-so="' + it.soNumber + '"' + (checked ? ' checked' : '') + ' />' +
                 '<span style="flex:1;">' + it.product + (it.color ? ' (' + it.color + ')' : '') + ' — ' + it.soNumber +
                 '<br><span style="color:var(--muted);font-size:12.5px;">ลูกค้า: ' + (it.customer.firstLastName || '-') + '</span></span>' +
-                '<b>' + fmtMoney(it.remainingBalance) + ' บาท</b>' +
+                // 2026-09-30 แก้บั๊กจริงที่ user เจอ: เดิมโชว์ it.remainingBalance (ยอดคงเหลือที่ต้องผ่อน) ไม่มี
+                // label กำกับ — SO อื่นที่จ่ายครบแล้ว (เช่น อุปกรณ์เสริมซื้อสด) ยอดคงเหลือเป็น 0 ถูกต้องตามจริง
+                // แต่ดูเหมือน "ราคาสินค้าเป็น 0" ไปได้ ทั้งที่ CRM มีราคาสินค้าจริง (เช่น 850 บาท) ไม่ตรงกับ
+                // ความหมายที่ CS ต้องการเห็นตรงนี้ (เอาไว้ดูว่า SO นี้คือสินค้าอะไรก่อนติ๊กรวม ไม่ใช่สถานะผ่อน) —
+                // เปลี่ยนมาโชว์ "ราคาสินค้า" (productPrice จาก CRM ตรงๆ) พร้อม label กำกับชัดเจนแทน
+                '<b>ราคาสินค้า: ' + fmtMoney(it.productPrice) + ' บาท</b>' +
                 '</label>';
             }).join('') +
             '</div>';
