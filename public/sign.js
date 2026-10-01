@@ -106,7 +106,24 @@
   // ขั้นตอนที่โชว์เสมอตอนแก้ไขหลังถูกปฏิเสธ (2026-09-06) — ไม่ว่าจะแก้ไขกลุ่มไหน ต้องดูตารางผ่อน/เซ็นชื่อใหม่
   // เสมอ (ลายเซ็นเดิมผูกกับข้อมูลชุดเดิมที่ผิด ถือเป็นโมฆะไปแล้ว) ส่วน 'order'/'gift' ไม่ต้องกรอกซ้ำ (ข้อมูลเดิม
   // ถูกต้องอยู่แล้ว ไม่ใช่สิ่งที่พนักงานให้แก้)
-  var CORRECTION_ALWAYS_STEPS = ['review', 'sign'];
+  // 2026-10-01 user ขอ: ตอนแก้ไขข้อมูล (ปฏิเสธ/ขอแก้ไข) ไม่ต้องแสดงตารางผ่อน/ลงลายเซ็นออนไลน์ใหม่ — ลายเซ็นเดิมยังใช้
+  // ต่อได้ (submit-contract.js เก็บ path เดิมไว้) ยกเว้นเคส 'order' (พนักงานเปลี่ยน SO = รายการสัญญาเปลี่ยนจริง)
+  // ที่ยังต้องดูตารางผ่อนและเซ็นใหม่ จึงโชว์ 2 ขั้นตอนนี้เฉพาะกรณีที่ correctionGroups มี 'order'
+  var CORRECTION_ALWAYS_STEPS = [];
+  var CORRECTION_ORDER_STEPS = ['review', 'sign'];
+  // ที่อยู่/บุคคลอ้างอิงแยกเป็น 3 ส่วน (2026-10-01) ใช้ step 'address' ตัวเดียวกัน แต่โชว์/ตรวจเฉพาะส่วนที่ถูกเลือก —
+  // key 'address' เดิม (รายการที่ถูกปฏิเสธไว้ก่อนหน้านี้) แปลว่าแก้ครบทั้ง 3 ส่วน
+  var ADDRESS_SECTION_KEYS = ['address', 'address_current', 'address_shipping', 'reference'];
+  function addrSections() {
+    var g = state.correctionGroups;
+    if (!g) return { current: true, shipping: true, reference: true };
+    var all = g.indexOf('address') !== -1;
+    return {
+      current: all || g.indexOf('address_current') !== -1,
+      shipping: all || g.indexOf('address_shipping') !== -1,
+      reference: all || g.indexOf('reference') !== -1,
+    };
+  }
   function visibleSteps() {
     var defs = STEP_DEFS.filter(function (s) { return s.visible(); });
     if (!state.correctionGroups) return defs;
@@ -116,7 +133,10 @@
     var groups = state.correctionGroups.indexOf('uploads') !== -1
       ? state.correctionGroups.concat(['idcard']) : state.correctionGroups;
     return defs.filter(function (s) {
-      return CORRECTION_ALWAYS_STEPS.indexOf(s.key) !== -1 || groups.indexOf(s.key) !== -1;
+      if (CORRECTION_ALWAYS_STEPS.indexOf(s.key) !== -1) return true;
+      if (CORRECTION_ORDER_STEPS.indexOf(s.key) !== -1) return groups.indexOf('order') !== -1;
+      if (s.key === 'address') return ADDRESS_SECTION_KEYS.some(function (k) { return groups.indexOf(k) !== -1; });
+      return groups.indexOf(s.key) !== -1;
     });
   }
   function currentDef() { return visibleSteps()[state.stepIndex]; }
@@ -433,22 +453,23 @@
     var ship = d.shippingAddress;
     var ref = d.reference;
 
+    var sec = addrSections();
     container.innerHTML =
-      '<div class="card">' +
+      (sec.current ? '<div class="card">' +
       '<h2>ที่อยู่ปัจจุบัน</h2>' +
       '<p class="hint">กรอกที่อยู่ที่ติดต่อได้จริงในปัจจุบัน ระบบจะตรวจสอบว่าตำบล/อำเภอ/จังหวัดที่เลือกตรงกันจริง</p>' +
       window.attachAddressPicker.html('addr', addr) +
-      '</div>' +
+      '</div>' : '') +
 
-      '<div class="card">' +
+      (sec.shipping ? '<div class="card">' +
       '<h2>ที่อยู่ในการจัดส่งสินค้า</h2>' +
       '<div class="field"><label><input type="checkbox" id="shipSameBox" ' + (ship.sameAsCurrent ? 'checked' : '') + ' /> ใช้ที่อยู่เดียวกับที่อยู่ปัจจุบัน</label></div>' +
       '<div id="shipAddrWrap" style="' + (ship.sameAsCurrent ? 'display:none;' : '') + '">' +
       window.attachAddressPicker.html('ship', ship, { detailLabel: 'บ้านเลขที่ / หมู่บ้าน / ถนน (ที่จัดส่งสินค้า)' }) +
       '</div>' +
-      '</div>' +
+      '</div>' : '') +
 
-      '<div class="card">' +
+      (sec.reference ? '<div class="card">' +
       '<h2>บุคคลอ้างอิง</h2>' +
       '<p class="hint">บุคคลที่ติดต่อได้กรณีติดต่อผู้เช่าซื้อโดยตรงไม่ได้</p>' +
       fieldHtml({ id: 'ref_firstLastName', label: 'ชื่อ-นามสกุลบุคคลอ้างอิง', required: true, value: ref.firstLastName }) +
@@ -463,23 +484,27 @@
       '<div id="ref_relationOther_wrap" style="' + (ref.relation === 'อื่นๆ' ? '' : 'display:none;') + '">' +
       fieldHtml({ id: 'ref_relationOther', label: 'ระบุความเกี่ยวข้อง', required: true, value: ref.relationOther }) +
       '</div>' +
-      '</div>';
+      '</div>' : '');
 
-    window.attachAddressPicker.wire('addr', addr, function () { markField('addr_detail', null); });
-    document.getElementById('shipSameBox').addEventListener('change', function (e) {
-      ship.sameAsCurrent = e.target.checked;
-      document.getElementById('shipAddrWrap').style.display = ship.sameAsCurrent ? 'none' : '';
-    });
-    window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
+    if (sec.current) window.attachAddressPicker.wire('addr', addr, function () { markField('addr_detail', null); });
+    if (sec.shipping) {
+      document.getElementById('shipSameBox').addEventListener('change', function (e) {
+        ship.sameAsCurrent = e.target.checked;
+        document.getElementById('shipAddrWrap').style.display = ship.sameAsCurrent ? 'none' : '';
+      });
+      window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
+    }
 
-    ['firstLastName', 'phone', 'relation', 'relationOther'].forEach(function (key) {
-      var id = 'ref_' + key;
-      document.getElementById(id).addEventListener('input', function (e) { ref[key] = e.target.value; markField(id, null); });
-      document.getElementById(id).addEventListener('change', function (e) { ref[key] = e.target.value; markField(id, null); });
-    });
-    document.getElementById('ref_relation').addEventListener('change', function (e) {
-      document.getElementById('ref_relationOther_wrap').style.display = e.target.value === 'อื่นๆ' ? '' : 'none';
-    });
+    if (sec.reference) {
+      ['firstLastName', 'phone', 'relation', 'relationOther'].forEach(function (key) {
+        var id = 'ref_' + key;
+        document.getElementById(id).addEventListener('input', function (e) { ref[key] = e.target.value; markField(id, null); });
+        document.getElementById(id).addEventListener('change', function (e) { ref[key] = e.target.value; markField(id, null); });
+      });
+      document.getElementById('ref_relation').addEventListener('change', function (e) {
+        document.getElementById('ref_relationOther_wrap').style.display = e.target.value === 'อื่นๆ' ? '' : 'none';
+      });
+    }
   }
 
   function validateAddressStep() {
@@ -491,13 +516,16 @@
       if (!addr.districtId) errors[prefix + '_district'] = 'กรุณาเลือกอำเภอ/เขต';
       if (!addr.subdistrictId) errors[prefix + '_subdistrict'] = 'กรุณาเลือกตำบล/แขวง';
     }
-    checkAddr(d.address, 'addr');
-    if (!d.shippingAddress.sameAsCurrent) checkAddr(d.shippingAddress, 'ship');
+    var sec = addrSections(); // ตรวจเฉพาะส่วนที่แสดงอยู่ (ตอนแก้ไขเฉพาะจุด ส่วนที่ไม่ได้ให้แก้ใช้ค่าเดิมตรงๆ)
+    if (sec.current) checkAddr(d.address, 'addr');
+    if (sec.shipping && !d.shippingAddress.sameAsCurrent) checkAddr(d.shippingAddress, 'ship');
 
-    if (!d.reference.firstLastName || d.reference.firstLastName.trim().length < 2) errors.ref_firstLastName = 'กรุณากรอกชื่อ-นามสกุลบุคคลอ้างอิง';
-    if (!isValidThaiMobile(d.reference.phone)) errors.ref_phone = 'เบอร์โทรไม่ถูกต้อง (ต้องเป็นเบอร์มือถือไทย 10 หลัก)';
-    if (!d.reference.relation) errors.ref_relation = 'กรุณาเลือกความเกี่ยวข้อง';
-    if (d.reference.relation === 'อื่นๆ' && (!d.reference.relationOther || !d.reference.relationOther.trim())) errors.ref_relationOther = 'กรุณาระบุความเกี่ยวข้อง';
+    if (sec.reference) {
+      if (!d.reference.firstLastName || d.reference.firstLastName.trim().length < 2) errors.ref_firstLastName = 'กรุณากรอกชื่อ-นามสกุลบุคคลอ้างอิง';
+      if (!isValidThaiMobile(d.reference.phone)) errors.ref_phone = 'เบอร์โทรไม่ถูกต้อง (ต้องเป็นเบอร์มือถือไทย 10 หลัก)';
+      if (!d.reference.relation) errors.ref_relation = 'กรุณาเลือกความเกี่ยวข้อง';
+      if (d.reference.relation === 'อื่นๆ' && (!d.reference.relationOther || !d.reference.relationOther.trim())) errors.ref_relationOther = 'กรุณาระบุความเกี่ยวข้อง';
+    }
 
     var allIds = ['addr_detail', 'addr_province', 'addr_district', 'addr_subdistrict',
       'ship_detail', 'ship_province', 'ship_district', 'ship_subdistrict',
@@ -1100,14 +1128,17 @@
   // ป้ายชื่อขั้นตอนที่พนักงานเลือกได้ตอนกดปฏิเสธ (ตรงกับ step key ใน STEP_DEFS — ดู staff-sign-tab.js)
   var CORRECTION_GROUP_LABELS = {
     personal: 'ข้อมูลส่วนตัว', address: 'ที่อยู่และบุคคลอ้างอิง',
+    address_current: 'ที่อยู่ปัจจุบัน', address_shipping: 'ที่อยู่ในการจัดส่งสินค้า', reference: 'บุคคลอ้างอิง',
     guardian: 'ข้อมูลผู้ปกครอง', guarantor: 'ข้อมูลผู้ค้ำประกัน', uploads: 'รูปเอกสารที่แนบ',
+    order: 'รายการสินค้า/เลขที่คำสั่งซื้อ (SO)',
   };
   function correctionNoticeHtml() {
     if (!state.correctionGroups) return '';
     var labels = state.correctionGroups.map(function (k) { return CORRECTION_GROUP_LABELS[k] || k; });
     return '<div class="notice">พนักงานตรวจพบว่าข้อมูลบางส่วนไม่ถูกต้อง กรุณาแก้ไข: <b>' + labels.join(', ') + '</b>' +
       (state.correctionNote ? '<br>หมายเหตุจากพนักงาน: ' + escHtmlLocal(state.correctionNote) : '') +
-      '<br>ข้อมูลส่วนอื่นที่ถูกต้องอยู่แล้วถูกเติมไว้ให้แล้ว ไม่ต้องกรอกซ้ำ (แต่ต้องตรวจสอบยอด/เซ็นชื่อใหม่อีกครั้งท้ายสุด)</div>';
+      '<br>ข้อมูลส่วนอื่นที่ถูกต้องอยู่แล้วถูกเติมไว้ให้แล้ว ไม่ต้องกรอกซ้ำ' +
+      (state.correctionGroups.indexOf('order') !== -1 ? ' (แต่ต้องตรวจสอบยอด/เซ็นชื่อใหม่อีกครั้งท้ายสุด)' : ' และไม่ต้องเซ็นชื่อใหม่') + '</div>';
   }
   function escHtmlLocal(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1177,7 +1208,11 @@
     }
     var btn = document.getElementById('btnNext');
     var errEl = document.getElementById('submitErr');
-    if (errEl) errEl.textContent = '';
+    if (!errEl) { // ตอนแก้ไขเฉพาะจุดขั้นตอนสุดท้ายอาจไม่ใช่หน้าเซ็นชื่อ (ไม่มี #submitErr) สร้างให้แสดงข้อความผิดพลาดได้
+      document.getElementById('app').insertAdjacentHTML('beforeend', '<p class="err" id="submitErr" style="margin-top:10px;"></p>');
+      errEl = document.getElementById('submitErr');
+    }
+    errEl.textContent = '';
     btn.disabled = true;
     btn.textContent = 'กำลังส่งข้อมูล...';
     fetch('/api/submit-contract', {

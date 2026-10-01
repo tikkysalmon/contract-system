@@ -40,7 +40,9 @@ function parseDataUrl(dataUrl) {
 }
 
 // ต้องตรงกับ step key ที่ sign.js ใช้จริง (STEP_DEFS) — เป็นขั้นตอนที่ลูกค้าแก้ไขข้อมูลได้จริงเท่านั้น
-const ALLOWED_REJECT_FIELDS = ['personal', 'address', 'guardian', 'guarantor', 'uploads'];
+// 2026-10-01 'address' (เดิม = ที่อยู่+บุคคลอ้างอิงรวมกัน) แยกเป็น address_current/address_shipping/reference — ยังรับ 'address'
+// ไว้เพื่อ API/รายการเก่า (sign.js ตีความ 'address' = แก้ครบทั้ง 3 ส่วน)
+const ALLOWED_REJECT_FIELDS = ['personal', 'address', 'address_current', 'address_shipping', 'reference', 'guardian', 'guarantor', 'uploads'];
 
 async function doSign(authHeaders, submissionId, staffName, signatureDataUrl, res) {
   if (!signatureDataUrl) { res.status(400).json({ error: 'ไม่มี signatureDataUrl' }); return; }

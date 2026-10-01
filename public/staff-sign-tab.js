@@ -49,7 +49,9 @@ function initStaffSignTab(containerId, currentUser) {
   };
   var REJECT_GROUPS = [
     { key: 'personal', label: 'ข้อมูลส่วนตัว' },
-    { key: 'address', label: 'ที่อยู่และบุคคลอ้างอิง' },
+    { key: 'address_current', label: 'ที่อยู่ปัจจุบัน' },
+    { key: 'address_shipping', label: 'ที่อยู่ในการจัดส่งสินค้า' },
+    { key: 'reference', label: 'บุคคลอ้างอิง' },
     { key: 'guardian', label: 'ข้อมูลผู้ปกครอง', onlyIf: 'hasGuardian' },
     { key: 'guarantor', label: 'ข้อมูลผู้ค้ำประกัน', onlyIf: 'hasGuarantor' },
     { key: 'uploads', label: 'รูปเอกสารที่แนบ (บัตร/เซลฟี่)' },
@@ -440,6 +442,7 @@ function initStaffSignTab(containerId, currentUser) {
 
   var CORRECTION_GROUP_LABELS = {
     personal: 'ข้อมูลส่วนตัว', address: 'ที่อยู่และบุคคลอ้างอิง',
+    address_current: 'ที่อยู่ปัจจุบัน', address_shipping: 'ที่อยู่ในการจัดส่งสินค้า', reference: 'บุคคลอ้างอิง',
     guardian: 'ข้อมูลผู้ปกครอง', guarantor: 'ข้อมูลผู้ค้ำประกัน', uploads: 'รูปเอกสารที่แนบ',
     order: 'รายการสินค้า/เลขที่คำสั่งซื้อ (SO)', // 2026-09-07 — เห็นได้เฉพาะตอนพนักงานกด "เปลี่ยน SO" (doChangeSo)
   };
@@ -629,7 +632,7 @@ function initStaffSignTab(containerId, currentUser) {
       });
       html = '<div class="card">' +
         '<h2>ปฏิเสธ / ขอแก้ไขข้อมูล — ' + (rejectItem ? rejectItem.customerName : '') + '</h2>' +
-        '<p class="hint">ติ๊กเลือกข้อมูลที่ไม่ถูกต้อง ระบบจะส่งลิงก์เดิมกลับให้ลูกค้าแก้ไขเฉพาะจุดที่เลือก ส่วนข้อมูลอื่นที่ถูกต้องอยู่แล้วจะเติมให้อัตโนมัติไม่ต้องกรอกซ้ำ (ลูกค้าต้องตรวจสอบยอด/เซ็นชื่อใหม่เสมอ)</p>' +
+        '<p class="hint">ติ๊กเลือกข้อมูลที่ไม่ถูกต้อง ระบบจะส่งลิงก์เดิมกลับให้ลูกค้าแก้ไขเฉพาะจุดที่เลือก ส่วนข้อมูลอื่นที่ถูกต้องอยู่แล้วจะเติมให้อัตโนมัติไม่ต้องกรอกซ้ำ (ลูกค้าไม่ต้องดูตารางผ่อน/เซ็นชื่อใหม่)</p>' +
         groups.map(function (g) {
           var checked = !!state.rejectChecked[g.key];
           return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);">' +
