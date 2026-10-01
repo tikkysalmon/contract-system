@@ -18,7 +18,7 @@ const { computeContractStatus, computeShippingStatus } = require('./_lib/contrac
 async function handleCustomerInfo(res) {
   const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
   const r = await fetch(
-    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number,customer_data)&order=created_at.desc&limit=500',
+    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot,contract_submissions(id,submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number,customer_data)&order=created_at.desc&limit=500',
     { headers: authHeaders }
   );
   if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
@@ -67,6 +67,8 @@ async function handleCustomerInfo(res) {
         contractStatus: contractStatus,
         // ข้อมูลผู้รับสินค้า (2026-10-01) — คัดเฉพาะ 3 ฟิลด์ ไม่ส่ง customer_data ทั้งก้อนออกไป (มีข้อมูลส่วนตัวเต็ม)
         hasSubmission: !!sub,
+        submissionId: sub ? sub.id : null, // ใช้ยิง staff-actions updateLogistics (แก้ช่องทางจัดส่ง/ของแถม ในเมนู "ข้อมูลลูกค้า")
+        giftItem: subData.giftItem || null,
         shippingAddressText: shippingAddressText,
         recipientName: subShip.recipientName || null,
         recipientPhone: subShip.recipientPhone || null,
