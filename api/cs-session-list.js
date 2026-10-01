@@ -18,7 +18,7 @@ const { computeContractStatus, computeShippingStatus } = require('./_lib/contrac
 async function handleCustomerInfo(res) {
   const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
   const r = await fetch(
-    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot&order=created_at.desc&limit=500',
+    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number)&order=created_at.desc&limit=500',
     { headers: authHeaders }
   );
   if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
@@ -41,6 +41,12 @@ async function handleCustomerInfo(res) {
   const rows = [];
   sessions.forEach(function (s) {
     const snap = s.crm_snapshot || {};
+    // สถานะการทำสัญญา — สูตรเดียวกับเมนู "ข้อมูลลูกค้าทำสัญญา" (_lib/contract-status.js) ต่อ session (2026-10-01)
+    const sub = (s.contract_submissions || [])[0] || null;
+    const contractStatus = computeContractStatus({
+      submitted: !!sub, rejectedAt: sub && sub.rejected_at, reviewedAt: sub && sub.reviewed_at,
+      staffSignedAt: sub && sub.staff_signed_at, imei: sub && sub.imei, serialNumber: sub && sub.serial_number,
+    });
     ((snap.items) || []).forEach(function (it) {
       const pk = trackingBySo[it.soNumber] || {};
       const trackingNo = pk.tracking_no || null;
@@ -51,6 +57,7 @@ async function handleCustomerInfo(res) {
         customerId: it.customerId || null,
         customerName: (snap.customer && snap.customer.firstLastName) || '-',
         customerType: it.installmentTypeLabel || null,
+        contractStatus: contractStatus,
         planType: it.planType || null, // fallback ตอน installmentTypeLabel ว่าง (ลิงก์รุ่นเก่า)
         deliveryChannel: channel,
         pickupDate: isPickup ? (it.pickupDate || null) : null,

@@ -36,6 +36,19 @@ function initCustomerInfoTab(containerId, currentUser) {
     return html;
   }
 
+  var CONTRACT_BADGE_STYLE = {
+    awaiting_customer: 'background:#fff3e0;color:#b06a00;',
+    pending_review: 'background:#e0f2fe;color:#075985;',
+    needs_correction: 'background:#fee2e2;color:#b91c1c;',
+    customer_ok: 'background:#e3f5ec;color:#1f7a4d;',
+    awaiting_staff_sign: 'background:#ede9fe;color:#6d28d9;',
+    complete: 'background:#dcfce7;color:#15803d;',
+  };
+  function contractBadge(s) {
+    s = s || { key: '', label: '-' };
+    return '<span class="badge badge-info" style="' + (CONTRACT_BADGE_STYLE[s.key] || 'background:#f3f4f6;color:#374151;') + '">' + esc(s.label) + '</span>';
+  }
+
   function shippingBadge(status) {
     var style = (status === 'จัดส่งสินค้าแล้ว' || status === 'ลูกค้ารับสินค้าแล้ว') ? 'background:#dcfce7;color:#15803d;' : 'background:#fff3e0;color:#b06a00;';
     return '<span class="badge badge-info" style="' + style + '">' + esc(status) + '</span>';
@@ -52,10 +65,10 @@ function initCustomerInfoTab(containerId, currentUser) {
   function rowsHtml() {
     // 2026-10-01 ยังไม่แสดงข้อมูลจนกว่าจะค้นหา (เหมือนเมนู "สำหรับ CS") — ไม่โชว์ลูกค้าทั้งระบบโดยไม่จำเป็น
     if (!state.filter.trim()) {
-      return '<tr><td colspan="8" style="color:var(--muted);">พิมพ์เลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า เพื่อค้นหาข้อมูล</td></tr>';
+      return '<tr><td colspan="9" style="color:var(--muted);">พิมพ์เลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า เพื่อค้นหาข้อมูล</td></tr>';
     }
     var visible = state.rows.filter(matches);
-    if (!visible.length) return '<tr><td colspan="8" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    if (!visible.length) return '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return visible.map(function (r) {
       var channel = r.deliveryChannel || '-';
       return '<tr>' +
@@ -63,6 +76,7 @@ function initCustomerInfoTab(containerId, currentUser) {
         '<td>' + esc(r.customerId || '-') + '</td>' +
         '<td style="text-align:left;">' + esc(r.customerName) + '</td>' +
         '<td>' + esc(r.customerType || planLabelOf(r.planType)) + '</td>' +
+        '<td>' + contractBadge(r.contractStatus) + '</td>' +
         '<td>' + esc(channel) + '</td>' +
         '<td>' + pickupCellHtml(r) + '</td>' +
         '<td>' + shippingBadge(r.shippingStatus) +
@@ -177,6 +191,7 @@ function initCustomerInfoTab(containerId, currentUser) {
       '<th>รหัสลูกค้า</th>' +
       '<th style="text-align:left;">ชื่อลูกค้า</th>' +
       '<th>ประเภทลูกค้า</th>' +
+      '<th>สถานะการทำสัญญา</th>' +
       '<th>ช่องทางการจัดส่ง</th>' +
       '<th>วัน/เวลาที่นัดรับ</th>' +
       '<th>สถานะการจัดส่ง</th>' +
