@@ -44,6 +44,12 @@ async function handleCustomerInfo(res) {
     // สถานะการทำสัญญา — สูตรเดียวกับเมนู "ข้อมูลลูกค้าทำสัญญา" (_lib/contract-status.js) ต่อ session (2026-10-01)
     const sub = (s.contract_submissions || [])[0] || null;
     const subShip = (sub && sub.customer_data && sub.customer_data.shippingAddress) || {};
+    // ที่อยู่ในการจัดส่งสินค้าเป็นข้อความเดียว (2026-10-01 หน้ารายละเอียดเมนู "ข้อมูลลูกค้า") — สูตรเดียวกับที่อื่น: ใช้
+    // shippingAddress ถ้าไม่ได้ติ๊ก "ที่อยู่เดียวกับปัจจุบัน" ไม่งั้น fallback ที่อยู่ปัจจุบัน คัดมาเฉพาะข้อความที่อยู่เท่านั้น
+    const subData = (sub && sub.customer_data) || {};
+    const effAddr = (subShip.sameAsCurrent === false || (subShip.sameAsCurrent === undefined && subShip.detail)) ? subShip : (subData.address || {});
+    const shippingAddressText = [effAddr.detail, effAddr.subdistrictName && ('ต.' + effAddr.subdistrictName), effAddr.districtName && ('อ.' + effAddr.districtName),
+      effAddr.provinceName && ('จ.' + effAddr.provinceName), effAddr.zip].filter(Boolean).join(' ') || null;
     const contractStatus = computeContractStatus({
       submitted: !!sub, rejectedAt: sub && sub.rejected_at, reviewedAt: sub && sub.reviewed_at,
       staffSignedAt: sub && sub.staff_signed_at, imei: sub && sub.imei, serialNumber: sub && sub.serial_number,
@@ -61,6 +67,7 @@ async function handleCustomerInfo(res) {
         contractStatus: contractStatus,
         // ข้อมูลผู้รับสินค้า (2026-10-01) — คัดเฉพาะ 3 ฟิลด์ ไม่ส่ง customer_data ทั้งก้อนออกไป (มีข้อมูลส่วนตัวเต็ม)
         hasSubmission: !!sub,
+        shippingAddressText: shippingAddressText,
         recipientName: subShip.recipientName || null,
         recipientPhone: subShip.recipientPhone || null,
         shippingNote: subShip.note || null,

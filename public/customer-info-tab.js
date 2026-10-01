@@ -1,5 +1,5 @@
 // เมนู "ข้อมูลลูกค้า" (2026-10-01 user ขอ) — รวบรวมข้อมูลลูกค้าที่ดำเนินการบนระบบนี้ไว้ที่เดียว ให้แผนกบริการ
-// ตรวจสอบเบื้องต้นและแจ้งลูกค้าได้ อ่านอย่างเดียว 1 แถวต่อ 1 SO — ไม่มีข้อมูลส่วนตัว (เลขบัตร/เบอร์/ที่อยู่) ปนเลย
+// ตรวจสอบเบื้องต้นและแจ้งลูกค้าได้ 1 แถวต่อ 1 SO (หน้ารายการ) + หน้ารายละเอียดต่อ SO (2026-10-01) — ไม่มีข้อมูลส่วนตัวเกินความจำเป็น (ไม่มีเลขบัตร) ที่อยู่จัดส่ง/ชื่อผู้รับ/เบอร์ผู้รับอยู่ในหน้ารายละเอียดเท่านั้น
 // ข้อมูลมาจาก /api/cs-session-list?view=customer-info (ดูหมายเหตุ handleCustomerInfo ที่นั่น):
 //   - ช่องทางจัดส่ง/วัน-เวลานัดรับ: CS กรอกตอนสร้างลิงก์ (แก้ได้ที่เมนู "ข้อมูลลูกค้าทำสัญญา")
 //   - สถานะการจัดส่ง: อัตโนมัติ — มีเลขพัสดุเมื่อไหร่ = "จัดส่งสินค้าแล้ว"
@@ -8,7 +8,7 @@
 // และ list-toolbar.js (listToolbarHtml) ก่อนไฟล์นี้
 function initCustomerInfoTab(containerId, currentUser) {
   'use strict';
-  var state = { loading: true, error: null, rows: [], filter: '', rescheduling: null, savingReschedule: false, editingNote: null, savingNote: false };
+  var state = { loading: true, error: null, rows: [], filter: '', rescheduling: null, savingReschedule: false, editingNote: null, savingNote: false, detail: null };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -62,34 +62,64 @@ function initCustomerInfoTab(containerId, currentUser) {
       (r.soNumber || '').toLowerCase().indexOf(f) !== -1;
   }
 
+  // ตารางรายการแสดงแค่ข้อมูลระบุตัวตน (SO/รหัส/ชื่อ/ประเภท) + ลิงก์ "ดูรายละเอียด" — ข้อมูลที่เหลือย้ายไปหน้า
+  // รายละเอียด (2026-10-01 user ขอ ดู detailHtml)
   function rowsHtml() {
     // 2026-10-01 ยังไม่แสดงข้อมูลจนกว่าจะค้นหา (เหมือนเมนู "สำหรับ CS") — ไม่โชว์ลูกค้าทั้งระบบโดยไม่จำเป็น
     if (!state.filter.trim()) {
-      return '<tr><td colspan="10" style="color:var(--muted);">พิมพ์เลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า เพื่อค้นหาข้อมูล</td></tr>';
+      return '<tr><td colspan="5" style="color:var(--muted);">พิมพ์เลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า เพื่อค้นหาข้อมูล</td></tr>';
     }
     var visible = state.rows.filter(matches);
-    if (!visible.length) return '<tr><td colspan="10" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    if (!visible.length) return '<tr><td colspan="5" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return visible.map(function (r) {
-      var channel = r.deliveryChannel || '-';
       return '<tr>' +
         '<td style="text-align:left;">' + esc(r.soNumber || '-') + '</td>' +
         '<td>' + esc(r.customerId || '-') + '</td>' +
         '<td style="text-align:left;">' + esc(r.customerName) + '</td>' +
         '<td>' + esc(r.customerType || planLabelOf(r.planType)) + '</td>' +
-        '<td>' + contractBadge(r.contractStatus) + '</td>' +
-        '<td>' + esc(channel) + '</td>' +
-        '<td>' + pickupCellHtml(r) + '</td>' +
-        '<td style="text-align:left;max-width:220px;">' + (r.shippingNote ? esc(r.shippingNote) : '<span style="color:var(--muted);">-</span>') +
-        (r.hasSubmission ? '<br><button type="button" class="btn btn-ghost btn-sm ciBtnEditNote" data-token="' + esc(r.sessionToken) + '" data-so="' + esc(r.soNumber) + '">แก้ไข</button>' : '') + '</td>' +
-        '<td>' + shippingBadge(r.shippingStatus) +
-        (r.isPickup && !r.trackingNo
-          ? '<br><button type="button" class="btn btn-ghost btn-sm ciBtnReschedule" data-token="' + esc(r.sessionToken) + '" data-so="' + esc(r.soNumber) + '"' + (r.pickedUpAt ? ' style="display:none;"' : '') + '>เลื่อนนัดรับ</button> ' +
-            '<button type="button" class="btn btn-ghost btn-sm ciBtnPickup" data-token="' + esc(r.sessionToken) + '" data-so="' + esc(r.soNumber) + '" data-picked="' + (r.pickedUpAt ? '0' : '1') + '">' +
-            (r.pickedUpAt ? 'ยกเลิกการรับสินค้า' : 'ลูกค้ารับสินค้าแล้ว') + '</button>'
-          : '') + '</td>' +
-        '<td>' + esc(r.trackingNo || '-') + (r.courier && r.trackingNo ? '<br><small style="color:var(--muted);">' + esc(r.courier) + '</small>' : '') + '</td>' +
+        '<td><a href="#" class="ciLinkDetail" data-token="' + esc(r.sessionToken) + '" data-so="' + esc(r.soNumber) + '" style="white-space:nowrap;text-decoration:underline;">ดูรายละเอียด</a></td>' +
         '</tr>';
     }).join('');
+  }
+
+  function currentDetailRow() {
+    if (!state.detail) return null;
+    return state.rows.filter(function (x) { return x.sessionToken === state.detail.token && x.soNumber === state.detail.so; })[0] || null;
+  }
+
+  // หน้ารายละเอียดต่อ SO — ย้ายฟิลด์จากตารางเดิมมาไว้ที่นี่ + เพิ่ม "ที่อยู่ในการจัดส่งสินค้า" (ชื่อผู้รับ/เบอร์โทรอยู่ในช่องเดียวกัน)
+  function detailHtml(r) {
+    function row(label, valueHtml) {
+      return '<tr><th style="text-align:left;width:220px;vertical-align:top;white-space:nowrap;">' + label + '</th><td style="text-align:left;">' + valueHtml + '</td></tr>';
+    }
+    var addrHtml = r.shippingAddressText ? esc(r.shippingAddressText) : '<span style="color:var(--muted);">-</span>';
+    var recipient = [r.recipientName, r.recipientPhone].filter(Boolean).map(esc).join(' · ');
+    if (recipient) addrHtml = '<b>ผู้รับ:</b> ' + recipient + '<br>' + addrHtml;
+    var noteHtml = (r.shippingNote ? esc(r.shippingNote) : '<span style="color:var(--muted);">-</span>') +
+      (r.hasSubmission ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnEditNote">แก้ไข</button>' : '');
+    var pickupHtml = pickupCellHtml(r) +
+      (r.isPickup && !r.trackingNo && !r.pickedUpAt ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnReschedule">เลื่อนนัดรับ</button>' : '');
+    var shipHtml = shippingBadge(r.shippingStatus) +
+      (r.isPickup && !r.trackingNo
+        ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnPickup" data-picked="' + (r.pickedUpAt ? '0' : '1') + '">' +
+          (r.pickedUpAt ? 'ยกเลิกการรับสินค้า' : 'ลูกค้ารับสินค้าแล้ว') + '</button>'
+        : '');
+    var trackHtml = esc(r.trackingNo || '-') + (r.courier && r.trackingNo ? ' <small style="color:var(--muted);">(' + esc(r.courier) + ')</small>' : '');
+    return '<div class="card"><p style="margin:0 0 8px;"><a href="#" id="ciLinkBack" style="text-decoration:underline;">← กลับไปรายการ</a></p>' +
+      '<h2>รายละเอียดข้อมูลลูกค้า — ' + esc(r.soNumber) + '</h2>' +
+      '<table class="installment-table"><tbody>' +
+      row('เลขคำสั่งซื้อ SO', esc(r.soNumber || '-')) +
+      row('รหัสลูกค้า', esc(r.customerId || '-')) +
+      row('ชื่อลูกค้า', esc(r.customerName)) +
+      row('ประเภทลูกค้า', esc(r.customerType || planLabelOf(r.planType))) +
+      row('สถานะการทำสัญญา', contractBadge(r.contractStatus)) +
+      row('ช่องทางการจัดส่ง', esc(r.deliveryChannel || '-')) +
+      row('วัน/เวลาที่นัดรับ', pickupHtml) +
+      row('ที่อยู่ในการจัดส่งสินค้า', addrHtml) +
+      row('หมายเหตุ', noteHtml) +
+      row('สถานะการจัดส่ง', shipHtml) +
+      row('เลขพัสดุ', trackHtml) +
+      '</tbody></table></div>';
   }
 
   async function setPickedUp(token, soNumber, picked) {
@@ -225,8 +255,44 @@ function initCustomerInfoTab(containerId, currentUser) {
     if (state.loading) { app.innerHTML = '<div class="card">กำลังโหลดข้อมูล...</div>'; return; }
     if (state.error) { app.innerHTML = '<div class="card"><p style="color:var(--danger);">' + esc(state.error) + '</p></div>'; return; }
 
+    var detailRow = currentDetailRow();
+    if (state.detail && !detailRow) state.detail = null; // รายการหายไปหลังโหลดใหม่ กลับไปหน้ารายการ
+
+    if (detailRow) {
+      app.innerHTML = detailHtml(detailRow) + reschedulePanelHtml() + editNotePanelHtml();
+      var tok = state.detail.token, so = state.detail.so;
+      document.getElementById('ciLinkBack').addEventListener('click', function (e) {
+        e.preventDefault();
+        state.detail = null; state.rescheduling = null; state.editingNote = null;
+        render();
+      });
+      var q = function (sel) { return app.querySelector(sel); };
+      if (q('.ciBtnEditNote')) q('.ciBtnEditNote').addEventListener('click', function () { openEditNote(tok, so); });
+      if (q('.ciBtnReschedule')) q('.ciBtnReschedule').addEventListener('click', function () { openReschedule(tok, so); });
+      if (q('.ciBtnPickup')) q('.ciBtnPickup').addEventListener('click', function (e) {
+        setPickedUp(tok, so, e.currentTarget.getAttribute('data-picked') === '1');
+      });
+      if (state.editingNote) {
+        var n = state.editingNote;
+        document.getElementById('ciNoteName').addEventListener('input', function (e) { n.recipientName = e.target.value; });
+        document.getElementById('ciNotePhone').addEventListener('input', function (e) { n.recipientPhone = e.target.value; });
+        document.getElementById('ciNoteText').addEventListener('input', function (e) { n.note = e.target.value; });
+        document.getElementById('ciBtnSaveNote').addEventListener('click', saveNote);
+        document.getElementById('ciBtnCancelNote').addEventListener('click', function () { state.editingNote = null; render(); });
+      }
+      if (state.rescheduling) {
+        var t = state.rescheduling;
+        attachThaiDatePicker(document.getElementById('ciReschedDateWrap'), { value: t.pickupDate, onChange: function (iso) { t.pickupDate = iso; } });
+        document.getElementById('ciReschedTime').addEventListener('input', function (e) { t.pickupTime = e.target.value; });
+        document.getElementById('ciReschedReason').addEventListener('input', function (e) { t.reason = e.target.value; });
+        document.getElementById('ciBtnSaveResched').addEventListener('click', saveReschedule);
+        document.getElementById('ciBtnCancelResched').addEventListener('click', function () { state.rescheduling = null; render(); });
+      }
+      return;
+    }
+
     app.innerHTML = '<div class="card"><h2>ข้อมูลลูกค้า</h2>' +
-      '<p class="hint">ข้อมูลเบื้องต้นสำหรับแผนกบริการใช้ตรวจสอบและแจ้งลูกค้า — สถานะการจัดส่งจะเปลี่ยนเป็น "จัดส่งสินค้าแล้ว" อัตโนมัติเมื่อมีเลขพัสดุนำเข้าระบบ (เมนู "สำหรับแพ็คกิ้ง") ส่วนนัดรับสาขากดปุ่ม "ลูกค้ารับสินค้าแล้ว" ได้เอง</p>' +
+      '<p class="hint">ค้นหาด้วยเลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า แล้วกด "ดูรายละเอียด" เพื่อดูสถานะสัญญา ช่องทางและสถานะการจัดส่ง ที่อยู่จัดส่ง เลขพัสดุ — ใช้ตรวจสอบและแจ้งลูกค้า</p>' +
       listToolbarHtml({
         sortId: 'customerInfoSortOrder',
         sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
@@ -242,45 +308,22 @@ function initCustomerInfoTab(containerId, currentUser) {
       '<th>รหัสลูกค้า</th>' +
       '<th style="text-align:left;">ชื่อลูกค้า</th>' +
       '<th>ประเภทลูกค้า</th>' +
-      '<th>สถานะการทำสัญญา</th>' +
-      '<th>ช่องทางการจัดส่ง</th>' +
-      '<th>วัน/เวลาที่นัดรับ</th>' +
-      '<th>หมายเหตุ</th>' +
-      '<th>สถานะการจัดส่ง</th>' +
-      '<th>เลขพัสดุ</th>' +
+      '<th>รายละเอียด</th>' +
       '</tr></thead>' +
-      '<tbody id="customerInfoTbody">' + rowsHtml() + '</tbody></table></div></div>' +
-      reschedulePanelHtml() + editNotePanelHtml();
+      '<tbody id="customerInfoTbody">' + rowsHtml() + '</tbody></table></div></div>';
 
     // อัปเดตแค่ tbody ตอนพิมพ์ค้นหา (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus — แพทเทิร์นเดียวกับเมนูอื่น
     document.getElementById('customerInfoFilterInput').addEventListener('input', function (e) {
       state.filter = e.target.value;
       document.getElementById('customerInfoTbody').innerHTML = rowsHtml();
     });
-    if (state.editingNote) {
-      var n = state.editingNote;
-      document.getElementById('ciNoteName').addEventListener('input', function (e) { n.recipientName = e.target.value; });
-      document.getElementById('ciNotePhone').addEventListener('input', function (e) { n.recipientPhone = e.target.value; });
-      document.getElementById('ciNoteText').addEventListener('input', function (e) { n.note = e.target.value; });
-      document.getElementById('ciBtnSaveNote').addEventListener('click', saveNote);
-      document.getElementById('ciBtnCancelNote').addEventListener('click', function () { state.editingNote = null; render(); });
-    }
-    if (state.rescheduling) {
-      var t = state.rescheduling;
-      attachThaiDatePicker(document.getElementById('ciReschedDateWrap'), { value: t.pickupDate, onChange: function (iso) { t.pickupDate = iso; } });
-      document.getElementById('ciReschedTime').addEventListener('input', function (e) { t.pickupTime = e.target.value; });
-      document.getElementById('ciReschedReason').addEventListener('input', function (e) { t.reason = e.target.value; });
-      document.getElementById('ciBtnSaveResched').addEventListener('click', saveReschedule);
-      document.getElementById('ciBtnCancelResched').addEventListener('click', function () { state.rescheduling = null; render(); });
-    }
     // event delegation บน tbody — ช่องค้นหาแก้แค่ tbody.innerHTML ไม่ re-render การ์ด
     document.getElementById('customerInfoTbody').addEventListener('click', function (e) {
-      var nb = e.target.closest ? e.target.closest('.ciBtnEditNote') : null;
-      if (nb) { openEditNote(nb.getAttribute('data-token'), nb.getAttribute('data-so')); return; }
-      var rb = e.target.closest ? e.target.closest('.ciBtnReschedule') : null;
-      if (rb) { openReschedule(rb.getAttribute('data-token'), rb.getAttribute('data-so')); return; }
-      var b = e.target.closest ? e.target.closest('.ciBtnPickup') : null;
-      if (b) setPickedUp(b.getAttribute('data-token'), b.getAttribute('data-so'), b.getAttribute('data-picked') === '1');
+      var a = e.target.closest ? e.target.closest('.ciLinkDetail') : null;
+      if (!a) return;
+      e.preventDefault();
+      state.detail = { token: a.getAttribute('data-token'), so: a.getAttribute('data-so') };
+      render();
     });
   }
 
