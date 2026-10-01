@@ -493,7 +493,16 @@ function initStaffSignTab(containerId, currentUser) {
   }
 
   function planLabelOf(planType) {
-    return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
+    if (planType === 'downpayment') return 'วางดาวน์';
+    if (planType === 'installment') return 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
+    if (planType === 'cash') return 'ซื้อสด/ปิดยอด';
+    return '-';
+  }
+
+  // 2026-10-01 user แจ้ง: คอลัมน์ "วิธีการผ่อน" ไม่แสดงข้อมูล — เพราะ it.planType ยังเป็น null จนกว่าลูกค้าจะส่ง
+  // ฟอร์มกลับมา แต่ it.installmentTypeLabel (จาก CRM ตอน CS สร้างลิงก์) มีอยู่แล้วตั้งแต่แรก ให้ใช้ก่อนเสมอ
+  function planLabelForItem(it) {
+    return it.installmentTypeLabel || planLabelOf(it.planType);
   }
 
   function itemMatchesFilter(q, item) {
@@ -546,7 +555,7 @@ function initStaffSignTab(containerId, currentUser) {
         html += '<tr>' +
           '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
           '<td style="text-align:left;">' + q.customerName + '</td>' +
-          '<td>' + planLabelOf(it.planType) + '</td>' +
+          '<td>' + planLabelForItem(it) + '</td>' +
           '<td>' + (it.contractNo || '-') + '</td>' +
           '<td>' + statusBadgeHtml(q) + '</td>' +
           '<td>' + fmtDateTime(q.submittedAt) + '</td>' +
@@ -825,7 +834,14 @@ function initCsStatusView(containerId, currentUser) {
   }
 
   function planLabelOf(planType) {
-    return planType === 'downpayment' ? 'วางดาวน์' : (planType === 'installment' ? 'เครดิตผ่าน (ผ่อนไปใช้ไป)' : '-');
+    if (planType === 'downpayment') return 'วางดาวน์';
+    if (planType === 'installment') return 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
+    if (planType === 'cash') return 'ซื้อสด/ปิดยอด';
+    return '-';
+  }
+
+  function planLabelForItem(it) {
+    return it.installmentTypeLabel || planLabelOf(it.planType);
   }
 
   // ตัวกรอง 1 ช่อง ค้นได้ทั้งชื่อลูกค้า/รหัสลูกค้า/เลขที่คำสั่งซื้อ SO (2026-09-07 user ขอ)
@@ -849,7 +865,7 @@ function initCsStatusView(containerId, currentUser) {
         html += '<tr>' +
           '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
           '<td style="text-align:left;">' + s.customerName + '</td>' +
-          '<td>' + planLabelOf(it.planType) + '</td>' +
+          '<td>' + planLabelForItem(it) + '</td>' +
           '<td>' + (it.contractNo || '-') + '</td>' +
           '<td>' + statusBadge(s.contractStatus) + '</td>' +
           '<td>' + fmtDateTime(s.submittedAt) + '</td>' +
