@@ -647,18 +647,22 @@ function initContractsTab(containerId, currentUser, options) {
         // 2026-09-08 user ขอ: กล่องติ๊กไม่ล็อกไว้อีกต่อไป (เดิม SO หลัก checked+disabled ตายตัว) ให้ CS ติ๊ก
         // เลือกเองทุกแถว + เพิ่มคอลัมน์รหัส/ชื่อลูกค้าเหมือนตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" (ยกเว้นวันที่สร้าง
         // ลิงก์/พนักงานสร้างลิงก์/คัดลอกลิงก์ที่ตารางนี้ไม่มีข้อมูลอยู่แล้ว) ลิงก์ "ดูข้อมูล CRM" ยังอยู่เหมือนเดิม
+        // 2026-09-30 user ขอเพิ่มคอลัมน์ "วิธีการผ่อน" ให้ตรงกับ CRM — ใช้ r.installmentTypeLabel ตัวเดียวกับ
+        // ที่การ์ด "ข้อมูลจาก CRM"/ตาราง "พบคำสั่งขายอื่น" ใช้อยู่แล้ว (มาจาก buildSoData ครบทุกแถวในตารางนี้
+        // อยู่แล้ว ไม่ต้องยิง CRM เพิ่ม)
         function soListRowHtml(r) {
           var checked = !!state.includedSoNumbers[r.soNumber];
           return '<tr><td><input type="checkbox" class="otherSoCheck" data-so="' + r.soNumber + '"' + (checked ? ' checked' : '') + ' /></td>' +
             '<td style="text-align:left;">' + (r.customerId || '-') + '</td>' +
             '<td style="text-align:left;">' + (r.customer.firstLastName || '-') + '</td>' +
             '<td style="text-align:left;">' + r.soNumber + '</td>' +
+            '<td>' + (r.installmentTypeLabel || '-') + '</td>' +
             '<td><a class="btn btn-ghost btn-sm" href="crm-order-detail.html?so=' + encodeURIComponent(r.soNumber) + '" target="_blank" style="white-space:nowrap;">ดูข้อมูล CRM</a></td></tr>';
         }
         html += '<div class="card"><h2>คำสั่งขายของลูกค้าคนนี้</h2>' +
           '<p class="hint">ติ๊กเลือก SO ที่ต้องการ (รวม SO ที่ค้นหาด้วย) — กด "ดูข้อมูล CRM" เพื่อดูรายละเอียดเต็มของ SO ที่ต้องการในแท็บใหม่ — ยืนยันตัวเลข/สร้างลิงก์ให้ลูกค้าได้จากหน้านั้นเลย</p>' +
           '<div style="overflow-x:auto;"><table class="installment-table">' +
-          '<thead><tr><th></th><th style="text-align:left;">รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">SO</th><th></th></tr></thead>' +
+          '<thead><tr><th></th><th style="text-align:left;">รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">SO</th><th style="text-align:left;">วิธีการผ่อน</th><th></th></tr></thead>' +
           '<tbody>' +
           soListRowHtml(state.result) +
           state.otherItems.map(soListRowHtml).join('') +
