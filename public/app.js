@@ -46,10 +46,10 @@
   // 2026-09-03 — key 'contracts' ("ข้อมูลลูกค้าทำสัญญา") กลายเป็นคิวเอกสารรอพนักงานเซ็นแล้ว (2026-09-04
   // ตามที่ user ขอ "นำการเซ็นออนไลน์ของระบบขออนุมัติเอกสารมาใช้" — ลูกค้าเซ็นก่อน พนักงานเซ็นทีหลังที่นี่)
   var MENU_ITEMS = [
-    { key: 'contracts', icon: 'contracts', label: 'ข้อมูลลูกค้าทำสัญญา', departments: ['CS', 'บัญชี'] },
-    { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
     // 2026-10-01 user ขอ: รวบรวมข้อมูลลูกค้า/การจัดส่งให้แผนกบริการตรวจสอบและแจ้งลูกค้า (ดู customer-info-tab.js)
     { key: 'customer_info', icon: 'customer_info', label: 'ข้อมูลลูกค้า', departments: ['CS', 'บริการ', 'หน้าร้าน'] },
+    { key: 'contracts', icon: 'contracts', label: 'ข้อมูลลูกค้าทำสัญญา', departments: ['CS', 'บัญชี'] },
+    { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
     { key: 'stock', icon: 'stock', label: 'สำหรับสต๊อค', departments: ['สต๊อค'] },
     { key: 'packing', icon: 'packing', label: 'สำหรับแพ็คกิ้ง', departments: ['แพ็คกิ้ง'] },
     // 2026-09-24 user ระบุสเปกแล้ว: สรุปสินค้า "รอสต๊อก" แยกตามประเภทลูกค้าให้ทีมจัดซื้อดู (ดู purchasing-tab.js)
