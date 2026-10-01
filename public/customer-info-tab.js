@@ -137,12 +137,12 @@ function initCustomerInfoTab(containerId, currentUser) {
       row('ชื่อลูกค้า', esc(r.customerName)) +
       row('ประเภทลูกค้า', esc(r.customerType || planLabelOf(r.planType))) +
       row('สถานะการทำสัญญา', contractBadge(r.contractStatus)) +
-      row('ช่องทางการจัดส่ง', esc(r.deliveryChannel || '-') + (r.submissionId ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnEditLogi">แก้ไข</button>' : '')) +
+      row('ช่องทางการจัดส่ง', esc(r.deliveryChannel || '-') + (r.submissionId ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnEditChannel">แก้ไข</button>' : '')) +
       row('วัน/เวลาที่นัดรับ', pickupHtml) +
       row('ชื่อผู้รับสินค้า', r.recipientName ? esc(r.recipientName) : '<span style="color:var(--muted);">-</span>') +
       row('เบอร์โทรศัพท์ผู้รับสินค้า', r.recipientPhone ? esc(r.recipientPhone) : '<span style="color:var(--muted);">-</span>') +
       row('ที่อยู่ในการจัดส่งสินค้า', addrHtml) +
-      row('ของแถม', (r.giftItem ? esc(r.giftItem) : '<span style="color:var(--muted);">-</span>') + (r.submissionId ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnEditLogi">แก้ไข</button>' : '')) +
+      row('ของแถม', (r.giftItem ? esc(r.giftItem) : '<span style="color:var(--muted);">-</span>') + (r.submissionId ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnEditGift">แก้ไข</button>' : '')) +
       row('หมายเหตุ', noteHtml) +
       row('สถานะการจัดส่ง', shipHtml) +
       row('เลขพัสดุ', trackHtml) +
@@ -167,10 +167,11 @@ function initCustomerInfoTab(containerId, currentUser) {
 
   // แก้ช่องทางการจัดส่ง + ของแถม (2026-10-01) — dropdown ชุดเดียวกับตอนสร้างลิงก์/ฟอร์มลูกค้า ใช้ staff-actions
   // updateLogistics ตัวเดียวกับที่ CS ใช้ (ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ไม่ต้องให้ลูกค้าเซ็นใหม่)
-  function openEditLogi(token, soNumber) {
+  // mode: 'channel' (ช่องทางจัดส่ง + วัน/เวลานัดรับ) หรือ 'gift' (ของแถม) — แยกแผง/ปุ่มบันทึกกัน (2026-10-01 user ขอ)
+  function openEditLogi(token, soNumber, mode) {
     var r = state.rows.filter(function (x) { return x.sessionToken === token && x.soNumber === soNumber; })[0];
     if (!r || !r.submissionId) return;
-    state.editingLogi = { token: token, soNumber: soNumber, submissionId: r.submissionId, customerName: r.customerName, planType: r.planType,
+    state.editingLogi = { mode: mode, token: token, soNumber: soNumber, submissionId: r.submissionId, customerName: r.customerName, planType: r.planType,
       deliveryChannel: r.deliveryChannel || '', giftItem: r.giftItem || '', pickupDate: r.pickupDate || '', pickupTime: r.pickupTime || '' };
     render();
   }
@@ -184,14 +185,16 @@ function initCustomerInfoTab(containerId, currentUser) {
       var res = await fetch('/api/staff-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'updateLogistics', staffName: currentUser.username, submissionId: t.submissionId, soNumber: t.soNumber,
-          deliveryChannel: t.deliveryChannel, giftItem: t.giftItem, pickupDate: t.pickupDate || null, pickupTime: t.pickupTime || null }),
+        body: JSON.stringify(Object.assign({ action: 'updateLogistics', staffName: currentUser.username, submissionId: t.submissionId, soNumber: t.soNumber },
+          t.mode === 'gift'
+            ? { giftItem: t.giftItem }
+            : { deliveryChannel: t.deliveryChannel, pickupDate: t.pickupDate || null, pickupTime: t.pickupTime || null })),
       });
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
       state.editingLogi = null;
       state.savingLogi = false;
-      window.alert('บันทึกช่องทางการจัดส่ง/ของแถมสำเร็จ');
+      window.alert(t.mode === 'gift' ? 'บันทึกของแถมสำเร็จ' : 'บันทึกช่องทางการจัดส่งสำเร็จ');
       await load();
       return;
     } catch (err) {
@@ -212,14 +215,19 @@ function initCustomerInfoTab(containerId, currentUser) {
       return '<option value=""' + (!cur ? ' selected' : '') + '>-- ยังไม่ได้เลือก --</option>' +
         list.map(function (v) { return '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
     }
-    return '<div class="card"><h2>แก้ไขช่องทางการจัดส่ง/ของแถม — ' + esc(t.soNumber) + ' (' + esc(t.customerName) + ')</h2>' +
-      '<p class="hint">ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ไม่ต้องให้ลูกค้าเซ็นใหม่ ของแถมเป็นข้อมูลระดับลิงก์ (ใช้ร่วมกับทุก SO ในลิงก์เดียวกัน)</p>' +
-      '<div class="field"><label>ช่องทางการจัดส่ง</label><select id="ciLogiChannel">' + opts(channels, t.deliveryChannel) + '</select></div>' +
-      '<div class="row2" id="ciLogiPickupWrap" style="' + (isPickupChannel(t.deliveryChannel) ? '' : 'display:none;') + '">' +
-      '<div class="field"><label>วันที่นัดรับ</label><div class="date-field-wrap" id="ciLogiPickupDateWrap"><div class="date-display">' + (isoToDDMMYYYY(t.pickupDate) || 'เลือกวันที่') + '</div></div></div>' +
-      '<div class="field"><label>เวลาที่นัดรับ</label><input type="time" id="ciLogiPickupTime" value="' + esc(t.pickupTime) + '" /></div>' +
-      '</div>' +
-      '<div class="field"><label>ของแถม</label><select id="ciLogiGift">' + opts(gifts, t.giftItem) + '</select></div>' +
+    var title = t.mode === 'gift' ? 'แก้ไขของแถม' : 'แก้ไขช่องทางการจัดส่ง';
+    var hint = t.mode === 'gift'
+      ? 'ของแถมเป็นข้อมูลระดับลิงก์ (ใช้ร่วมกับทุก SO ในลิงก์เดียวกัน) ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ไม่ต้องให้ลูกค้าเซ็นใหม่'
+      : 'ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ไม่ต้องให้ลูกค้าเซ็นใหม่ — ถ้าเปลี่ยนจากนัดรับสาขาไปช่องทางอื่น ระบบจะล้างวัน/เวลานัดรับให้';
+    var body = t.mode === 'gift'
+      ? '<div class="field"><label>ของแถม</label><select id="ciLogiGift">' + opts(gifts, t.giftItem) + '</select></div>'
+      : '<div class="field"><label>ช่องทางการจัดส่ง</label><select id="ciLogiChannel">' + opts(channels, t.deliveryChannel) + '</select></div>' +
+        '<div class="row2" id="ciLogiPickupWrap" style="' + (isPickupChannel(t.deliveryChannel) ? '' : 'display:none;') + '">' +
+        '<div class="field"><label>วันที่นัดรับ</label><div class="date-field-wrap" id="ciLogiPickupDateWrap"><div class="date-display">' + (isoToDDMMYYYY(t.pickupDate) || 'เลือกวันที่') + '</div></div></div>' +
+        '<div class="field"><label>เวลาที่นัดรับ</label><input type="time" id="ciLogiPickupTime" value="' + esc(t.pickupTime) + '" /></div>' +
+        '</div>';
+    return '<div class="card"><h2>' + title + ' — ' + esc(t.soNumber) + ' (' + esc(t.customerName) + ')</h2>' +
+      '<p class="hint">' + hint + '</p>' + body +
       '<button class="btn btn-primary" id="ciBtnSaveLogi"' + (state.savingLogi ? ' disabled' : '') + '>' + (state.savingLogi ? 'กำลังบันทึก...' : 'บันทึก') + '</button> ' +
       '<button class="btn btn-ghost" id="ciBtnCancelLogi">ยกเลิก</button></div>';
   }
@@ -348,18 +356,20 @@ function initCustomerInfoTab(containerId, currentUser) {
         render();
       });
       var q = function (sel) { return app.querySelector(sel); };
-      Array.prototype.forEach.call(app.querySelectorAll('.ciBtnEditLogi'), function (b) {
-        b.addEventListener('click', function () { openEditLogi(tok, so); });
-      });
+      if (q('.ciBtnEditChannel')) q('.ciBtnEditChannel').addEventListener('click', function () { openEditLogi(tok, so, 'channel'); });
+      if (q('.ciBtnEditGift')) q('.ciBtnEditGift').addEventListener('click', function () { openEditLogi(tok, so, 'gift'); });
       if (state.editingLogi) {
         var lg = state.editingLogi;
-        document.getElementById('ciLogiChannel').addEventListener('change', function (e) {
-          lg.deliveryChannel = e.target.value;
-          document.getElementById('ciLogiPickupWrap').style.display = isPickupChannel(lg.deliveryChannel) ? '' : 'none';
-        });
-        attachThaiDatePicker(document.getElementById('ciLogiPickupDateWrap'), { value: lg.pickupDate, onChange: function (iso) { lg.pickupDate = iso; } });
-        document.getElementById('ciLogiPickupTime').addEventListener('input', function (e) { lg.pickupTime = e.target.value; });
-        document.getElementById('ciLogiGift').addEventListener('change', function (e) { lg.giftItem = e.target.value; });
+        if (lg.mode === 'gift') {
+          document.getElementById('ciLogiGift').addEventListener('change', function (e) { lg.giftItem = e.target.value; });
+        } else {
+          document.getElementById('ciLogiChannel').addEventListener('change', function (e) {
+            lg.deliveryChannel = e.target.value;
+            document.getElementById('ciLogiPickupWrap').style.display = isPickupChannel(lg.deliveryChannel) ? '' : 'none';
+          });
+          attachThaiDatePicker(document.getElementById('ciLogiPickupDateWrap'), { value: lg.pickupDate, onChange: function (iso) { lg.pickupDate = iso; } });
+          document.getElementById('ciLogiPickupTime').addEventListener('input', function (e) { lg.pickupTime = e.target.value; });
+        }
         document.getElementById('ciBtnSaveLogi').addEventListener('click', saveLogi);
         document.getElementById('ciBtnCancelLogi').addEventListener('click', function () { state.editingLogi = null; render(); });
       }
