@@ -612,6 +612,31 @@
 
   // ---------- Step: uploads ----------
   var MAX_FILE_BYTES = 5 * 1024 * 1024;
+  // 2026-10-01 user เจอจริง: ส่งสัญญาไม่สำเร็จ "Unexpected token 'R', "Request En"... is not valid JSON" —
+  // คือ Vercel ตอบ 413 "Request Entity Too Large" (plain text, limit 4.5MB ตายตัว แก้ไม่ได้) เพราะรูปบัตร/
+  // รูปคู่บัตร/รูปบัตรผู้ปกครอง-ผู้ค้ำ ที่ถ่ายจากกล้องมือถือ (สูงสุด 5MB ต่อไฟล์ ไม่ย่อขนาดเลย) ถูกส่งเป็น
+  // base64 รวมกันในคำขอเดียวตอนกดส่งข้อมูล — ย่อขนาด/บีบอัดรูปก่อนเก็บ/ส่งเสมอ ที่เดียวใน wireUploadBox
+  // (ใช้ร่วมทุกช่องอัปโหลดรูปในฟอร์มนี้) ไม่กระทบลายเซ็น (ใช้ canvas วาดเอง เป็น PNG ขนาดเล็กอยู่แล้ว)
+  var MAX_IMAGE_DIMENSION = 1600; // ด้านยาวสุดหลังย่อ (px) — พอสำหรับ OCR/ตรวจสอบด้วยตา ไม่ใหญ่เกินจำเป็น
+  var IMAGE_JPEG_QUALITY = 0.82;
+  function compressImageFile(file, maxDim, quality, callback) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = function () { callback(reader.result); }; // อ่านรูปไม่ขึ้น (ไฟล์เพี้ยน) ส่งต้นฉบับแทนดีกว่าบล็อกลูกค้า
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
   // ตัวอย่างประกอบวิธีถ่ายรูป (SVG วาดเอง ไม่ใช่รูปถ่ายจริง — ยังไม่มีไฟล์รูปตัวอย่างจริงให้ใช้) วาดตาม
   // ภาพอ้างอิงที่ user ส่งมา 2026-09-03: ใบบัตรอ้างจากภาพ mockup บัตรประชาชนจริง (ตัวเลข/ชื่อเป็น X ทั้งหมด
   // กันเข้าใจผิดว่าเป็นข้อมูลจริง) ใบคู่บัตรอ้างจากภาพสอนถ่ายเซลฟี่คู่บัตร (คนหันหน้าตรง ถือบัตรตรงหน้าอก
@@ -688,16 +713,14 @@
       if (!file) return;
       if (!/^image\//.test(file.type)) { errEl.textContent = 'กรุณาเลือกไฟล์รูปภาพเท่านั้น'; return; }
       if (file.size > MAX_FILE_BYTES) { errEl.textContent = 'ไฟล์ใหญ่เกิน 5MB'; return; }
-      var reader = new FileReader();
-      reader.onload = function () {
+      compressImageFile(file, MAX_IMAGE_DIMENSION, IMAGE_JPEG_QUALITY, function (compressedDataUrl) {
         box.classList.add('has-file');
         msgEl.textContent = file.name;
         var img = document.getElementById(id + '_preview');
-        img.src = reader.result;
+        img.src = compressedDataUrl;
         img.style.display = 'block';
-        onFile(reader.result, file);
-      };
-      reader.readAsDataURL(file);
+        onFile(compressedDataUrl, file);
+      });
     });
   }
   // 2026-09-25 รูปบัตรประชาชนของลูกค้าย้ายไปถ่าย/OCR ในขั้นตอน "idcard" ก่อนหน้านี้แล้ว (ดู renderIdCardOcr)
