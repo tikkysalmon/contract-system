@@ -153,10 +153,34 @@ async function syncOdooStock(supabaseUrl, authHeaders) {
   log('sync สต๊อก Odoo สำเร็จ — บันทึก ' + rows.length + ' รายการสินค้าเข้า Supabase เรียบร้อยแล้ว');
 }
 
+// 2026-09-30 user แจ้งว่า sync ทำระบบหน่วง เพราะดึงคำสั่งขาย "ทั้งหมด" ของ CRM (สะสมหลักแสนรายการ ย้อนไปหลายปี)
+// มาเขียนทับ crm_orders_cache ใหม่ทั้งก้อนทุก 15 นาที — ตัว CRM list endpoint เองไม่รองรับ filter วันที่ฝั่ง
+// server เลย (ทดสอบ param date/status/pageSize แล้วถูกเพิกเฉยหมด ดูหมายเหตุบนสุดของไฟล์) จึงยังต้องดึงทั้งหมด
+// มาก่อนเสมอ (ส่วนนี้แก้ไม่ได้ที่ฝั่งเรา) แต่ "กรองเก็บเฉพาะตั้งแต่วันที่ที่กำหนด" ก่อนเขียนลง Supabase ได้ —
+// ลดจำนวนแถวที่ต้องประมวลผล/เขียนจริงลงไปมาก (เหตุผลหลักที่ทำให้หน่วงคือการเขียน/ประมวลผลข้อมูลเก่าที่ไม่มีใคร
+// ใช้แล้วซ้ำทุกรอบ ไม่ใช่แค่เวลาที่ยิง CRM เอง) ตั้งค่าได้ที่ scripts/.env ด้วย CRM_ORDERS_SYNC_FROM_DATE
+// (รูปแบบ YYYY-MM-DD) — ถ้าไม่ตั้งค่าไว้ ใช้ค่าเริ่มต้นย้อนหลัง 60 วันจากวันที่รันจริง (ครอบคลุม 30 วันที่
+// api/stock-orders.js's CASH_ORDERS_LOOKBACK_DAYS ใช้แสดงผลอยู่แล้ว เผื่อ margin ให้สัญญาเครดิตที่ยังไม่ปิดงาน)
+const DEFAULT_CRM_SYNC_LOOKBACK_DAYS = 60;
+function resolveCrmSyncFromDate() {
+  const configured = String(process.env.CRM_ORDERS_SYNC_FROM_DATE || '').trim();
+  if (configured) return configured;
+  const d = new Date(Date.now() - DEFAULT_CRM_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
 async function syncCrmOrders(supabaseUrl, authHeaders) {
-  log('เชื่อมต่อ CRM แล้วดึงรายการคำสั่งขายทั้งหมด (อาจใช้เวลาสักครู่ — ~40 วิ ตอนทดสอบจริงกับ ~89,000 รายการ)...');
+  const syncFromDate = resolveCrmSyncFromDate();
+  log('เชื่อมต่อ CRM แล้วดึงรายการคำสั่งขายทั้งหมด (อาจใช้เวลาสักครู่ — ~40 วิ ตอนทดสอบจริงกับ ~89,000 รายการ — ' +
+    'CRM ไม่รองรับ filter วันที่ฝั่ง server เลย ต้องดึงทั้งหมดมาก่อนเสมอ)...');
   const token = await crmLoginForStock();
-  const orders = await fetchAllSaleOrdersForSync(token);
+  const allOrders = await fetchAllSaleOrdersForSync(token);
+  const orders = allOrders.filter(function (o) {
+    // ไม่มีวันที่สั่งซื้อเลยก็ตัดทิ้งไปด้วย (เทียบกับ syncFromDate ไม่ได้ และแทบไม่เคยเกิดกับคำสั่งขายจริง)
+    return !!o.orderDate && String(o.orderDate).slice(0, 10) >= syncFromDate;
+  });
+  log('ดึงจาก CRM ได้ ' + allOrders.length + ' รายการทั้งหมด — กรองเก็บเฉพาะตั้งแต่วันที่ ' + syncFromDate +
+    ' เป็นต้นมา เหลือ ' + orders.length + ' รายการที่จะบันทึกจริง (ตั้งค่าวันที่เองได้ที่ CRM_ORDERS_SYNC_FROM_DATE ใน scripts/.env)');
   const now = new Date().toISOString();
   const rows = orders.map(function (o) {
     return {
@@ -170,7 +194,6 @@ async function syncCrmOrders(supabaseUrl, authHeaders) {
       synced_at: now,
     };
   });
-  log('ดึงจาก CRM ได้ ' + rows.length + ' รายการคำสั่งขาย');
 
   log('ล้างตาราง crm_orders_cache เดิมทิ้ง...');
   const delRes = await fetch(supabaseUrl + '/rest/v1/crm_orders_cache?sale_order_id=neq.__never_matches__', {
