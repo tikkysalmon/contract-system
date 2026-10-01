@@ -21,6 +21,17 @@ function initContractsTab(containerId, currentUser, options) {
   // 2026-09-09 user ขอเพิ่ม — ให้ CS เลือกตอนตรวจสอบข้อมูลก่อนสร้างลิงก์ (ลูกค้าไม่ได้กรอกเอง) ใช้โชว์ในใบเบิก
   // สินค้า/ใบสรุปเบิกประจำวันของเมนู "สำหรับสต๊อค" — รายการช่องทางยืนยันจาก user ตรงๆ
   var DELIVERY_CHANNEL_OPTIONS = ['ส่งไปรษณีย์', 'ส่งแมส', 'นัดรับสาขาอ่อนนุช', 'นัดรับสาขาพัทยา'];
+  // โปรโมชั่นพิเศษ (2026-10-01 user ขอ) — CS เลือกตอนกรอกยืนยันก่อนสร้างลิงก์ เพื่อให้ทีมจัดซื้อ/สต๊อครู้ว่าต้องสั่งซื้อ/เบิก
+  // สินค้าโปรโมชั่นนี้เพิ่มไปส่งให้ลูกค้า ทุกตัวเลือกมีช่องกรอกรายละเอียดต่อท้าย ยกเว้น "เครื่องแถม"
+  var PROMO_OPTIONS = [
+    { value: 'Brandname', hasDetail: true },
+    { value: 'เครื่องแถม', hasDetail: false },
+    { value: 'ของแถม 3 ชิ้น', hasDetail: true },
+    { value: 'อื่นๆ', hasDetail: true },
+  ];
+  function promoHasDetail(type) {
+    return PROMO_OPTIONS.some(function (o) { return o.value === type && o.hasDetail; });
+  }
 
   var soAutoSearchTimer = null; // 2026-10-01 debounce timer สำหรับค้นหา SO อัตโนมัติตอนพิมพ์ (ไม่ต้องกด Enter/ไอคอน)
 
@@ -81,6 +92,8 @@ function initContractsTab(containerId, currentUser, options) {
       installmentCount: item.installmentCountFromCrm || 12,
       firstDueDate: firstDueDate,
       deliveryChannel: DELIVERY_CHANNEL_OPTIONS[0],
+      promoType: '', // 2026-10-01 โปรโมชั่นพิเศษ ('' = ไม่มี) + รายละเอียดต่อท้าย (ยกเว้น เครื่องแถม)
+      promoDetail: '',
       pickupDate: '', // 2026-09-30 วัน/เวลาที่นัดรับ — ใช้เฉพาะตอนเลือกช่องทาง "นัดรับสาขา..." (ทุกประเภทลูกค้า)
       pickupTime: '',
     };
@@ -333,6 +346,9 @@ function initContractsTab(containerId, currentUser, options) {
         // จุดแสดงผลอื่นอ่านค่านี้ต่อ (ไม่ได้ขอให้ทำเพิ่ม แค่ต้องบันทึกค่าที่ CS กรอกไว้ ไม่ให้หายไปเฉยๆ)
         pickupDate: cfg.pickupDate || null,
         pickupTime: cfg.pickupTime || null,
+        // โปรโมชั่นพิเศษ (2026-10-01) — ไปแสดงที่เมนู สำหรับสต๊อค/สำหรับจัดซื้อ และใบเบิกสินค้า (ดู api/stock-orders.js)
+        promoType: cfg.promoType || null,
+        promoDetail: cfg.promoType && promoHasDetail(cfg.promoType) ? (String(cfg.promoDetail || '').trim() || null) : null,
       };
     });
     var session = {
@@ -580,6 +596,14 @@ function initContractsTab(containerId, currentUser, options) {
         '<div class="field"><label>ช่องทางการจัดส่ง</label><select id="deliveryChannelInput' + suffix + '" data-so="' + r.soNumber + '">' +
         DELIVERY_CHANNEL_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (cfg.deliveryChannel === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
         '</select></div>' +
+        '<div class="row2">' +
+        '<div class="field"><label>โปรโมชั่นพิเศษ</label><select id="promoTypeInput' + suffix + '" data-so="' + r.soNumber + '">' +
+        '<option value=""' + (!cfg.promoType ? ' selected' : '') + '>-- ไม่มี --</option>' +
+        PROMO_OPTIONS.map(function (o) { return '<option value="' + o.value + '"' + (cfg.promoType === o.value ? ' selected' : '') + '>' + o.value + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="field" id="promoDetailWrap' + suffix + '" style="' + (promoHasDetail(cfg.promoType) ? '' : 'display:none;') + '"><label>รายละเอียดโปรโมชั่น</label>' +
+        '<input type="text" id="promoDetailInput' + suffix + '" data-so="' + r.soNumber + '" value="' + String(cfg.promoDetail || '').replace(/"/g, '&quot;') + '" placeholder="เช่น ชื่อแบรนด์/รายการของแถม" /></div>' +
+        '</div>' +
         '<div class="row2" id="pickupWrap' + suffix + '" style="' + (showPickup ? '' : 'display:none;') + '">' +
         '<div class="field"><label>วันที่นัดรับ</label>' +
         '<div class="date-field-wrap" id="pickupDateWrap' + suffix + '">' +
@@ -818,6 +842,20 @@ function initContractsTab(containerId, currentUser, options) {
         var pickupTimeInput = document.getElementById('pickupTimeInput' + suffix);
         if (pickupTimeInput) {
           pickupTimeInput.addEventListener('input', function (e) { state.itemInputs[r.soNumber].pickupTime = e.target.value; });
+        }
+        var promoTypeInput = document.getElementById('promoTypeInput' + suffix);
+        var promoDetailWrap = document.getElementById('promoDetailWrap' + suffix);
+        var promoDetailInput = document.getElementById('promoDetailInput' + suffix);
+        if (promoTypeInput) {
+          promoTypeInput.addEventListener('change', function (e) {
+            var cfgNow = state.itemInputs[r.soNumber];
+            cfgNow.promoType = e.target.value;
+            if (!promoHasDetail(cfgNow.promoType)) { cfgNow.promoDetail = ''; if (promoDetailInput) promoDetailInput.value = ''; }
+            if (promoDetailWrap) promoDetailWrap.style.display = promoHasDetail(cfgNow.promoType) ? '' : 'none';
+          });
+        }
+        if (promoDetailInput) {
+          promoDetailInput.addEventListener('input', function (e) { state.itemInputs[r.soNumber].promoDetail = e.target.value; });
         }
         var channelInput = document.getElementById('deliveryChannelInput' + suffix);
         if (channelInput) {

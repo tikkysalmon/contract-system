@@ -212,13 +212,14 @@ function initPurchasingTab(containerId, currentUser) {
           if (!expanded) return mainRow;
           var detailRow = '<tr><td></td><td colspan="5" style="background:#faf5ef;padding:10px 12px;">' +
             '<table class="installment-table" style="margin:0;"><thead><tr>' +
-            '<th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">ชื่อลูกค้า</th><th>ประเภทลูกค้า</th><th style="text-align:left;">ดีลเปลี่ยนสินค้า</th>' +
+            '<th style="text-align:left;">เลขที่ SO</th><th style="text-align:left;">ชื่อลูกค้า</th><th>ประเภทลูกค้า</th><th style="text-align:left;">โปรโมชั่นพิเศษ</th><th style="text-align:left;">ดีลเปลี่ยนสินค้า</th>' +
             '</tr></thead><tbody>' +
             r.orders.map(function (o) {
               return '<tr>' +
                 '<td style="text-align:left;">' + o.soNumber + '</td>' +
                 '<td style="text-align:left;">' + o.customerName + '</td>' +
                 '<td>' + (o.source === 'cash' ? 'ซื้อสด/ปิดยอด' : 'เครดิตผ่าน/วางดาวน์') + '</td>' +
+                '<td style="text-align:left;">' + (o.promoType ? o.promoType + (o.promoDetail ? ' : ' + o.promoDetail : '') : '-') + '</td>' +
                 '<td style="text-align:left;">' + dealChangeCellHtml(o) + '</td>' +
                 '</tr>';
             }).join('') +

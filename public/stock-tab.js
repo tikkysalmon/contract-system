@@ -242,6 +242,7 @@ function initStockTab(containerId, currentUser) {
         '<td style="' + td + '">' + accessoryLabel + '</td>' +
         '<td style="' + td + 'text-align:center;">1</td>' +
         '<td style="' + td + '">' + (r.giftItem || '-') + '</td>' +
+        '<td style="' + td + '">' + (promoText(r) || '-') + '</td>' +
         '</tr>';
     }).join('');
     var channelLabel = state.filterChannel === 'all' ? 'ทุกช่องทาง' : state.filterChannel;
@@ -264,6 +265,7 @@ function initStockTab(containerId, currentUser) {
       '<th style="' + td + '">Accessory</th>' +
       '<th style="' + td + '">จำนวน</th>' +
       '<th style="' + td + '">ของแถม</th>' +
+      '<th style="' + td + '">โปรโมชั่นพิเศษ</th>' +
       '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
       '<div style="display:flex;justify-content:space-around;margin-top:60px;">' +
       ['ผู้ขอเบิก / วันที่', 'ผู้ตรวจสอบสินค้า / วันที่', 'ผู้รับสินค้า / วันที่'].map(function (label) {
@@ -355,6 +357,7 @@ function initStockTab(containerId, currentUser) {
       '<div style="margin-top:14px;">' + detailHtml + '</div>' +
       '<hr style="margin:14px 0;border:none;border-top:1px solid #999;" />' +
       '<p style="margin:4px 0;"><b>ของแถม :</b> ' + (main.giftItem || '-') + '</p>' +
+      '<p style="margin:4px 0;"><b>โปรโมชั่นพิเศษ :</b> ' + (promoText(main) || '-') + '</p>' +
       '<p style="margin:4px 0;"><b>วิธีการผ่อน :</b> ' + (main.installmentTypeLabel || '-') + '</p>' +
       '<p style="margin:4px 0;"><b>รายละเอียดอื่นๆ :</b> ' + (main.shippingNote || '') + '</p>' +
       '</div>';
@@ -568,6 +571,12 @@ function initStockTab(containerId, currentUser) {
   // "ดีลเปลี่ยนสินค้า" (2026-09-24) — คอลัมน์นี้แสดงรายการที่จัดซื้อสร้างไว้จากเมนู "สำหรับจัดซื้อ" (สินค้าเดิม
   // หาซื้อไม่ได้) ให้ทีมสต๊อคติดต่อลูกค้าแล้วปิดสถานะ "ดีลสำเร็จ"/"ยกเลิกสัญญาคืนเงิน" — ไม่มีเลยถ้า SO นั้นไม่
   // ได้ถูกจัดซื้อ flag ไว้ (ปกติ ไม่ต้องทำอะไร)
+  // โปรโมชั่นพิเศษ (2026-10-01) — "ประเภท : รายละเอียด" (เครื่องแถมไม่มีรายละเอียด) ว่างถ้าไม่มี
+  function promoText(o) {
+    if (!o || !o.promoType) return '';
+    return o.promoType + (o.promoDetail ? ' : ' + o.promoDetail : '');
+  }
+
   function dealChangeCellHtml(o) {
     var d = o.dealChange;
     if (!d) return '<span style="color:var(--muted);">-</span>';
@@ -729,7 +738,7 @@ function initStockTab(containerId, currentUser) {
           var selectableSoNumbers = pagedOrders.filter(function (o) { return !o.cancelledAt; }).map(function (o) { return o.soNumber; });
           var allSelected = selectableSoNumbers.length > 0 && selectableSoNumbers.every(function (so) { return !!state.selected[so]; });
           return '<thead><tr><th><input type="checkbox" id="stkSelectAllRows"' + (allSelected ? ' checked' : '') +
-            (selectableSoNumbers.length === 0 ? ' disabled' : '') + ' /></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th style="text-align:left;">ดีลเปลี่ยนสินค้า</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>';
+            (selectableSoNumbers.length === 0 ? ' disabled' : '') + ' /></th><th>วิธีการผ่อน</th><th style="text-align:left;">เลขที่ SO</th><th>รหัสลูกค้า</th><th style="text-align:left;">ชื่อลูกค้า</th><th style="text-align:left;">สินค้า</th><th style="text-align:left;">โปรโมชั่นพิเศษ</th><th>สต๊อกคงเหลือ (Odoo)</th><th>สถานะสต๊อก</th><th style="text-align:left;">ดีลเปลี่ยนสินค้า</th><th>สถานะการทำสัญญา</th><th>สถานะพิมพ์</th><th>รอบการเบิก</th><th>วันที่เบิกสินค้า</th><th></th><th></th></tr></thead>';
         })() +
         '<tbody>' + pagedOrders.map(function (o) {
           var checked = !!state.selected[o.soNumber];
@@ -741,6 +750,7 @@ function initStockTab(containerId, currentUser) {
             '<td>' + (o.customerId || '-') + '</td>' +
             '<td style="text-align:left;">' + o.customerName + '</td>' +
             '<td style="text-align:left;">' + o.product + (o.color ? ' (' + o.color + ')' : '') + '</td>' +
+            '<td style="text-align:left;">' + (promoText(o) || '-') + '</td>' +
             '<td>' + (o.odooAvailableQty != null ? o.odooAvailableQty : '-') + '</td>' +
             '<td>' + stockStatusBadge(o) + '</td>' +
             '<td style="text-align:left;">' + dealChangeCellHtml(o) + '</td>' +
@@ -751,7 +761,7 @@ function initStockTab(containerId, currentUser) {
             '<td><button type="button" class="btn btn-ghost stkBtnPrintBill" data-so="' + o.soNumber + '"' + (state.printingBillSo === o.soNumber ? ' disabled' : '') + '>' + (state.printingBillSo === o.soNumber ? 'กำลังสร้าง...' : '🖨️ ใบเบิกรายบิล') + '</button></td>' +
             '<td>' + (o.source === 'cash' && !o.cancelledAt ? '<button type="button" class="btn btn-ghost stkBtnCancel" data-so="' + o.soNumber + '" style="color:var(--danger);">ยกเลิกออเดอร์</button>' : '') + '</td>' +
             '</tr>';
-        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="15" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
+        }).join('') + (pagedOrders.length === 0 ? '<tr><td colspan="16" style="color:var(--muted);">ไม่พบรายการ</td></tr>' : '') +
         '</tbody></table></div>' +
         '</div>';
     }

@@ -171,7 +171,7 @@ async function doChangeSo(authHeaders, submissionId, staffName, oldSoNumber, new
   if (newItem.deliveryChannel === undefined) newItem.deliveryChannel = items[idx].deliveryChannel || null;
   // 2026-10-01 แก้ช่องโหว่เดียวกัน: วัน/เวลานัดรับ (+ประวัติเลื่อนนัด/สถานะรับแล้ว) ก็เป็นข้อมูลที่ CS/หน้าร้านกรอก
   // เอง ไม่ได้มาจาก CRM ต้องย้ายตามไปกับการเปลี่ยน SO ด้วย ไม่งั้นหายเงียบๆ
-  ['pickupDate', 'pickupTime', 'pickupHistory', 'pickedUpAt', 'pickedUpBy'].forEach(function (k) {
+  ['pickupDate', 'pickupTime', 'pickupHistory', 'pickedUpAt', 'pickedUpBy', 'promoType', 'promoDetail'].forEach(function (k) {
     if (newItem[k] === undefined && items[idx][k] !== undefined) newItem[k] = items[idx][k];
   });
   items[idx] = newItem;

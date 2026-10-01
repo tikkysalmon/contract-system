@@ -114,6 +114,9 @@ async function fetchCreditOrders(authHeaders) {
           zip: addr.zip || null,
         },
         deliveryChannel: item.deliveryChannel || null, // CS เลือกตอนตรวจสอบก่อนสร้างลิงก์ (2026-09-09)
+        // โปรโมชั่นพิเศษที่ CS กรอกตอนสร้างลิงก์ (2026-10-01) — ใช้แสดงที่ สำหรับสต๊อค/สำหรับจัดซื้อ/ใบเบิกสินค้า
+        promoType: item.promoType || null,
+        promoDetail: item.promoDetail || null,
         // วัน/เวลานัดรับล่าสุด (รวมที่เลื่อนนัดแล้ว) — ใช้พิมพ์ในใบเบิกสินค้า เฉพาะช่องทางนัดรับสาขา (2026-10-01)
         pickupDate: String(item.deliveryChannel || '').indexOf('นัดรับสาขา') === 0 ? (item.pickupDate || null) : null,
         pickupTime: String(item.deliveryChannel || '').indexOf('นัดรับสาขา') === 0 ? (item.pickupTime || null) : null,
