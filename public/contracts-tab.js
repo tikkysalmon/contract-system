@@ -22,6 +22,8 @@ function initContractsTab(containerId, currentUser, options) {
   // สินค้า/ใบสรุปเบิกประจำวันของเมนู "สำหรับสต๊อค" — รายการช่องทางยืนยันจาก user ตรงๆ
   var DELIVERY_CHANNEL_OPTIONS = ['ส่งไปรษณีย์', 'ส่งแมส', 'นัดรับสาขาอ่อนนุช', 'นัดรับสาขาพัทยา'];
 
+  var soAutoSearchTimer = null; // 2026-10-01 debounce timer สำหรับค้นหา SO อัตโนมัติตอนพิมพ์ (ไม่ต้องกด Enter/ไอคอน)
+
   var state = {
     searchMode: 'so',       // 'so' | 'name' (2026-09-04 เพิ่มโหมดค้นหาด้วยชื่อลูกค้า) | 'customerId' (2026-09-08)
     soNumber: options.initialSoNumber || '',
@@ -727,9 +729,20 @@ function initContractsTab(containerId, currentUser, options) {
     app.innerHTML = html;
 
     if (!singleSoMode) {
-      document.getElementById('soInput').addEventListener('input', function (e) { state.soNumber = e.target.value; });
-      document.getElementById('soInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
-      document.getElementById('btnSearch').addEventListener('click', doSearch);
+      // 2026-10-01 user ขอ: โหมดค้นหาด้วยเลขที่สั่งซื้อ SO พิมพ์เลขแล้วให้ดึงข้อมูลจาก CRM ให้เลย ไม่ต้องกด
+      // Enter/ไอคอนค้นหาเอง (debounce กันยิง API รัวทุกตัวอักษรที่พิมพ์)
+      document.getElementById('soInput').addEventListener('input', function (e) {
+        state.soNumber = e.target.value;
+        if (state.searchMode === 'so') {
+          clearTimeout(soAutoSearchTimer);
+          var typedValue = state.soNumber;
+          soAutoSearchTimer = setTimeout(function () {
+            if (state.soNumber.trim() && state.soNumber === typedValue) doSearch();
+          }, 600);
+        }
+      });
+      document.getElementById('soInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') { clearTimeout(soAutoSearchTimer); doSearch(); } });
+      document.getElementById('btnSearch').addEventListener('click', function () { clearTimeout(soAutoSearchTimer); doSearch(); });
       document.getElementById('soSearchType').addEventListener('change', function (e) {
         state.searchMode = e.target.value;
         state.soNumber = '';
