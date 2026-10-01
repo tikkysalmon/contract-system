@@ -31,7 +31,9 @@
     var view = parseValueOrToday(); // เดือน/ปีที่ "กำลังดู" ในปฏิทิน ไม่ใช่ค่าที่เลือกแล้วเสมอไป (เลื่อนเดือนได้โดยยังไม่กดเลือก)
 
     function updateDisplay() {
-      displayEl.textContent = value ? isoToDDMMYYYY(value) : 'เลือกวันที่';
+      // 2026-10-01 user ขอ: ช่องกรอง "วันที่สั่งซื้อ SO" ให้ขึ้นข้อความนั้นแทน "เลือกวันที่" เฉยๆ ตอนยังไม่ได้
+      // เลือกวันที่ — เพิ่ม opts.placeholder (ไม่บังคับ) ไม่กระทบที่เรียกใช้จุดอื่นที่ไม่ได้ส่งค่านี้มา
+      displayEl.textContent = value ? isoToDDMMYYYY(value) : (opts.placeholder || 'เลือกวันที่');
     }
 
     function onOutsideMouseDown(e) {

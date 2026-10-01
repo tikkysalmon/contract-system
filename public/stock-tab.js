@@ -775,6 +775,7 @@ function initStockTab(containerId, currentUser) {
     if (cashOrderDateWrap) {
       attachThaiDatePicker(cashOrderDateWrap, {
         value: state.filterCashOrderDate,
+        placeholder: 'วันที่สั่งซื้อ SO',
         onChange: function (iso) { state.filterCashOrderDate = iso; state.currentPage = 1; pruneSelectionToVisible(); render(); },
       });
     }
