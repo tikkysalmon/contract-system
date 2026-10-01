@@ -17,6 +17,8 @@
     { username: 'stock1', password: '1234', department: 'สต๊อค' },
     { username: 'pack1', password: '1234', department: 'แพ็คกิ้ง' },
     { username: 'purchase1', password: '1234', department: 'จัดซื้อ' }, // 2026-09-24 user ขอเพิ่มเมนู "สำหรับจัดซื้อ"
+    { username: 'service1', password: '1234', department: 'บริการ' }, // 2026-10-01 เมนู "ข้อมูลลูกค้า"
+    { username: 'store1', password: '1234', department: 'หน้าร้าน' }, // 2026-10-01 เลื่อนนัดรับสินค้าที่สาขา
     { username: 'admin', password: '1234', department: 'ผู้จัดการ' },
   ];
 
@@ -29,6 +31,7 @@
   var ICONS = {
     contracts: svgIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line>'),
     for_cs: svgIcon('<path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>'),
+    customer_info: svgIcon('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>'),
     stock: svgIcon('<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line>'),
     packing: svgIcon('<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line>'),
     purchasing: svgIcon('<circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>'),
@@ -45,6 +48,8 @@
   var MENU_ITEMS = [
     { key: 'contracts', icon: 'contracts', label: 'ข้อมูลลูกค้าทำสัญญา', departments: ['CS', 'บัญชี'] },
     { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
+    // 2026-10-01 user ขอ: รวบรวมข้อมูลลูกค้า/การจัดส่งให้แผนกบริการตรวจสอบและแจ้งลูกค้า (ดู customer-info-tab.js)
+    { key: 'customer_info', icon: 'customer_info', label: 'ข้อมูลลูกค้า', departments: ['CS', 'บริการ', 'หน้าร้าน'] },
     { key: 'stock', icon: 'stock', label: 'สำหรับสต๊อค', departments: ['สต๊อค'] },
     { key: 'packing', icon: 'packing', label: 'สำหรับแพ็คกิ้ง', departments: ['แพ็คกิ้ง'] },
     // 2026-09-24 user ระบุสเปกแล้ว: สรุปสินค้า "รอสต๊อก" แยกตามประเภทลูกค้าให้ทีมจัดซื้อดู (ดู purchasing-tab.js)
@@ -197,6 +202,11 @@
       // ทุกวัน (ค้นหา SO → ตรวจสอบ → สร้างลิงก์) จึงย้ายมาอยู่ใต้เมนู "สำหรับ CS" แทน
       container.innerHTML = '<div id="contractsTabRoot"></div>';
       initContractsTab('contractsTabRoot', state.user);
+      return;
+    }
+    if (state.activeTab === 'customer_info') {
+      container.innerHTML = '<div id="customerInfoTabRoot"></div>';
+      initCustomerInfoTab('customerInfoTabRoot', state.user);
       return;
     }
     if (state.activeTab === 'stock') {

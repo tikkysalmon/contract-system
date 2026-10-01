@@ -10,6 +10,66 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const { computeContractStatus, computeShippingStatus } = require('./_lib/contract-status');
 
+// ?view=customer-info (2026-10-01) — เมนู "ข้อมูลลูกค้า" (public/customer-info-tab.js) ให้แผนกบริการตรวจสอบ
+// ข้อมูลลูกค้าเบื้องต้นและแจ้งลูกค้า 1 แถวต่อ 1 SO — ใส่เป็น view ในไฟล์นี้แทนสร้าง api/*.js ใหม่ เพราะโปรเจกต์
+// ชนโควต้า 12 serverless function ของ Vercel Hobby แล้ว (ดู api/packing.js) ไม่แตะ response ปกติด้านล่างเลย
+// สถานะการจัดส่ง: มีเลข tracking (packing_records.tracking_no นำเข้าจาก MyOrder ผ่านเมนู "สำหรับแพ็คกิ้ง") =
+// "จัดส่งสินค้าแล้ว" อัตโนมัติ ไม่งั้น "รอจัดส่ง" — คำนวณสดทุกครั้ง ไม่เก็บเป็นคอลัมน์ จึงไม่มีทางค้างไม่ตรงกับเลขพัสดุ
+async function handleCustomerInfo(res) {
+  const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
+  const r = await fetch(
+    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot&order=created_at.desc&limit=500',
+    { headers: authHeaders }
+  );
+  if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
+  const sessions = await r.json();
+
+  const soNumbers = [];
+  sessions.forEach(function (s) {
+    ((s.crm_snapshot || {}).items || []).forEach(function (it) { if (it.soNumber) soNumbers.push(it.soNumber); });
+  });
+  const trackingBySo = {};
+  if (soNumbers.length) {
+    const inList = soNumbers.map(function (s) { return encodeURIComponent(s); }).join(',');
+    const pkRes = await fetch(
+      SUPABASE_URL + '/rest/v1/packing_records?so_number=in.(' + inList + ')&select=so_number,tracking_no,courier',
+      { headers: authHeaders }
+    );
+    if (pkRes.ok) (await pkRes.json()).forEach(function (p) { trackingBySo[p.so_number] = p; });
+  }
+
+  const rows = [];
+  sessions.forEach(function (s) {
+    const snap = s.crm_snapshot || {};
+    ((snap.items) || []).forEach(function (it) {
+      const pk = trackingBySo[it.soNumber] || {};
+      const trackingNo = pk.tracking_no || null;
+      const channel = it.deliveryChannel || null;
+      const isPickup = String(channel || '').indexOf('นัดรับสาขา') === 0;
+      rows.push({
+        soNumber: it.soNumber || null,
+        customerId: it.customerId || null,
+        customerName: (snap.customer && snap.customer.firstLastName) || '-',
+        customerType: it.installmentTypeLabel || null,
+        planType: it.planType || null, // fallback ตอน installmentTypeLabel ว่าง (ลิงก์รุ่นเก่า)
+        deliveryChannel: channel,
+        pickupDate: isPickup ? (it.pickupDate || null) : null,
+        pickupTime: isPickup ? (it.pickupTime || null) : null,
+        // นัดรับสาขาไม่มีเลข tracking — ใช้ pickedUpAt ที่แผนกบริการกดยืนยัน (staff-actions 'markPickedUp') แทน
+        shippingStatus: trackingNo ? 'จัดส่งสินค้าแล้ว' : (isPickup && it.pickedUpAt ? 'ลูกค้ารับสินค้าแล้ว' : 'รอจัดส่ง'),
+        sessionToken: s.token,
+        isPickup: isPickup,
+        pickedUpAt: it.pickedUpAt || null,
+        pickupHistory: isPickup && Array.isArray(it.pickupHistory) ? it.pickupHistory : [], // ประวัติเลื่อนนัดรับ (reschedulePickup)
+        trackingNo: trackingNo,
+        courier: pk.courier || null,
+        createdAt: s.created_at,
+      });
+    });
+  });
+  res.status(200).json({ rows: rows });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'GET') {
@@ -18,6 +78,10 @@ module.exports = async function handler(req, res) {
   }
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY บน server' });
+    return;
+  }
+  if (req.query && req.query.view === 'customer-info') {
+    try { await handleCustomerInfo(res); } catch (err) { res.status(500).json({ error: err.message }); }
     return;
   }
   try {

@@ -792,6 +792,7 @@ function initCsStatusView(containerId, currentUser) {
     { value: 'Set ของแถมน่ารักๆ คละสี', planTag: 'both' },
     { value: 'ไม่รับของแถม', planTag: 'both' },
   ];
+  function isPickupChannel(channel) { return String(channel || '').indexOf('นัดรับสาขา') === 0; }
   function giftOptionsForPlan(planType) {
     return GIFT_OPTIONS.filter(function (o) { return o.planTag === 'both' || o.planTag === planType; });
   }
@@ -894,6 +895,8 @@ function initCsStatusView(containerId, currentUser) {
       addr: Object.assign({}, (found.s.logistics && found.s.logistics.shippingAddress) || {}),
       giftItem: (found.s.logistics && found.s.logistics.giftItem) || '',
       deliveryChannel: found.it.deliveryChannel || '',
+      pickupDate: found.it.pickupDate || '', // 2026-10-01 วัน/เวลานัดรับ — โชว์เฉพาะช่องทาง "นัดรับสาขา..."
+      pickupTime: found.it.pickupTime || '',
     };
     render();
   }
@@ -920,6 +923,8 @@ function initCsStatusView(containerId, currentUser) {
           shippingAddress: target.addr,
           giftItem: target.giftItem,
           deliveryChannel: target.deliveryChannel,
+          pickupDate: target.pickupDate || null,
+          pickupTime: target.pickupTime || null,
         }),
       });
       var body = await res.json();
@@ -952,6 +957,10 @@ function initCsStatusView(containerId, currentUser) {
       '<option value=""' + (!t.deliveryChannel ? ' selected' : '') + '>-- ยังไม่ได้เลือก --</option>' +
       DELIVERY_CHANNEL_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (t.deliveryChannel === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
       '</select></div>' +
+      '<div class="row2" id="csEditPickupWrap" style="' + (isPickupChannel(t.deliveryChannel) ? '' : 'display:none;') + '">' +
+      '<div class="field"><label>วันที่นัดรับ</label><div class="date-field-wrap" id="csEditPickupDateWrap"><div class="date-display">' + (isoToDDMMYYYY(t.pickupDate) || 'เลือกวันที่') + '</div></div></div>' +
+      '<div class="field"><label>เวลาที่นัดรับ</label><input type="time" id="csEditPickupTime" value="' + (t.pickupTime || '') + '" /></div>' +
+      '</div>' +
       '<button class="btn btn-primary" id="csBtnSaveLogistics"' + (state.savingLogistics ? ' disabled' : '') + '>' + (state.savingLogistics ? 'กำลังบันทึก...' : 'บันทึก') + '</button> ' +
       '<button class="btn btn-ghost" id="csBtnCancelLogistics">ยกเลิก</button>' +
       '</div>';
@@ -1006,7 +1015,15 @@ function initCsStatusView(containerId, currentUser) {
       var t = state.editingLogisticsFor;
       window.attachAddressPicker.wire('csEditShip', t.addr, function () { /* mutates t.addr in place */ });
       document.getElementById('csEditGiftItem').addEventListener('change', function (e) { t.giftItem = e.target.value; });
-      document.getElementById('csEditDeliveryChannel').addEventListener('change', function (e) { t.deliveryChannel = e.target.value; });
+      document.getElementById('csEditDeliveryChannel').addEventListener('change', function (e) {
+        t.deliveryChannel = e.target.value;
+        document.getElementById('csEditPickupWrap').style.display = isPickupChannel(t.deliveryChannel) ? '' : 'none';
+      });
+      attachThaiDatePicker(document.getElementById('csEditPickupDateWrap'), {
+        value: t.pickupDate,
+        onChange: function (iso) { t.pickupDate = iso; },
+      });
+      document.getElementById('csEditPickupTime').addEventListener('input', function (e) { t.pickupTime = e.target.value; });
       document.getElementById('csBtnSaveLogistics').addEventListener('click', saveLogisticsEdit);
       document.getElementById('csBtnCancelLogistics').addEventListener('click', closeLogisticsEditor);
     }

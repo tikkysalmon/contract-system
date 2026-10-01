@@ -345,7 +345,8 @@ function initStockTab(containerId, currentUser) {
       '<tr><td style="padding:3px 0;"><b>ชื่อผู้รับสินค้า :</b> ' + (main.recipientName || main.customerName || '-') + '</td><td style="padding:3px 0;"><b>เบอร์ติดต่อผู้รับสินค้า :</b> ' + (main.recipientPhone || '-') + '</td></tr>' +
       '</table>' +
       '<p style="margin:8px 0 2px;"><b>ที่อยู่จัดส่ง :</b> ' + fmtAddress(main.shippingAddress) + '</p>' +
-      '<p style="margin:2px 0 12px;"><b>ช่องทางการจัดส่ง :</b> ' + (main.deliveryChannel || '-') + '</p>' +
+      '<p style="margin:2px 0 12px;"><b>ช่องทางการจัดส่ง :</b> ' + (main.deliveryChannel || '-') +
+      (main.pickupDate ? ' &nbsp;|&nbsp; <b>วัน/เวลานัดรับ :</b> ' + isoToDDMMYYYY(main.pickupDate) + (main.pickupTime ? ' ' + main.pickupTime + ' น.' : '') : '') + '</p>' +
       '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
       '<thead><tr style="background:#f2f2f2;">' +
       '<th style="border:1px solid #999;padding:6px;">ลำดับที่</th><th style="border:1px solid #999;padding:6px;">รายการสินค้า</th>' +

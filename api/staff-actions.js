@@ -167,6 +167,11 @@ async function doChangeSo(authHeaders, submissionId, staffName, oldSoNumber, new
   // ตรงๆ ไม่มี deliveryChannel (ฟิลด์นี้ CS เป็นคนเลือกเองตอนสร้างลิงก์ ไม่ได้มาจาก CRM) — ถ้าไม่รักษาค่าเดิมไว้
   // จะหายไปเงียบๆ ทุกครั้งที่เปลี่ยน SO (กระทบเคส "ผ่อนสะสมยอด" ที่ต้องรู้ช่องทางจัดส่ง/สาขาที่นัดรับตรงๆ)
   if (newItem.deliveryChannel === undefined) newItem.deliveryChannel = items[idx].deliveryChannel || null;
+  // 2026-10-01 แก้ช่องโหว่เดียวกัน: วัน/เวลานัดรับ (+ประวัติเลื่อนนัด/สถานะรับแล้ว) ก็เป็นข้อมูลที่ CS/หน้าร้านกรอก
+  // เอง ไม่ได้มาจาก CRM ต้องย้ายตามไปกับการเปลี่ยน SO ด้วย ไม่งั้นหายเงียบๆ
+  ['pickupDate', 'pickupTime', 'pickupHistory', 'pickedUpAt', 'pickedUpBy'].forEach(function (k) {
+    if (newItem[k] === undefined && items[idx][k] !== undefined) newItem[k] = items[idx][k];
+  });
   items[idx] = newItem;
   snapshot.items = items;
 
@@ -206,7 +211,83 @@ async function doChangeSo(authHeaders, submissionId, staffName, oldSoNumber, new
   res.status(200).json({ ok: true, token: sessTokenRows[0] && sessTokenRows[0].token });
 }
 
-async function doUpdateLogistics(authHeaders, submissionId, staffName, soNumber, shippingAddress, giftItem, deliveryChannel, res) {
+// 'markPickedUp' (2026-10-01) — { sessionToken, soNumber, pickedUp: boolean } ลูกค้ามารับสินค้าที่สาขาแล้ว (เมนู
+// "ข้อมูลลูกค้า") เก็บ pickedUpAt/pickedUpBy ไว้ใน item ของ crm_snapshot.items[] แบบเดียวกับ deliveryChannel
+// ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ใช้ได้เฉพาะ item ที่ช่องทางเป็น "นัดรับสาขา..." (แถวส่งพัสดุใช้เลข tracking แทน)
+async function doMarkPickedUp(authHeaders, staffName, sessionToken, soNumber, pickedUp, res) {
+  if (!sessionToken || !soNumber) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (sessionToken/soNumber)' }); return; }
+  const sessRes = await fetch(
+    SUPABASE_URL + '/rest/v1/contract_sessions?token=eq.' + encodeURIComponent(sessionToken) + '&select=id,crm_snapshot',
+    { headers: authHeaders }
+  );
+  const sessRows = await sessRes.json();
+  if (!sessRes.ok || !sessRows.length) { res.status(404).json({ error: 'ไม่พบ session นี้' }); return; }
+  const snapshot = sessRows[0].crm_snapshot || {};
+  const items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
+  const idx = items.findIndex(function (it) { return it.soNumber === soNumber; });
+  if (idx === -1) { res.status(404).json({ error: 'ไม่พบ SO นี้ (' + soNumber + ') ในสัญญา' }); return; }
+  if (String(items[idx].deliveryChannel || '').indexOf('นัดรับสาขา') !== 0) {
+    res.status(400).json({ error: 'SO นี้ไม่ได้เลือกช่องทางนัดรับสาขา' });
+    return;
+  }
+  items[idx] = Object.assign({}, items[idx], pickedUp
+    ? { pickedUpAt: new Date().toISOString(), pickedUpBy: staffName }
+    : { pickedUpAt: null, pickedUpBy: null });
+  snapshot.items = items;
+  const patchRes = await fetch(SUPABASE_URL + '/rest/v1/contract_sessions?id=eq.' + encodeURIComponent(sessRows[0].id), {
+    method: 'PATCH',
+    headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+    body: JSON.stringify({ crm_snapshot: snapshot }),
+  });
+  if (!patchRes.ok) {
+    const text = await patchRes.text();
+    throw new Error('บันทึกสถานะรับสินค้าไม่สำเร็จ (HTTP ' + patchRes.status + '): ' + text.slice(0, 300));
+  }
+  res.status(200).json({ ok: true });
+}
+
+// 'reschedulePickup' (2026-10-01) — { sessionToken, soNumber, pickupDate:'YYYY-MM-DD', pickupTime:'HH:MM', reason? }
+// ลูกค้าขอเลื่อนนัดรับที่สาขา พนักงานหน้าร้านกรอกวัน/เวลาใหม่ — เขียนทับ pickupDate/pickupTime ของ item (ค่าที่
+// เมนูอื่นอ่านอยู่แล้ว จึงตามไปทุกที่อัตโนมัติ) และต่อประวัติไว้ใน pickupHistory[] (ค่าเดิม → ค่าใหม่/เหตุผล/ใคร/เมื่อไหร่)
+// ใช้ได้เฉพาะ item ที่เป็นนัดรับสาขาและยังไม่ถูกกด "ลูกค้ารับสินค้าแล้ว"
+async function doReschedulePickup(authHeaders, staffName, sessionToken, soNumber, pickupDate, pickupTime, reason, res) {
+  if (!sessionToken || !soNumber) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (sessionToken/soNumber)' }); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate || '')) { res.status(400).json({ error: 'กรุณาระบุวันที่นัดรับใหม่' }); return; }
+  if (!/^\d{2}:\d{2}$/.test(pickupTime || '')) { res.status(400).json({ error: 'กรุณาระบุเวลานัดรับใหม่' }); return; }
+  const sessRes = await fetch(
+    SUPABASE_URL + '/rest/v1/contract_sessions?token=eq.' + encodeURIComponent(sessionToken) + '&select=id,crm_snapshot',
+    { headers: authHeaders }
+  );
+  const sessRows = await sessRes.json();
+  if (!sessRes.ok || !sessRows.length) { res.status(404).json({ error: 'ไม่พบ session นี้' }); return; }
+  const snapshot = sessRows[0].crm_snapshot || {};
+  const items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
+  const idx = items.findIndex(function (it) { return it.soNumber === soNumber; });
+  if (idx === -1) { res.status(404).json({ error: 'ไม่พบ SO นี้ (' + soNumber + ') ในสัญญา' }); return; }
+  const cur = items[idx];
+  if (String(cur.deliveryChannel || '').indexOf('นัดรับสาขา') !== 0) { res.status(400).json({ error: 'SO นี้ไม่ได้เลือกช่องทางนัดรับสาขา' }); return; }
+  if (cur.pickedUpAt) { res.status(400).json({ error: 'SO นี้ลูกค้ารับสินค้าแล้ว เลื่อนนัดไม่ได้' }); return; }
+  if (cur.pickupDate === pickupDate && cur.pickupTime === pickupTime) { res.status(400).json({ error: 'วัน/เวลาที่ระบุตรงกับนัดเดิม' }); return; }
+  const history = Array.isArray(cur.pickupHistory) ? cur.pickupHistory.slice() : [];
+  history.push({
+    fromDate: cur.pickupDate || null, fromTime: cur.pickupTime || null, toDate: pickupDate, toTime: pickupTime,
+    reason: String(reason || '').trim() || null, by: staffName, at: new Date().toISOString(),
+  });
+  items[idx] = Object.assign({}, cur, { pickupDate: pickupDate, pickupTime: pickupTime, pickupHistory: history });
+  snapshot.items = items;
+  const patchRes = await fetch(SUPABASE_URL + '/rest/v1/contract_sessions?id=eq.' + encodeURIComponent(sessRows[0].id), {
+    method: 'PATCH',
+    headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+    body: JSON.stringify({ crm_snapshot: snapshot }),
+  });
+  if (!patchRes.ok) {
+    const text = await patchRes.text();
+    throw new Error('บันทึกการเลื่อนนัดรับไม่สำเร็จ (HTTP ' + patchRes.status + '): ' + text.slice(0, 300));
+  }
+  res.status(200).json({ ok: true });
+}
+
+async function doUpdateLogistics(authHeaders, submissionId, staffName, soNumber, shippingAddress, giftItem, deliveryChannel, pickupDate, pickupTime, res) {
   const hasCustomerDataUpdate = shippingAddress !== undefined || giftItem !== undefined;
   const hasDeliveryChannelUpdate = deliveryChannel !== undefined;
   if (!hasCustomerDataUpdate && !hasDeliveryChannelUpdate) { res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' }); return; }
@@ -257,7 +338,18 @@ async function doUpdateLogistics(authHeaders, submissionId, staffName, soNumber,
     const items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
     const idx = items.findIndex(function (it) { return it.soNumber === soNumber; });
     if (idx === -1) { res.status(404).json({ error: 'ไม่พบ SO นี้ (' + soNumber + ') ในสัญญา' }); return; }
-    items[idx] = Object.assign({}, items[idx], { deliveryChannel: deliveryChannel });
+    // วัน/เวลานัดรับ (2026-10-01) — ใช้เฉพาะช่องทาง "นัดรับสาขา..." ถ้าเปลี่ยนไปช่องทางอื่นต้องเคลียร์ทิ้ง ไม่งั้น
+    // ค้างเป็นนัดรับผีในเมนู "ข้อมูลลูกค้า"/ใบเบิกสินค้า ส่วนวัน/เวลาที่ส่งมาด้วย (ถ้ามี) CS แก้ตรงๆ ในฐานะแก้ไข
+    // ข้อมูลผิด ไม่นับเป็นการ "เลื่อนนัด" (ประวัติเลื่อนนัดบันทึกเฉพาะ action reschedulePickup)
+    const isPickupChannel = String(deliveryChannel || '').indexOf('นัดรับสาขา') === 0;
+    const patch = { deliveryChannel: deliveryChannel };
+    if (!isPickupChannel) {
+      patch.pickupDate = null; patch.pickupTime = null; patch.pickedUpAt = null; patch.pickedUpBy = null;
+    } else {
+      if (pickupDate !== undefined) patch.pickupDate = pickupDate || null;
+      if (pickupTime !== undefined) patch.pickupTime = pickupTime || null;
+    }
+    items[idx] = Object.assign({}, items[idx], patch);
     snapshot.items = items;
 
     const patchSessRes = await fetch(
@@ -347,6 +439,17 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    if (action === 'markPickedUp') {
+      await doMarkPickedUp(authHeaders, staffName, String(body.sessionToken || '').trim(), String(body.soNumber || '').trim(), !!body.pickedUp, res);
+      return;
+    }
+
+    if (action === 'reschedulePickup') {
+      await doReschedulePickup(authHeaders, staffName, String(body.sessionToken || '').trim(), String(body.soNumber || '').trim(),
+        String(body.pickupDate || '').trim(), String(body.pickupTime || '').trim(), body.reason, res);
+      return;
+    }
+
     const submissionId = String(body.submissionId || '').trim();
     if (!submissionId) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (submissionId)' }); return; }
 
@@ -355,7 +458,7 @@ module.exports = async function handler(req, res) {
     if (action === 'confirm') { await doConfirm(authHeaders, submissionId, staffName, res); return; }
     if (action === 'changeSo') { await doChangeSo(authHeaders, submissionId, staffName, body.oldSoNumber, body.newItem, res); return; }
     if (action === 'updateLogistics') {
-      await doUpdateLogistics(authHeaders, submissionId, staffName, body.soNumber, body.shippingAddress, body.giftItem, body.deliveryChannel, res);
+      await doUpdateLogistics(authHeaders, submissionId, staffName, body.soNumber, body.shippingAddress, body.giftItem, body.deliveryChannel, body.pickupDate, body.pickupTime, res);
       return;
     }
     res.status(400).json({ error: 'ไม่รู้จัก action นี้' });
