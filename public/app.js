@@ -72,7 +72,7 @@
 
   var state = {
     user: null, // { username, department }
-    activeTab: 'contracts',
+    activeTab: 'customer_info',
     loginError: '',
     sidebarCollapsed: false,
   };
@@ -144,7 +144,7 @@
     state.loginError = '';
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(state.user));
     var firstVisible = MENU_ITEMS.filter(function (m) { return menuVisibleFor(m, matched.department); })[0];
-    state.activeTab = firstVisible ? firstVisible.key : 'contracts';
+    state.activeTab = firstVisible ? firstVisible.key : 'customer_info';
     renderApp();
   }
 
@@ -157,6 +157,9 @@
   function renderApp() {
     var root = document.getElementById('root');
     var visibleMenus = MENU_ITEMS.filter(function (m) { return menuVisibleFor(m, state.user.department); });
+    // 2026-10-01 รีเฟรช/เปิดเว็บใหม่ให้เริ่มที่เมนู "ข้อมูลลูกค้า" เสมอ (state.activeTab เริ่มต้น) — ถ้าแผนกนี้ไม่มีสิทธิ์เห็นเมนูนั้น
+    // (เมื่อเปิด SHOW_ALL_MENUS=false) ให้ตกไปเมนูแรกที่เห็นได้แทน
+    if (!visibleMenus.some(function (m) { return m.key === state.activeTab; }) && visibleMenus.length) state.activeTab = visibleMenus[0].key;
 
     root.innerHTML =
       '<div class="app-shell">' +
