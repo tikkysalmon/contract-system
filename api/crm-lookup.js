@@ -16,6 +16,10 @@
 //     — remainingBalance (= netPrice - accumulatedAmount ทั้งก้อน) ยังคำนวณถูกต้องเหมือนเดิม ไม่กระทบ
 
 const CRM_API_BASE = 'https://api.salmonphone.com';
+// ป้าย "วิธีการผ่อน" ตัวเดียวกับที่เมนู "สำหรับสต๊อค" ใช้อยู่แล้ว (ยืนยันตรงกับคำที่ CRM แสดงจริง) — ใช้ร่วมกัน
+// แทนที่จะเขียนป้ายใหม่ที่นี่ กัน 2 เมนูโชว์คำไม่ตรงกัน (2026-09-30 user แจ้งว่า "สำหรับ CS" โชว์ป้ายรวม
+// "ซื้อสด/ปิดยอด (ผ่อนครบรับของ)" ทั้งที่ SO นี้เป็น FULL_PAYMENT ล้วนๆ ซึ่ง CRM เองโชว์แค่ "ซื้อสด" เฉยๆ)
+const { INSTALLMENT_TYPE_LABELS } = require('./_lib/stock-reservation');
 
 let cachedToken = null; // อยู่ได้แค่ระหว่าง warm invocation เดียวกันของ Vercel function เท่านั้น ไม่ persist ข้าม request จริง
 
@@ -154,6 +158,10 @@ async function buildSoData(soNumber, token) {
     product: product,
     color: color,
     planType: planType,
+    // 2026-09-30 ป้ายเฉพาะเจาะจงตาม installmentType จริงของ CRM (ซื้อสด / ผ่อนครบรับของ (ปิดยอด) / วางดาวน์ /
+    // เครดิตผ่าน) — planType ด้านบนยังคงเป็นค่ารวม ('cash' ครอบทั้งซื้อสด+ปิดยอด) ใช้ตัดสินใจ behavior ของฟอร์ม
+    // เหมือนเดิม ไม่เปลี่ยน แค่ใช้ installmentTypeLabel นี้ตอนแสดงผลให้ตรงกับ CRM แทนป้ายรวมที่ generic เกินไป
+    installmentTypeLabel: INSTALLMENT_TYPE_LABELS[saleOrder.installmentType] || saleOrder.installmentType,
     productPrice: saleOrder.productPrice,
     totalDiscount: totalDiscount,
     netPrice: netPrice,

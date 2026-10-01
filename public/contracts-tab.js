@@ -314,6 +314,9 @@ function initContractsTab(containerId, currentUser, options) {
         product: r.product,
         color: r.color,
         planType: r.planType,
+        // 2026-09-30 เก็บป้ายวิธีการผ่อนที่ตรงกับ CRM จริงไปด้วย (planType เป็นแค่ค่ารวมสำหรับตัดสิน behavior
+        // ฟอร์ม ไม่ใช่ป้ายที่ควรโชว์ตรงๆ) ให้ตาราง "ลิงก์แบบฟอร์มที่สร้างไว้" ใช้แสดงผลถูกต้องโดยไม่ต้องยิง CRM ซ้ำ
+        installmentTypeLabel: r.installmentTypeLabel || null,
         productPrice: r.productPrice,
         totalDiscount: r.totalDiscount,
         netPrice: r.netPrice,
@@ -428,7 +431,7 @@ function initContractsTab(containerId, currentUser, options) {
           '<td style="text-align:left;">' + (it.customerId || '-') + '</td>' +
           '<td style="text-align:left;">' + (s.customerName || '-') + '</td>' +
           '<td style="text-align:left;">' + (it.soNumber || '-') + '</td>' +
-          '<td>' + planLabelOf(it.planType) + '</td>' +
+          '<td>' + (it.installmentTypeLabel || planLabelOf(it.planType)) + '</td>' +
           '<td>' + fmtDateShort(s.createdAt) + '</td>' +
           '<td>' + (s.createdByName || '-') + '</td>' +
           '<td>' + copyLinkCellHtml(s) + '</td>' +
@@ -517,16 +520,23 @@ function initContractsTab(containerId, currentUser, options) {
       return '<tr><td style="text-align:left">' + label + '</td><td' + (bold ? ' style="font-weight:700"' : '') + '>' + value + '</td></tr>';
     }
 
-    // 2026-09-30 แก้บั๊กจริงที่ user เจอ: การ์ด "ข้อมูลจาก CRM" ขึ้น "เครดิตผ่าน (ผ่อนไปใช้ไป)" ให้ทุก SO ที่ไม่ใช่
-    // "วางดาวน์" มาตลอด (ไม่เคยเช็ค planType==='installment' จริงๆ) ตอนนี้ planType 'cash' (ซื้อสด/ปิดยอด) เป็นไป
-    // ได้จริงแล้ว (ตั้งแต่เปิดให้ CS สร้างลิงก์ให้กลุ่มนี้ได้) จึงโชว์ป้ายผิดชัดเจน — เพิ่มเงื่อนไขให้ครบทั้ง 3 แบบ
+    // 2026-09-30 (รอบแรก) แก้บั๊กจริงที่ user เจอ: การ์ด "ข้อมูลจาก CRM" ขึ้น "เครดิตผ่าน (ผ่อนไปใช้ไป)" ให้ทุก SO
+    // ที่ไม่ใช่ "วางดาวน์" มาตลอด (ไม่เคยเช็ค planType==='installment' จริงๆ) ตอนนี้ planType 'cash' (ซื้อสด/
+    // ปิดยอด) เป็นไปได้จริงแล้ว จึงโชว์ป้ายผิดชัดเจน — เพิ่มเงื่อนไขให้ครบทั้ง 3 แบบ (ใช้เป็น fallback เผื่อไม่มี
+    // installmentTypeLabel เท่านั้น ดูหมายเหตุรอบสองด้านล่าง)
+    //
+    // 2026-09-30 (รอบสอง) user แจ้งต่อว่า planType 'cash' รวม 2 ประเภทจริงของ CRM (FULL_PAYMENT="ซื้อสด" กับ
+    // FULL_PAY_THEN_RECEIVE="ผ่อนครบรับของ (ปิดยอด)") เข้าด้วยกันเป็นป้าย generic เดียว ไม่ตรงกับที่ CRM แสดงจริง
+    // ตัวอย่างที่ user ชี้มา (SO-2026100100016) เป็น FULL_PAYMENT ล้วนๆ CRM โชว์แค่ "ซื้อสด" เฉยๆ — planType ยัง
+    // ต้องเป็นค่ารวมเหมือนเดิม (ใช้ตัดสิน behavior ฟอร์ม ไม่เปลี่ยน) แต่ใช้ r.installmentTypeLabel (ดึงมาจาก
+    // crm-lookup.js ตรงกับ INSTALLMENT_TYPE_LABELS ตัวเดียวกับเมนู "สำหรับสต๊อค") แสดงผลแทนถ้ามีค่า
     function planLabelForItem(planType) {
       if (planType === 'downpayment') return 'วางดาวน์';
       if (planType === 'cash') return 'ซื้อสด/ปิดยอด (ผ่อนครบรับของ)';
       return 'เครดิตผ่าน (ผ่อนไปใช้ไป)';
     }
     function itemSummaryHtml(r, title) {
-      var planLabel = planLabelForItem(r.planType);
+      var planLabel = r.installmentTypeLabel || planLabelForItem(r.planType);
       var accumulatedLabel = r.planType === 'downpayment' ? 'ยอดวางดาวน์' : (r.planType === 'cash' ? 'ยอดที่ชำระแล้ว' : 'ยอดผ่อนสะสม');
       return '<div class="card"><h2>' + title + '</h2><span class="badge badge-info">' + planLabel + '</span>' +
         '<table class="installment-table" style="margin-top:10px;">' +
