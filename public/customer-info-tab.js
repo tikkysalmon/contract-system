@@ -93,8 +93,6 @@ function initCustomerInfoTab(containerId, currentUser) {
       return '<tr><th style="text-align:left;width:220px;vertical-align:top;white-space:nowrap;">' + label + '</th><td style="text-align:left;">' + valueHtml + '</td></tr>';
     }
     var addrHtml = r.shippingAddressText ? esc(r.shippingAddressText) : '<span style="color:var(--muted);">-</span>';
-    var recipient = [r.recipientName, r.recipientPhone].filter(Boolean).map(esc).join(' · ');
-    if (recipient) addrHtml = '<b>ผู้รับ:</b> ' + recipient + '<br>' + addrHtml;
     var noteHtml = (r.shippingNote ? esc(r.shippingNote) : '<span style="color:var(--muted);">-</span>') +
       (r.hasSubmission ? ' <button type="button" class="btn btn-ghost btn-sm ciBtnEditNote">แก้ไข</button>' : '');
     var pickupHtml = pickupCellHtml(r) +
@@ -115,6 +113,8 @@ function initCustomerInfoTab(containerId, currentUser) {
       row('สถานะการทำสัญญา', contractBadge(r.contractStatus)) +
       row('ช่องทางการจัดส่ง', esc(r.deliveryChannel || '-')) +
       row('วัน/เวลาที่นัดรับ', pickupHtml) +
+      row('ชื่อผู้รับสินค้า', r.recipientName ? esc(r.recipientName) : '<span style="color:var(--muted);">-</span>') +
+      row('เบอร์โทรศัพท์ผู้รับสินค้า', r.recipientPhone ? esc(r.recipientPhone) : '<span style="color:var(--muted);">-</span>') +
       row('ที่อยู่ในการจัดส่งสินค้า', addrHtml) +
       row('หมายเหตุ', noteHtml) +
       row('สถานะการจัดส่ง', shipHtml) +
@@ -142,8 +142,7 @@ function initCustomerInfoTab(containerId, currentUser) {
   function openEditNote(token, soNumber) {
     var r = state.rows.filter(function (x) { return x.sessionToken === token && x.soNumber === soNumber; })[0];
     if (!r) return;
-    state.editingNote = { token: token, soNumber: soNumber, customerName: r.customerName,
-      recipientName: r.recipientName || '', recipientPhone: r.recipientPhone || '', note: r.shippingNote || '' };
+    state.editingNote = { token: token, soNumber: soNumber, customerName: r.customerName, note: r.shippingNote || '' };
     render();
   }
 
@@ -156,14 +155,14 @@ function initCustomerInfoTab(containerId, currentUser) {
       var res = await fetch('/api/staff-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'updateShippingRecipient', staffName: currentUser.username, sessionToken: t.token,
-          recipientName: t.recipientName, recipientPhone: t.recipientPhone, note: t.note }),
+        // ส่งเฉพาะ note — ชื่อ/เบอร์ผู้รับมาจากฟอร์มลูกค้า ไม่ให้พนักงานแก้ตรงนี้ (2026-10-01 user ขอ)
+        body: JSON.stringify({ action: 'updateShippingRecipient', staffName: currentUser.username, sessionToken: t.token, note: t.note }),
       });
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
       state.editingNote = null;
       state.savingNote = false;
-      window.alert('บันทึกข้อมูลผู้รับสินค้า/หมายเหตุสำเร็จ');
+      window.alert('บันทึกหมายเหตุสำเร็จ');
       await load();
       return;
     } catch (err) {
@@ -176,12 +175,8 @@ function initCustomerInfoTab(containerId, currentUser) {
   function editNotePanelHtml() {
     var t = state.editingNote;
     if (!t) return '';
-    return '<div class="card"><h2>แก้ไขข้อมูลผู้รับสินค้า/หมายเหตุ — ' + esc(t.soNumber) + ' (' + esc(t.customerName) + ')</h2>' +
-      '<p class="hint">ใช้ร่วมกับทุก SO ในลิงก์เดียวกัน และจะไปแสดงที่ใบเบิกสินค้า/ไฟล์นำเข้า MyOrder ด้วย</p>' +
-      '<div class="row2">' +
-      '<div class="field"><label>ชื่อผู้รับสินค้า</label><input type="text" id="ciNoteName" value="' + esc(t.recipientName) + '" /></div>' +
-      '<div class="field"><label>เบอร์โทรศัพท์ผู้รับสินค้า</label><input type="tel" id="ciNotePhone" value="' + esc(t.recipientPhone) + '" /></div>' +
-      '</div>' +
+    return '<div class="card"><h2>แก้ไขหมายเหตุ — ' + esc(t.soNumber) + ' (' + esc(t.customerName) + ')</h2>' +
+      '<p class="hint">พิมพ์ข้อมูลอื่นๆ ที่ต้องการบันทึกเพิ่มเติม — ใช้ร่วมกับทุก SO ในลิงก์เดียวกัน และจะไปแสดงที่ใบเบิกสินค้า/ไฟล์นำเข้า MyOrder ด้วย (ชื่อและเบอร์ผู้รับมาจากฟอร์มที่ลูกค้ากรอก)</p>' +
       '<div class="field"><label>หมายเหตุ</label><input type="text" id="ciNoteText" value="' + esc(t.note) + '" /></div>' +
       '<button class="btn btn-primary" id="ciBtnSaveNote"' + (state.savingNote ? ' disabled' : '') + '>' + (state.savingNote ? 'กำลังบันทึก...' : 'บันทึก') + '</button> ' +
       '<button class="btn btn-ghost" id="ciBtnCancelNote">ยกเลิก</button></div>';
@@ -274,8 +269,6 @@ function initCustomerInfoTab(containerId, currentUser) {
       });
       if (state.editingNote) {
         var n = state.editingNote;
-        document.getElementById('ciNoteName').addEventListener('input', function (e) { n.recipientName = e.target.value; });
-        document.getElementById('ciNotePhone').addEventListener('input', function (e) { n.recipientPhone = e.target.value; });
         document.getElementById('ciNoteText').addEventListener('input', function (e) { n.note = e.target.value; });
         document.getElementById('ciBtnSaveNote').addEventListener('click', saveNote);
         document.getElementById('ciBtnCancelNote').addEventListener('click', function () { state.editingNote = null; render(); });
