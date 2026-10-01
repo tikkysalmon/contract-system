@@ -30,6 +30,7 @@ function initStockTab(containerId, currentUser) {
     crmLastSyncedAt: null,
     selected: {}, // { soNumber: true }
     filterCustomerType: 'all',
+    filterCashOrderDate: '', // 2026-09-30 กรองวันที่สั่งซื้อ SO (จาก CRM) — โชว์ช่องนี้เฉพาะตอนเลือกประเภทลูกค้า "ซื้อสด/ปิดยอด"
     filterQuery: '',
     filterRound: 'all',
     filterChannel: 'all', // ฝั่ง client ล้วน (ยังไม่ได้ส่งไป server เหมือน filter อื่น — ข้อมูลทั้งหมดโหลดมาแล้ว)
@@ -464,6 +465,12 @@ function initStockTab(containerId, currentUser) {
     if (state.filterCustomerType === 'credit' || state.filterCustomerType === 'cash') {
       result = result.filter(function (o) { return o.source === state.filterCustomerType || o.source === 'cancelled-after-print'; });
     }
+    // 2026-09-30 user ขอ: ตอนเลือกประเภทลูกค้า "ซื้อสด/ปิดยอด" ให้มีช่องกรอง "วันที่สั่งซื้อ SO" เพิ่ม (ข้อมูล
+    // orderDate มาจาก CRM ผ่าน crm_orders_cache อยู่แล้วในทุกแถว ไม่ต้องดึงเพิ่ม) เทียบแค่ส่วนวันที่ (ตัด
+    // เวลา/timezone ทิ้ง) กันพลาดเพราะ orderDate เก็บเป็น timestamp เต็ม
+    if (state.filterCustomerType === 'cash' && state.filterCashOrderDate) {
+      result = result.filter(function (o) { return o.orderDate && String(o.orderDate).slice(0, 10) === state.filterCashOrderDate; });
+    }
     var q = state.filterQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(function (o) {
@@ -649,6 +656,16 @@ function initStockTab(containerId, currentUser) {
       '<option value="credit"' + (state.filterCustomerType === 'credit' ? ' selected' : '') + '>เครดิตผ่าน/วางดาวน์</option>' +
       '<option value="cash"' + (state.filterCustomerType === 'cash' ? ' selected' : '') + '>ซื้อสด/ปิดยอด</option>' +
       '</select>' +
+      // 2026-09-30 user ขอ: เลือกประเภทลูกค้า "ซื้อสด/ปิดยอด" แล้วให้มีช่องกรอง "วันที่สั่งซื้อ SO" (จาก CRM)
+      // เพิ่มขึ้นมา — โชว์เฉพาะตอนเลือกประเภทนี้เท่านั้น (ตัวกรองอื่นไม่เกี่ยวข้อง)
+      (state.filterCustomerType === 'cash'
+        ? '<div style="display:flex;align-items:center;gap:6px;">' +
+          '<div class="date-field-wrap" id="stkCashOrderDateWrap">' +
+          '<div class="date-display" style="min-width:140px;">' + (isoToDDMMYYYY(state.filterCashOrderDate) || 'วันที่สั่งซื้อ SO: ทุกวันที่') + '</div>' +
+          '</div>' +
+          (state.filterCashOrderDate ? '<button type="button" class="btn btn-ghost btn-sm" id="stkClearCashOrderDate">ล้างวันที่</button>' : '') +
+          '</div>'
+        : '') +
       '<select id="stkFilterRound" class="filter-select">' +
       '<option value="all"' + (state.filterRound === 'all' ? ' selected' : '') + '>รอบการเบิก: ทุกรอบ</option>' +
       ROUND_OPTIONS.map(function (r) { return '<option value="' + r + '"' + (state.filterRound === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') +
@@ -753,6 +770,23 @@ function initStockTab(containerId, currentUser) {
     // 2026-09-24 ตัวกรองทั้งหมดกรองฝั่ง client แล้ว (ดูหมายเหตุที่ filtered()/load() ด้านบน) เปลี่ยนจากเรียก
     // load() (ยิง API ใหม่ทุกครั้ง) เป็น pruneSelectionToVisible() + render() เฉยๆ ไม่มี round-trip ใหม่อีกเลย
     document.getElementById('stkFilterType').addEventListener('change', function (e) { state.filterCustomerType = e.target.value; state.currentPage = 1; pruneSelectionToVisible(); render(); });
+    // "วันที่สั่งซื้อ SO" (2026-09-30) — มีแค่ตอนเลือกประเภทลูกค้า "ซื้อสด/ปิดยอด" เท่านั้น (ดู render() ด้านบน)
+    var cashOrderDateWrap = document.getElementById('stkCashOrderDateWrap');
+    if (cashOrderDateWrap) {
+      attachThaiDatePicker(cashOrderDateWrap, {
+        value: state.filterCashOrderDate,
+        onChange: function (iso) { state.filterCashOrderDate = iso; state.currentPage = 1; pruneSelectionToVisible(); render(); },
+      });
+    }
+    var clearCashOrderDateBtn = document.getElementById('stkClearCashOrderDate');
+    if (clearCashOrderDateBtn) {
+      clearCashOrderDateBtn.addEventListener('click', function () {
+        state.filterCashOrderDate = '';
+        state.currentPage = 1;
+        pruneSelectionToVisible();
+        render();
+      });
+    }
     // stkFilterQuery: เก็บค่าตอนพิมพ์เฉยๆ ไม่ render ทุกตัวอักษร (render() ใหม่ทั้งก้อนจะทำให้ช่องพิมพ์เสีย
     // focus/ตำแหน่ง cursor ทุกครั้ง) กรองจริงตอนกด Enter เหมือนเดิม แค่ไม่ต้องยิง API ใหม่แล้ว
     document.getElementById('stkFilterQuery').addEventListener('input', function (e) { state.filterQuery = e.target.value; });
