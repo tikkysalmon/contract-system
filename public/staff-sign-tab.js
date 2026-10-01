@@ -559,13 +559,11 @@ function initStaffSignTab(containerId, currentUser) {
           '<td>' + (it.contractNo || '-') + '</td>' +
           '<td>' + statusBadgeHtml(q) + '</td>' +
           '<td>' + fmtDateTime(q.submittedAt) + '</td>' +
-          '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
-          '<td>' + q.shippingStatus.label + '</td>' +
           '<td>' + actionsCellHtml(q, it) + '</td>' +
           '</tr>';
       });
     });
-    if (!html) html = '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    if (!html) html = '<tr><td colspan="7" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return html;
   }
 
@@ -684,9 +682,9 @@ function initStaffSignTab(containerId, currentUser) {
           '</div>';
       }
     } else if (state.queue.length === 0) {
-      html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา</h2><p class="hint">ยังไม่เคยสร้างลิงก์เลย — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
+      html = '<div class="card"><h2>ลูกค้ากรอกข้อมูล</h2><p class="hint">ยังไม่เคยสร้างลิงก์เลย — สร้างลิงก์ให้ลูกค้าที่เมนู "สำหรับ CS" ก่อน</p></div>';
     } else {
-      html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.queue.length + ' รายการ)</h2>' +
+      html = '<div class="card"><h2>ลูกค้ากรอกข้อมูล (' + state.queue.length + ' รายการ)</h2>' +
         '<p class="hint">กด "ดูข้อมูลลูกค้า" เพื่อดูรายละเอียดเต็มของรายการที่ลูกค้าส่งฟอร์มกลับมาแล้ว รายการที่ยัง "รอตรวจสอบ" จะมีปุ่ม "ยืนยัน" ให้กดเมื่อตรวจข้อมูลแล้วว่าถูกต้อง ส่วนที่ยังไม่มีใครเซ็นจะมีปุ่ม "เซ็นเอกสาร" ให้กดยืนยัน</p>' +
         listToolbarHtml({
           sortId: 'contractsSortOrder',
@@ -705,8 +703,6 @@ function initStaffSignTab(containerId, currentUser) {
         '<th>เลขที่สัญญา</th>' +
         '<th>สถานะการทำสัญญา</th>' +
         '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
-        '<th>วันที่จัดส่ง</th>' +
-        '<th>สถานะการจัดส่ง</th>' +
         '<th>การดำเนินการ</th>' +
         '</tr></thead>' +
         '<tbody id="contractsTbody">' + tableRowsHtml() + '</tbody>' +
@@ -870,15 +866,13 @@ function initCsStatusView(containerId, currentUser) {
           '<td>' + (it.contractNo || '-') + '</td>' +
           '<td>' + statusBadge(s.contractStatus) + '</td>' +
           '<td>' + fmtDateTime(s.submittedAt) + '</td>' +
-          '<td>' + fmtDateTime(it.shippingDate) + '</td>' +
-          '<td>' + statusBadge(s.shippingStatus) + '</td>' +
           '<td>' + (s.submissionId
             ? '<button type="button" class="btn btn-ghost btn-sm csBtnEditLogistics" data-so="' + it.soNumber + '">✏️ แก้ไขข้อมูลจัดส่ง</button>'
             : '<span style="color:var(--muted);">-</span>') + '</td>' +
           '</tr>';
       });
     });
-    return html || '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    return html || '<tr><td colspan="7" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
   }
 
   function openLogisticsEditor(soNumber) {
@@ -973,8 +967,8 @@ function initCsStatusView(containerId, currentUser) {
     if (state.loading) { app.innerHTML = '<div class="card">กำลังโหลดข้อมูล...</div>'; return; }
     if (state.error) { app.innerHTML = '<div class="card"><p style="color:var(--danger);">' + state.error + '</p></div>'; return; }
 
-    var html = '<div class="card"><h2>ข้อมูลลูกค้าทำสัญญา (' + state.sessions.length + ' รายการ)</h2>' +
-      '<p class="hint">สถานะการทำสัญญา/สถานะการจัดส่งของลูกค้าแต่ละราย — ดูรายละเอียดเต็ม/แก้ไขข้อมูลส่วนตัวได้ที่ทีมเร่งรัดหนี้สินเท่านั้น (แก้ที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งได้เองที่นี่)</p>' +
+    var html = '<div class="card"><h2>ลูกค้ากรอกข้อมูล (' + state.sessions.length + ' รายการ)</h2>' +
+      '<p class="hint">สถานะการทำสัญญาของลูกค้าแต่ละราย (ดูสถานะการจัดส่งที่เมนู "ข้อมูลลูกค้า") — ดูรายละเอียดเต็ม/แก้ไขข้อมูลส่วนตัวได้ที่ทีมเร่งรัดหนี้สินเท่านั้น (แก้ที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งได้เองที่นี่)</p>' +
       listToolbarHtml({
         sortId: 'csStatusSortOrder',
         sortOptions: [{ value: 'latest', label: 'เรียงลำดับ: ล่าสุด' }],
@@ -992,8 +986,6 @@ function initCsStatusView(containerId, currentUser) {
       '<th>เลขที่สัญญา</th>' +
       '<th>สถานะการทำสัญญา</th>' +
       '<th>วันที่ลูกค้าส่งข้อมูล</th>' +
-      '<th>วันที่จัดส่ง</th>' +
-      '<th>สถานะการจัดส่ง</th>' +
       '<th></th>' +
       '</tr></thead>' +
       '<tbody id="csStatusTbody">' + rowsHtml() + '</tbody></table></div>' +

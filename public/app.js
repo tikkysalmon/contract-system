@@ -48,7 +48,7 @@
   var MENU_ITEMS = [
     // 2026-10-01 user ขอ: รวบรวมข้อมูลลูกค้า/การจัดส่งให้แผนกบริการตรวจสอบและแจ้งลูกค้า (ดู customer-info-tab.js)
     { key: 'customer_info', icon: 'customer_info', label: 'ข้อมูลลูกค้า', departments: ['CS', 'บริการ', 'หน้าร้าน'] },
-    { key: 'contracts', icon: 'contracts', label: 'ข้อมูลลูกค้าทำสัญญา', departments: ['CS', 'บัญชี'] },
+    { key: 'contracts', icon: 'contracts', label: 'ลูกค้ากรอกข้อมูล', departments: ['CS', 'บัญชี'] },
     { key: 'for_cs', icon: 'for_cs', label: 'สำหรับ CS', departments: ['CS'] },
     { key: 'stock', icon: 'stock', label: 'สำหรับสต๊อค', departments: ['สต๊อค'] },
     { key: 'packing', icon: 'packing', label: 'สำหรับแพ็คกิ้ง', departments: ['แพ็คกิ้ง'] },

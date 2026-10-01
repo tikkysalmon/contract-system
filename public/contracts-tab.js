@@ -417,7 +417,7 @@ function initContractsTab(containerId, currentUser, options) {
   function copyLinkCellHtml(s) {
     var status = s.contractStatus || { key: 'awaiting_customer', label: 'รอลูกค้ากรอกข้อมูลสัญญา' };
     if (COPY_LINK_CLOSED_STATUS_KEYS[status.key]) {
-      return '<span style="color:var(--muted);font-size:12.5px;">' + status.label + ' — ดูที่เมนู "ข้อมูลลูกค้าทำสัญญา"</span>';
+      return '<span style="color:var(--muted);font-size:12.5px;">' + status.label + ' — ดูที่เมนู "ลูกค้ากรอกข้อมูล"</span>';
     }
     return '<button type="button" class="btn btn-ghost btnCopySessionLink" data-token="' + s.token + '">📋 คัดลอกลิงก์</button>';
   }
@@ -456,7 +456,7 @@ function initContractsTab(containerId, currentUser, options) {
 
   function sessionListHtml() {
     var h = '<div class="card"><h2>ลิงก์แบบฟอร์มที่สร้างไว้' + (state.sessionList.length ? ' (' + state.sessionList.length + ' รายการล่าสุด)' : '') + '</h2>' +
-      '<p class="hint">ตรวจสอบได้ว่าลูกค้ารายไหนสร้างลิงก์แล้ว/ยังไม่ได้กรอกข้อมูลส่งกลับมา — คัดลอกลิงก์เดิมส่งซ้ำได้ถ้ายังไม่ส่งข้อมูล ถ้าส่งข้อมูลแล้วดูรายละเอียดเต็มได้ที่เมนู "ข้อมูลลูกค้าทำสัญญา"</p>';
+      '<p class="hint">ตรวจสอบได้ว่าลูกค้ารายไหนสร้างลิงก์แล้ว/ยังไม่ได้กรอกข้อมูลส่งกลับมา — คัดลอกลิงก์เดิมส่งซ้ำได้ถ้ายังไม่ส่งข้อมูล ถ้าส่งข้อมูลแล้วดูรายละเอียดเต็มได้ที่เมนู "ลูกค้ากรอกข้อมูล"</p>';
     if (state.sessionListLoading) {
       h += '<p class="hint">กำลังโหลด...</p></div>';
       return h;
