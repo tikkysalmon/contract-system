@@ -102,8 +102,10 @@ async function fetchCreditOrders(authHeaders) {
         customerName: customer.firstLastName || (snapshot.customer && snapshot.customer.firstLastName) || '-',
         product: item.product,
         color: item.color || null,
-        recipientName: null, // ยังไม่มีฟิลด์ผู้รับสินค้าแยกต่างหากในฟอร์มลูกค้าปัจจุบัน
-        recipientPhone: customer.phone || null,
+        // ชื่อผู้รับ/เบอร์/หมายเหตุ ที่ลูกค้ากรอกในส่วนที่อยู่จัดส่ง (2026-10-01) — ฟอร์มรุ่นเก่าไม่มี fallback ไปชื่อ/เบอร์ลูกค้าเดิม
+        recipientName: (customer.shippingAddress && customer.shippingAddress.recipientName) || null,
+        recipientPhone: (customer.shippingAddress && customer.shippingAddress.recipientPhone) || customer.phone || null,
+        shippingNote: (customer.shippingAddress && customer.shippingAddress.note) || null,
         shippingAddress: {
           detail: addr.detail || null,
           subdistrictName: addr.subdistrictName || null,

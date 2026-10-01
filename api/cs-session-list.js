@@ -18,7 +18,7 @@ const { computeContractStatus, computeShippingStatus } = require('./_lib/contrac
 async function handleCustomerInfo(res) {
   const authHeaders = { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY };
   const r = await fetch(
-    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number)&order=created_at.desc&limit=500',
+    SUPABASE_URL + '/rest/v1/contract_sessions?select=token,created_at,crm_snapshot,contract_submissions(submitted_at,rejected_at,reviewed_at,staff_signed_at,imei,serial_number,customer_data)&order=created_at.desc&limit=500',
     { headers: authHeaders }
   );
   if (!r.ok) throw new Error('เรียก Supabase ไม่สำเร็จ (HTTP ' + r.status + ')');
@@ -43,6 +43,7 @@ async function handleCustomerInfo(res) {
     const snap = s.crm_snapshot || {};
     // สถานะการทำสัญญา — สูตรเดียวกับเมนู "ข้อมูลลูกค้าทำสัญญา" (_lib/contract-status.js) ต่อ session (2026-10-01)
     const sub = (s.contract_submissions || [])[0] || null;
+    const subShip = (sub && sub.customer_data && sub.customer_data.shippingAddress) || {};
     const contractStatus = computeContractStatus({
       submitted: !!sub, rejectedAt: sub && sub.rejected_at, reviewedAt: sub && sub.reviewed_at,
       staffSignedAt: sub && sub.staff_signed_at, imei: sub && sub.imei, serialNumber: sub && sub.serial_number,
@@ -58,6 +59,11 @@ async function handleCustomerInfo(res) {
         customerName: (snap.customer && snap.customer.firstLastName) || '-',
         customerType: it.installmentTypeLabel || null,
         contractStatus: contractStatus,
+        // ข้อมูลผู้รับสินค้า (2026-10-01) — คัดเฉพาะ 3 ฟิลด์ ไม่ส่ง customer_data ทั้งก้อนออกไป (มีข้อมูลส่วนตัวเต็ม)
+        hasSubmission: !!sub,
+        recipientName: subShip.recipientName || null,
+        recipientPhone: subShip.recipientPhone || null,
+        shippingNote: subShip.note || null,
         planType: it.planType || null, // fallback ตอน installmentTypeLabel ว่าง (ลิงก์รุ่นเก่า)
         deliveryChannel: channel,
         pickupDate: isPickup ? (it.pickupDate || null) : null,
@@ -140,9 +146,12 @@ module.exports = async function handler(req, res) {
       // เอฟเฟกทีฟที่อยู่จัดส่งปัจจุบัน — สูตรเดียวกับ api/stock-orders.js's fetchCreditOrders (ใช้ shippingAddress
       // ถ้าลูกค้าระบุไว้ไม่เหมือนที่อยู่ปัจจุบัน ไม่งั้น fallback ไปที่อยู่ปัจจุบัน) ให้ค่าเริ่มต้นของฟอร์มแก้ไขตรงกับ
       // ที่ระบบอื่นใช้จริงเป๊ะ
-      const effectiveShippingAddress = (customerData.shippingAddress && !customerData.shippingAddress.sameAsCurrent)
-        ? customerData.shippingAddress
-        : (customerData.address || {});
+      const rawShip = customerData.shippingAddress || {};
+      const effectiveShippingAddress = Object.assign({}, (rawShip && !rawShip.sameAsCurrent) ? rawShip : (customerData.address || {}), {
+        // ชื่อผู้รับ/เบอร์/หมายเหตุ (2026-10-01) ต้องพกไปด้วยเสมอ แม้ใช้ที่อยู่เดียวกับที่อยู่ปัจจุบัน — ไม่งั้น CS กดบันทึก
+        // แก้ไขข้อมูลจัดส่ง (updateLogistics เขียนทับทั้งก้อน shippingAddress) แล้ว 3 ฟิลด์นี้จะหายไป
+        recipientName: rawShip.recipientName || '', recipientPhone: rawShip.recipientPhone || '', note: rawShip.note || '',
+      });
       return {
         token: row.token,
         createdAt: row.created_at,

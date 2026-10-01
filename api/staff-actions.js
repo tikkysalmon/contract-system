@@ -289,6 +289,46 @@ async function doReschedulePickup(authHeaders, staffName, sessionToken, soNumber
   res.status(200).json({ ok: true });
 }
 
+// 'updateShippingRecipient' (2026-10-01) — { sessionToken, recipientName?, recipientPhone?, note? } แก้ชื่อผู้รับสินค้า/
+// เบอร์โทร/หมายเหตุ ของการจัดส่ง (เมนู "ข้อมูลลูกค้า") — เขียนเฉพาะ 3 ฟิลด์นี้ลง customer_data.shippingAddress ของ
+// submission ล่าสุดของ session นั้น ไม่แตะที่อยู่/สถานะเซ็น/ตรวจสอบสัญญา (ต่างจาก updateLogistics ที่เขียนทับทั้งที่อยู่)
+async function doUpdateShippingRecipient(authHeaders, staffName, sessionToken, fields, res) {
+  if (!sessionToken) { res.status(400).json({ error: 'ข้อมูลไม่ครบ (sessionToken)' }); return; }
+  const sessRes = await fetch(
+    SUPABASE_URL + '/rest/v1/contract_sessions?token=eq.' + encodeURIComponent(sessionToken) + '&select=id',
+    { headers: authHeaders }
+  );
+  const sessRows = await sessRes.json();
+  if (!sessRes.ok || !sessRows.length) { res.status(404).json({ error: 'ไม่พบ session นี้' }); return; }
+  const subRes = await fetch(
+    SUPABASE_URL + '/rest/v1/contract_submissions?session_id=eq.' + encodeURIComponent(sessRows[0].id) +
+      '&select=id,customer_data&order=submitted_at.desc&limit=1',
+    { headers: authHeaders }
+  );
+  const subRows = await subRes.json();
+  if (!subRes.ok || !subRows.length) { res.status(404).json({ error: 'ลูกค้ายังไม่ได้ส่งข้อมูลมา จึงยังแก้ไขไม่ได้' }); return; }
+  const customerData = subRows[0].customer_data || {};
+  const ship = Object.assign({}, customerData.shippingAddress || {});
+  if (fields.recipientName !== undefined) ship.recipientName = String(fields.recipientName || '').trim();
+  if (fields.recipientPhone !== undefined) {
+    const phone = String(fields.recipientPhone || '').replace(/[\s-]/g, '');
+    if (phone && !/^0\d{9}$/.test(phone)) { res.status(400).json({ error: 'เบอร์โทรไม่ถูกต้อง (ต้องเป็นเบอร์ไทย 10 หลัก)' }); return; }
+    ship.recipientPhone = phone;
+  }
+  if (fields.note !== undefined) ship.note = String(fields.note || '').trim();
+  customerData.shippingAddress = ship;
+  const patchRes = await fetch(SUPABASE_URL + '/rest/v1/contract_submissions?id=eq.' + encodeURIComponent(subRows[0].id), {
+    method: 'PATCH',
+    headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, authHeaders),
+    body: JSON.stringify({ customer_data: customerData }),
+  });
+  if (!patchRes.ok) {
+    const text = await patchRes.text();
+    throw new Error('บันทึกข้อมูลผู้รับสินค้าไม่สำเร็จ (HTTP ' + patchRes.status + '): ' + text.slice(0, 300));
+  }
+  res.status(200).json({ ok: true });
+}
+
 async function doUpdateLogistics(authHeaders, submissionId, staffName, soNumber, shippingAddress, giftItem, deliveryChannel, pickupDate, pickupTime, res) {
   const hasCustomerDataUpdate = shippingAddress !== undefined || giftItem !== undefined;
   const hasDeliveryChannelUpdate = deliveryChannel !== undefined;
@@ -446,6 +486,11 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    if (action === 'updateShippingRecipient') {
+      await doUpdateShippingRecipient(authHeaders, staffName, String(body.sessionToken || '').trim(),
+        { recipientName: body.recipientName, recipientPhone: body.recipientPhone, note: body.note }, res);
+      return;
+    }
     if (action === 'reschedulePickup') {
       await doReschedulePickup(authHeaders, staffName, String(body.sessionToken || '').trim(), String(body.soNumber || '').trim(),
         String(body.pickupDate || '').trim(), String(body.pickupTime || '').trim(), body.reason, res);

@@ -8,7 +8,7 @@
 // และ list-toolbar.js (listToolbarHtml) ก่อนไฟล์นี้
 function initCustomerInfoTab(containerId, currentUser) {
   'use strict';
-  var state = { loading: true, error: null, rows: [], filter: '', rescheduling: null, savingReschedule: false };
+  var state = { loading: true, error: null, rows: [], filter: '', rescheduling: null, savingReschedule: false, editingNote: null, savingNote: false };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -65,10 +65,10 @@ function initCustomerInfoTab(containerId, currentUser) {
   function rowsHtml() {
     // 2026-10-01 ยังไม่แสดงข้อมูลจนกว่าจะค้นหา (เหมือนเมนู "สำหรับ CS") — ไม่โชว์ลูกค้าทั้งระบบโดยไม่จำเป็น
     if (!state.filter.trim()) {
-      return '<tr><td colspan="9" style="color:var(--muted);">พิมพ์เลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า เพื่อค้นหาข้อมูล</td></tr>';
+      return '<tr><td colspan="10" style="color:var(--muted);">พิมพ์เลขที่คำสั่งซื้อ SO / ชื่อลูกค้า / รหัสลูกค้า เพื่อค้นหาข้อมูล</td></tr>';
     }
     var visible = state.rows.filter(matches);
-    if (!visible.length) return '<tr><td colspan="9" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
+    if (!visible.length) return '<tr><td colspan="10" style="color:var(--muted);">ไม่พบรายการที่ตรงกับคำค้นหา</td></tr>';
     return visible.map(function (r) {
       var channel = r.deliveryChannel || '-';
       return '<tr>' +
@@ -79,6 +79,8 @@ function initCustomerInfoTab(containerId, currentUser) {
         '<td>' + contractBadge(r.contractStatus) + '</td>' +
         '<td>' + esc(channel) + '</td>' +
         '<td>' + pickupCellHtml(r) + '</td>' +
+        '<td style="text-align:left;max-width:220px;">' + (r.shippingNote ? esc(r.shippingNote) : '<span style="color:var(--muted);">-</span>') +
+        (r.hasSubmission ? '<br><button type="button" class="btn btn-ghost btn-sm ciBtnEditNote" data-token="' + esc(r.sessionToken) + '" data-so="' + esc(r.soNumber) + '">แก้ไข</button>' : '') + '</td>' +
         '<td>' + shippingBadge(r.shippingStatus) +
         (r.isPickup && !r.trackingNo
           ? '<br><button type="button" class="btn btn-ghost btn-sm ciBtnReschedule" data-token="' + esc(r.sessionToken) + '" data-so="' + esc(r.soNumber) + '"' + (r.pickedUpAt ? ' style="display:none;"' : '') + '>เลื่อนนัดรับ</button> ' +
@@ -104,6 +106,55 @@ function initCustomerInfoTab(containerId, currentUser) {
     } catch (err) {
       window.alert('บันทึกไม่สำเร็จ: ' + err.message);
     }
+  }
+
+  // แก้ชื่อผู้รับ/เบอร์/หมายเหตุการจัดส่ง (2026-10-01) — ระดับ session (ลูกค้า 1 ลิงก์ใช้ร่วมกันทุก SO ในลิงก์)
+  function openEditNote(token, soNumber) {
+    var r = state.rows.filter(function (x) { return x.sessionToken === token && x.soNumber === soNumber; })[0];
+    if (!r) return;
+    state.editingNote = { token: token, soNumber: soNumber, customerName: r.customerName,
+      recipientName: r.recipientName || '', recipientPhone: r.recipientPhone || '', note: r.shippingNote || '' };
+    render();
+  }
+
+  async function saveNote() {
+    var t = state.editingNote;
+    if (!t) return;
+    state.savingNote = true;
+    render();
+    try {
+      var res = await fetch('/api/staff-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateShippingRecipient', staffName: currentUser.username, sessionToken: t.token,
+          recipientName: t.recipientName, recipientPhone: t.recipientPhone, note: t.note }),
+      });
+      var body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+      state.editingNote = null;
+      state.savingNote = false;
+      window.alert('บันทึกข้อมูลผู้รับสินค้า/หมายเหตุสำเร็จ');
+      await load();
+      return;
+    } catch (err) {
+      window.alert('บันทึกไม่สำเร็จ: ' + err.message);
+    }
+    state.savingNote = false;
+    render();
+  }
+
+  function editNotePanelHtml() {
+    var t = state.editingNote;
+    if (!t) return '';
+    return '<div class="card"><h2>แก้ไขข้อมูลผู้รับสินค้า/หมายเหตุ — ' + esc(t.soNumber) + ' (' + esc(t.customerName) + ')</h2>' +
+      '<p class="hint">ใช้ร่วมกับทุก SO ในลิงก์เดียวกัน และจะไปแสดงที่ใบเบิกสินค้า/ไฟล์นำเข้า MyOrder ด้วย</p>' +
+      '<div class="row2">' +
+      '<div class="field"><label>ชื่อผู้รับสินค้า</label><input type="text" id="ciNoteName" value="' + esc(t.recipientName) + '" /></div>' +
+      '<div class="field"><label>เบอร์โทรศัพท์ผู้รับสินค้า</label><input type="tel" id="ciNotePhone" value="' + esc(t.recipientPhone) + '" /></div>' +
+      '</div>' +
+      '<div class="field"><label>หมายเหตุ</label><input type="text" id="ciNoteText" value="' + esc(t.note) + '" /></div>' +
+      '<button class="btn btn-primary" id="ciBtnSaveNote"' + (state.savingNote ? ' disabled' : '') + '>' + (state.savingNote ? 'กำลังบันทึก...' : 'บันทึก') + '</button> ' +
+      '<button class="btn btn-ghost" id="ciBtnCancelNote">ยกเลิก</button></div>';
   }
 
   function openReschedule(token, soNumber) {
@@ -194,17 +245,26 @@ function initCustomerInfoTab(containerId, currentUser) {
       '<th>สถานะการทำสัญญา</th>' +
       '<th>ช่องทางการจัดส่ง</th>' +
       '<th>วัน/เวลาที่นัดรับ</th>' +
+      '<th>หมายเหตุ</th>' +
       '<th>สถานะการจัดส่ง</th>' +
       '<th>เลขพัสดุ</th>' +
       '</tr></thead>' +
       '<tbody id="customerInfoTbody">' + rowsHtml() + '</tbody></table></div></div>' +
-      reschedulePanelHtml();
+      reschedulePanelHtml() + editNotePanelHtml();
 
     // อัปเดตแค่ tbody ตอนพิมพ์ค้นหา (ไม่ re-render ทั้งการ์ด) กัน input หลุด focus — แพทเทิร์นเดียวกับเมนูอื่น
     document.getElementById('customerInfoFilterInput').addEventListener('input', function (e) {
       state.filter = e.target.value;
       document.getElementById('customerInfoTbody').innerHTML = rowsHtml();
     });
+    if (state.editingNote) {
+      var n = state.editingNote;
+      document.getElementById('ciNoteName').addEventListener('input', function (e) { n.recipientName = e.target.value; });
+      document.getElementById('ciNotePhone').addEventListener('input', function (e) { n.recipientPhone = e.target.value; });
+      document.getElementById('ciNoteText').addEventListener('input', function (e) { n.note = e.target.value; });
+      document.getElementById('ciBtnSaveNote').addEventListener('click', saveNote);
+      document.getElementById('ciBtnCancelNote').addEventListener('click', function () { state.editingNote = null; render(); });
+    }
     if (state.rescheduling) {
       var t = state.rescheduling;
       attachThaiDatePicker(document.getElementById('ciReschedDateWrap'), { value: t.pickupDate, onChange: function (iso) { t.pickupDate = iso; } });
@@ -215,6 +275,8 @@ function initCustomerInfoTab(containerId, currentUser) {
     }
     // event delegation บน tbody — ช่องค้นหาแก้แค่ tbody.innerHTML ไม่ re-render การ์ด
     document.getElementById('customerInfoTbody').addEventListener('click', function (e) {
+      var nb = e.target.closest ? e.target.closest('.ciBtnEditNote') : null;
+      if (nb) { openEditNote(nb.getAttribute('data-token'), nb.getAttribute('data-so')); return; }
       var rb = e.target.closest ? e.target.closest('.ciBtnReschedule') : null;
       if (rb) { openReschedule(rb.getAttribute('data-token'), rb.getAttribute('data-so')); return; }
       var b = e.target.closest ? e.target.closest('.ciBtnPickup') : null;

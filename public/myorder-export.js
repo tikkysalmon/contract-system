@@ -35,13 +35,14 @@ var MYORDER_DEFAULTS = {
 function buildMyOrderNote(order) {
   var parts = ['SO: ' + order.soNumber];
   if (order.contractNo) parts.push('เลขที่สัญญา: ' + order.contractNo);
+  if (order.shippingNote) parts.push('หมายเหตุ: ' + order.shippingNote); // 2026-10-01 หมายเหตุการจัดส่งจากฟอร์มลูกค้า
   return parts.join(' / ');
 }
 
 function orderToMyOrderRow(order) {
   var addr = order.shippingAddress || {};
   return [
-    order.customerName || '',
+    order.recipientName || order.customerName || '', // ชื่อผู้รับสินค้า (2026-10-01) fallback ชื่อลูกค้าถ้าฟอร์มรุ่นเก่าไม่มี
     order.recipientPhone || '',
     addr.detail || '',
     addr.subdistrictName || '',

@@ -242,7 +242,7 @@ function initPackingTab(containerId, user) {
   async function sendTrackingSmsFor(soNumber) {
     var it = state.packedList.filter(function (x) { return x.soNumber === soNumber; })[0];
     if (!it || !it.trackingNo) return;
-    if (!it.recipientPhone) { state.sendSmsError = 'ไม่มีเบอร์โทรลูกค้าของ SO ' + soNumber; render(); return; }
+    if (!(it.customerPhone || it.recipientPhone)) { state.sendSmsError = 'ไม่มีเบอร์โทรลูกค้าของ SO ' + soNumber; render(); return; }
     state.sendingSmsFor = soNumber;
     state.sendSmsError = null;
     render();
@@ -250,7 +250,7 @@ function initPackingTab(containerId, user) {
       var res = await fetch('/api/packing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sendTrackingSms', phone: it.recipientPhone, message: buildTrackingSmsMessage(it) }),
+        body: JSON.stringify({ action: 'sendTrackingSms', phone: it.customerPhone || it.recipientPhone, message: buildTrackingSmsMessage(it) }),
       });
       var body = await res.json();
       if (!res.ok || body.error) throw new Error(body.error || 'ส่ง SMS ไม่สำเร็จ');

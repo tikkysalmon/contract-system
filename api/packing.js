@@ -69,7 +69,11 @@ async function handleList(req, res, authHeaders) {
         customerName: customer.firstLastName || (snapshot.customer && snapshot.customer.firstLastName) || '-',
         product: item.product,
         color: item.color || null,
-        recipientPhone: customer.phone || null,
+        // 2026-10-01 ผู้รับสินค้า/เบอร์/หมายเหตุจากฟอร์มลูกค้า (ใช้ใน MyOrder export) — customerPhone เก็บเบอร์ผู้เช่าซื้อเดิมไว้ส่ง SMS tracking
+        recipientName: (customer.shippingAddress && customer.shippingAddress.recipientName) || null,
+        recipientPhone: (customer.shippingAddress && customer.shippingAddress.recipientPhone) || customer.phone || null,
+        customerPhone: customer.phone || null,
+        shippingNote: (customer.shippingAddress && customer.shippingAddress.note) || null,
         shippingAddress: {
           detail: addr.detail || null,
           subdistrictName: addr.subdistrictName || null,

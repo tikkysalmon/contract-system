@@ -34,7 +34,7 @@
       title: '', firstLastName: '', age: '', citizenId: '', phone: '',
       nationality: session.customer.nationality || 'ไทย',
       address: { detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
-      shippingAddress: { sameAsCurrent: true, detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
+      shippingAddress: { sameAsCurrent: true, recipientName: '', recipientPhone: '', note: '', detail: '', provinceId: '', provinceName: '', districtId: '', districtName: '', subdistrictId: '', subdistrictName: '', zip: '' },
       reference: { firstLastName: '', phone: '', relation: '', relationOther: '' },
       guardian: { title: '', firstLastName: '', phone: '', citizenId: '' },
       guarantor: { title: '', firstLastName: '', age: '', phone: '', citizenId: '' },
@@ -447,6 +447,33 @@
 
   // ---------- Step: address + reference person (2026-09-04, user ขอเพิ่ม — ใช้กับลูกค้าทุกกลุ่มเหมือนกัน
   // ไม่ว่าจะเป็นกลุ่มทั่วไป/ต่ำกว่า 19 ปี/ต่างชาติ ก็ต้องกรอกข้อ 1-3 นี้เหมือนกันหมด) ----------
+  // ชื่อผู้รับสินค้า/เบอร์โทรศัพท์/หมายเหตุ (2026-10-01 user ขอเพิ่มในส่วน "ที่อยู่ในการจัดส่งสินค้า") — เก็บไว้ใน
+  // state.data.shippingAddress เดียวกับที่อยู่จัดส่ง (recipientName/recipientPhone/note) แสดงเสมอแม้ติ๊ก "ใช้ที่อยู่
+  // เดียวกับที่อยู่ปัจจุบัน" เพราะผู้รับสินค้าอาจเป็นคนละคนกับผู้เช่าซื้อ ช่องชื่อ/เบอร์บังคับกรอก หมายเหตุไม่บังคับ
+  function shipRecipientHtml(ship) {
+    return '<div class="row2">' +
+      fieldHtml({ id: 'shipRcpt_name', label: 'ชื่อผู้รับสินค้า', required: true, value: ship.recipientName }) +
+      fieldHtml({ id: 'shipRcpt_phone', label: 'เบอร์โทรศัพท์ผู้รับสินค้า', required: true, type: 'tel', value: ship.recipientPhone }) +
+      '</div>' +
+      fieldHtml({ id: 'shipRcpt_note', label: 'หมายเหตุ (ไม่บังคับ)', value: ship.note, placeholder: 'เช่น ฝากไว้กับรปภ. / โทรก่อนส่ง' });
+  }
+  function wireShipRecipient(ship) {
+    [['name', 'recipientName'], ['phone', 'recipientPhone'], ['note', 'note']].forEach(function (p) {
+      var id = 'shipRcpt_' + p[0];
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', function (e) { ship[p[1]] = e.target.value; markField(id, null); });
+    });
+  }
+  function checkShipRecipient(ship, errors) {
+    if (!ship.recipientName || ship.recipientName.trim().length < 2) errors.shipRcpt_name = 'กรุณากรอกชื่อผู้รับสินค้า';
+    if (!isValidThaiMobile(ship.recipientPhone)) errors.shipRcpt_phone = 'เบอร์โทรไม่ถูกต้อง (ต้องเป็นเบอร์มือถือไทย 10 หลัก)';
+    ['shipRcpt_name', 'shipRcpt_phone'].forEach(function (id) {
+      if (!document.getElementById(id + '_field')) return;
+      if (errors[id]) markField(id, false, errors[id]); else markField(id, true);
+    });
+  }
+
   function renderAddressStep(container) {
     var d = state.data;
     var addr = d.address;
@@ -467,6 +494,7 @@
       '<div id="shipAddrWrap" style="' + (ship.sameAsCurrent ? 'display:none;' : '') + '">' +
       window.attachAddressPicker.html('ship', ship, { detailLabel: 'บ้านเลขที่ / หมู่บ้าน / ถนน (ที่จัดส่งสินค้า)' }) +
       '</div>' +
+      shipRecipientHtml(ship) +
       '</div>' : '') +
 
       (sec.reference ? '<div class="card">' +
@@ -493,6 +521,7 @@
         document.getElementById('shipAddrWrap').style.display = ship.sameAsCurrent ? 'none' : '';
       });
       window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
+      wireShipRecipient(ship);
     }
 
     if (sec.reference) {
@@ -519,6 +548,7 @@
     var sec = addrSections(); // ตรวจเฉพาะส่วนที่แสดงอยู่ (ตอนแก้ไขเฉพาะจุด ส่วนที่ไม่ได้ให้แก้ใช้ค่าเดิมตรงๆ)
     if (sec.current) checkAddr(d.address, 'addr');
     if (sec.shipping && !d.shippingAddress.sameAsCurrent) checkAddr(d.shippingAddress, 'ship');
+    if (sec.shipping) checkShipRecipient(d.shippingAddress, errors);
 
     if (sec.reference) {
       if (!d.reference.firstLastName || d.reference.firstLastName.trim().length < 2) errors.ref_firstLastName = 'กรุณากรอกชื่อ-นามสกุลบุคคลอ้างอิง';
@@ -551,8 +581,10 @@
       '<h2>ที่อยู่ในการจัดส่งสินค้า</h2>' +
       '<p class="hint">กรอกที่อยู่ที่ต้องการให้จัดส่งสินค้าไปถึง ระบบจะตรวจสอบว่าตำบล/อำเภอ/จังหวัดที่เลือกตรงกันจริง</p>' +
       window.attachAddressPicker.html('ship', ship) +
+      shipRecipientHtml(ship) +
       '</div>';
     window.attachAddressPicker.wire('ship', ship, function () { markField('ship_detail', null); });
+    wireShipRecipient(ship);
   }
   function validateShippingOnly() {
     var ship = state.data.shippingAddress, errors = {};
@@ -564,6 +596,7 @@
       if (errors[id]) markField(id, false, errors[id]);
       else markField(id, true);
     });
+    checkShipRecipient(ship, errors);
     return errors;
   }
 

@@ -946,6 +946,11 @@ function initCsStatusView(containerId, currentUser) {
     return '<div class="card"><h2>แก้ไขข้อมูลจัดส่ง — ' + t.soNumber + ' (' + t.customerName + ')</h2>' +
       '<p class="hint">แก้ได้เฉพาะที่อยู่จัดส่ง/ของแถม/ช่องทางการจัดส่งเท่านั้น ไม่กระทบสถานะเซ็น/ตรวจสอบสัญญา ไม่ต้องให้ลูกค้าเซ็นใหม่</p>' +
       window.attachAddressPicker.html('csEditShip', t.addr, { detailLabel: 'บ้านเลขที่ / หมู่บ้าน / ถนน (ที่จัดส่งสินค้า)' }) +
+      '<div class="row2">' +
+      '<div class="field"><label>ชื่อผู้รับสินค้า</label><input type="text" id="csEditRecipientName" value="' + String(t.addr.recipientName || '').replace(/"/g, '&quot;') + '" /></div>' +
+      '<div class="field"><label>เบอร์โทรศัพท์ผู้รับสินค้า</label><input type="tel" id="csEditRecipientPhone" value="' + String(t.addr.recipientPhone || '').replace(/"/g, '&quot;') + '" /></div>' +
+      '</div>' +
+      '<div class="field"><label>หมายเหตุ</label><input type="text" id="csEditShipNote" value="' + String(t.addr.note || '').replace(/"/g, '&quot;') + '" /></div>' +
       '<div class="field"><label>ของแถม</label><select id="csEditGiftItem">' +
       '<option value=""' + (!t.giftItem ? ' selected' : '') + '>-- ยังไม่ได้เลือก --</option>' +
       giftOptions.map(function (o) { return '<option value="' + o.value.replace(/"/g, '&quot;') + '"' + (t.giftItem === o.value ? ' selected' : '') + '>' + o.value + '</option>'; }).join('') +
@@ -1009,6 +1014,9 @@ function initCsStatusView(containerId, currentUser) {
     if (state.editingLogisticsFor) {
       var t = state.editingLogisticsFor;
       window.attachAddressPicker.wire('csEditShip', t.addr, function () { /* mutates t.addr in place */ });
+      [['csEditRecipientName', 'recipientName'], ['csEditRecipientPhone', 'recipientPhone'], ['csEditShipNote', 'note']].forEach(function (p) {
+        document.getElementById(p[0]).addEventListener('input', function (e) { t.addr[p[1]] = e.target.value; });
+      });
       document.getElementById('csEditGiftItem').addEventListener('change', function (e) { t.giftItem = e.target.value; });
       document.getElementById('csEditDeliveryChannel').addEventListener('change', function (e) {
         t.deliveryChannel = e.target.value;

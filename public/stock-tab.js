@@ -356,7 +356,7 @@ function initStockTab(containerId, currentUser) {
       '<hr style="margin:14px 0;border:none;border-top:1px solid #999;" />' +
       '<p style="margin:4px 0;"><b>ของแถม :</b> ' + (main.giftItem || '-') + '</p>' +
       '<p style="margin:4px 0;"><b>วิธีการผ่อน :</b> ' + (main.installmentTypeLabel || '-') + '</p>' +
-      '<p style="margin:4px 0;"><b>รายละเอียดอื่นๆ :</b> </p>' +
+      '<p style="margin:4px 0;"><b>รายละเอียดอื่นๆ :</b> ' + (main.shippingNote || '') + '</p>' +
       '</div>';
   }
 
